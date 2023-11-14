@@ -21,13 +21,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/KusionStack/kantry/pkg/clusterinfo"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-
 	corev1 "k8s.io/api/core/v1"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/KusionStack/kantry/pkg/multicluster/clusterinfo"
 )
 
 var (

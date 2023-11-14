@@ -27,13 +27,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
-	"github.com/KusionStack/kantry/pkg/clusterinfo"
 	"github.com/KusionStack/kantry/pkg/metrics"
+	"github.com/KusionStack/kantry/pkg/multicluster/clusterinfo"
 )
 
 type ClusterClientManager interface {

@@ -19,10 +19,8 @@ package metrics
 import (
 	"strconv"
 
-	"k8s.io/apimachinery/pkg/api/errors"
-
 	"github.com/prometheus/client_golang/prometheus"
-
+	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
@@ -50,7 +48,7 @@ var (
 		Subsystem: MultiClusterSubSystem,
 		Name:      ClusterEventCount,
 		Help:      "count the number of cluster event",
-	}, []string{"key", "status"})
+	}, []string{"cluster", "status"})
 )
 
 func init() {
@@ -67,8 +65,8 @@ func NewClientCountMetrics(cluster, method string, err error) prometheus.Counter
 	return clientCounter.WithLabelValues(cluster, method, CodeForError(err))
 }
 
-func NewControllerEventCountMetrics(key, status string) prometheus.Counter {
-	return controllerEventCounter.WithLabelValues(key, status)
+func NewControllerEventCountMetrics(cluster, status string) prometheus.Counter {
+	return controllerEventCounter.WithLabelValues(cluster, status)
 }
 
 func CodeForError(err error) string {

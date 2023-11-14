@@ -25,13 +25,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/KusionStack/kantry/pkg/clusterinfo"
+	"github.com/KusionStack/kantry/pkg/multicluster/clusterinfo"
 )
 
 var _ = Describe("multicluster with 1 fed and 4 clusters", func() {

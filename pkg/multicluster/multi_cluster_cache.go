@@ -24,19 +24,16 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-
-	"k8s.io/client-go/rest"
-	toolscache "k8s.io/client-go/tools/cache"
-
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-
+	"k8s.io/client-go/rest"
+	toolscache "k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/KusionStack/kantry/pkg/clusterinfo"
 	"github.com/KusionStack/kantry/pkg/metrics"
+	"github.com/KusionStack/kantry/pkg/multicluster/clusterinfo"
 )
 
 type ClusterCacheManager interface {

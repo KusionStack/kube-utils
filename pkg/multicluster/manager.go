@@ -24,20 +24,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KusionStack/kantry/pkg/clusterinfo"
-	"github.com/KusionStack/kantry/pkg/multicluster/controller"
 	"github.com/go-logr/logr"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/KusionStack/kantry/pkg/multicluster/clusterinfo"
+	"github.com/KusionStack/kantry/pkg/multicluster/controller"
 )
 
 const (

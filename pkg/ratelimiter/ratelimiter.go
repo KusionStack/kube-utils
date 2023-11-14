@@ -17,6 +17,7 @@
 package ratelimiter
 
 import (
+	"os"
 	"sync"
 	"time"
 
@@ -26,6 +27,12 @@ import (
 
 const (
 	houseKeepInterval = 20 * time.Minute
+
+	EnvEnableRateLimiter = "ENABLE_RATE_LIMITER"
+)
+
+var (
+	EnableRateLimiter = os.Getenv(EnvEnableRateLimiter) == "true" // default false
 )
 
 // Implement from workqueue.ItemBucketRateLimiter, because we need to enhance the forget method.
