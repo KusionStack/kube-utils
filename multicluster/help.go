@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/KusionStack/kantry/multicluster/clusterinfo"
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
 func attachClusterTo(obj interface{}, cluster string) error {

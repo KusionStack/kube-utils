@@ -35,7 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"github.com/KusionStack/kantry/multicluster/metrics"
+	"kusionstack.io/kube-utils/multicluster/metrics"
 )
 
 var (

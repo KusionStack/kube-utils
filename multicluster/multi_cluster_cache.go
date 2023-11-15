@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/KusionStack/kantry/multicluster/clusterinfo"
-	"github.com/KusionStack/kantry/multicluster/metrics"
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
+	"kusionstack.io/kube-utils/multicluster/metrics"
 )
 
 type ClusterCacheManager interface {
