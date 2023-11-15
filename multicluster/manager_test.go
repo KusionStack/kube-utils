@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/KusionStack/kantry/multicluster/clusterinfo"
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
 var _ = Describe("multicluster with 1 fed and 4 clusters", func() {

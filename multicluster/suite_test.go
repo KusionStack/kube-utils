@@ -39,7 +39,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"github.com/KusionStack/kantry/multicluster/clusterinfo"
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
 var (

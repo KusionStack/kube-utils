@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/KusionStack/kantry/multicluster/clusterinfo"
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
 func FedKind(k *source.Kind) *KindWithClusters {

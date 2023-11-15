@@ -35,8 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"github.com/KusionStack/kantry/multicluster/clusterinfo"
-	"github.com/KusionStack/kantry/multicluster/controller"
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
+	"kusionstack.io/kube-utils/multicluster/controller"
 )
 
 const (
