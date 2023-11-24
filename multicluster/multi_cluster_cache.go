@@ -371,10 +371,9 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterTo(obj, cluster) //nolint
 		}
 		metrics.NewCacheCountMetrics(cluster, "Get", err).Inc()
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -385,7 +384,7 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 
 	if cluster == clusterinfo.Fed {
 		err = mcc.fedCache.Get(ctx, key, obj)
-		return
+		return err
 	}
 
 	mcc.mutex.RLock()
@@ -395,10 +394,10 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 	clusterCache, ok := clusterToCache[cluster]
 	if !ok {
 		err = fmt.Errorf("unable to get: %v because of unknown namespace for the cache", key)
-		return
+		return err
 	}
 	err = clusterCache.Get(ctx, key, obj)
-	return
+	return err
 }
 
 func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (err error) {
@@ -429,7 +428,7 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 			c, ok = clusterToCache[cluster]
 			if !ok {
 				err = fmt.Errorf("unable to get: %v because of unknown cluster for the client", cluster)
-				return
+				return err
 			}
 		}
 
@@ -440,7 +439,7 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 			return err
 		}
 
-		attachClusterTo(list, cluster)
+		attachClusterTo(list, cluster) //nolint
 		items, err := meta.ExtractList(listObj)
 		if err != nil {
 			return err
@@ -455,8 +454,7 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 			}
 		}
 	}
-	meta.SetList(list, allItems)
-	return
+	return meta.SetList(list, allItems)
 }
 
 func (mcc *multiClusterCache) getClusters(ctx context.Context) (clusters []string, multi bool, err error) {
@@ -469,11 +467,11 @@ func (mcc *multiClusterCache) getClusters(ctx context.Context) (clusters []strin
 		return nil, false, err
 	}
 
-	clusters, multi, err = mcc.convertClusters(clusters)
-	return
+	clusters, multi = mcc.convertClusters(clusters)
+	return clusters, multi, nil
 }
 
-func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool, error) {
+func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool) {
 	mcc.mutex.RLock()
 	defer mcc.mutex.RUnlock()
 
@@ -490,7 +488,7 @@ func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool
 		}
 		multi = true
 	}
-	return clusters, multi, nil
+	return clusters, multi
 }
 
 type multiClusterInformer struct {
@@ -578,7 +576,7 @@ func (mci *multiClusterInformer) addClusterInformer(cluster string, clusterInfor
 	}
 
 	if mci.indexers != nil {
-		clusterInformer.AddIndexers(mci.indexers)
+		clusterInformer.AddIndexers(mci.indexers) //nolint
 	}
 
 	mci.clusterToInformer[cluster] = clusterInformer

@@ -130,7 +130,8 @@ var _ = Describe("help", func() {
 		podList, ok := podListObj.(*corev1.PodList)
 		Expect(ok).To(BeTrue())
 		for _, pod := range podList.Items {
-			cluster, ok := pod.GetLabels()[clusterinfo.ClusterLabelKey]
+			var cluster string
+			cluster, ok = pod.GetLabels()[clusterinfo.ClusterLabelKey]
 			Expect(ok).To(BeTrue())
 			Expect(cluster).To(Equal("cluster1"))
 		}

@@ -91,7 +91,6 @@ func (w *wrapResourceEventHandler) OnAdd(obj interface{}) {
 	}
 
 	w.handler.OnAdd(copiedObj)
-	return
 }
 
 func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
@@ -106,7 +105,6 @@ func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 	}
 
 	w.handler.OnUpdate(copiedOlbObj, copiedNewObj)
-	return
 }
 
 func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
@@ -118,7 +116,6 @@ func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
 	}
 
 	w.handler.OnDelete(copiedObj)
-	return
 }
 
 func (w *wrapResourceEventHandler) attachClusterTo(handler string, obj interface{}) (copiedObj runtime.Object, attachErr error) {

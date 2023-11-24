@@ -107,7 +107,6 @@ func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, op
 	var cluster string
 	defer func() {
 		metrics.NewClientCountMetrics(cluster, "Create", err)
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -137,7 +136,6 @@ func (mcc *multiClusterClient) Delete(ctx context.Context, obj client.Object, op
 	var cluster string
 	defer func() {
 		metrics.NewClientCountMetrics(cluster, "Delete", err).Inc()
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -167,7 +165,6 @@ func (mcc *multiClusterClient) DeleteAllOf(ctx context.Context, obj client.Objec
 	var cluster string
 	defer func() {
 		metrics.NewClientCountMetrics(cluster, "DeleteAllOf", err).Inc()
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -197,10 +194,9 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterTo(obj, cluster) //nolint
 		}
 		metrics.NewClientCountMetrics(cluster, "Get", err).Inc()
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -211,7 +207,7 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 
 	if cluster == clusterinfo.Fed {
 		err = mcc.fedClient.Get(ctx, key, obj)
-		return
+		return err
 	}
 
 	mcc.mutex.RLock()
@@ -220,10 +216,10 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
 		err = fmt.Errorf("unable to get: %v because of unknown cluster: %s for the client", obj, cluster)
-		return
+		return err
 	}
 	err = clusterClient.Get(ctx, key, obj)
-	return
+	return err
 }
 
 func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (err error) {
@@ -255,7 +251,7 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 			c, ok = mcc.clusterToClient[cluster]
 			if !ok {
 				err = fmt.Errorf("unable to list because of unknown cluster: %s for the client", cluster)
-				return
+				return err
 			}
 		}
 
@@ -266,7 +262,7 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 			return err
 		}
 
-		attachClusterTo(listObj, cluster)
+		attachClusterTo(listObj, cluster) //nolint
 		items, err := meta.ExtractList(listObj)
 		if err != nil {
 			return err
@@ -281,18 +277,16 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 			}
 		}
 	}
-	meta.SetList(list, allItems)
-	return
+	return meta.SetList(list, allItems)
 }
 
 func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) (err error) {
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterTo(obj, cluster) //nolint
 		}
 		metrics.NewClientCountMetrics(cluster, "Patch", err).Inc()
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -303,7 +297,7 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 
 	if cluster == clusterinfo.Fed {
 		err = mcc.fedClient.Patch(ctx, obj, patch, opts...)
-		return
+		return err
 	}
 
 	mcc.mutex.RLock()
@@ -312,20 +306,19 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
 		err = fmt.Errorf("unable to patch: %v because of unknown cluster: %v for the client", obj, cluster)
-		return
+		return err
 	}
 	err = clusterClient.Patch(ctx, obj, patch, opts...)
-	return
+	return err
 }
 
 func (mcc *multiClusterClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) (err error) {
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterTo(obj, cluster) //nolint
 		}
 		metrics.NewClientCountMetrics(cluster, "Update", err).Inc()
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -377,10 +370,9 @@ func (sw *statusWriter) Update(ctx context.Context, obj client.Object, opts ...c
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterTo(obj, cluster) //nolint
 		}
 		metrics.NewClientCountMetrics(cluster, "StatusUpdate", err).Inc()
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -407,10 +399,9 @@ func (sw *statusWriter) Patch(ctx context.Context, obj client.Object, patch clie
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterTo(obj, cluster) //nolint
 		}
 		metrics.NewClientCountMetrics(cluster, "StatusPatch", err).Inc()
-		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
