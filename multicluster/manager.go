@@ -119,7 +119,7 @@ func NewManager(cfg *ManagerConfig) (manager *Manager, newCacheFunc cache.NewCac
 		Log:          log,
 	})
 	if err != nil {
-		return
+		return nil, nil, nil, err
 	}
 
 	newCacheFunc, clusterCacheManager := MultiClusterCacheBuilder(log)
@@ -139,7 +139,7 @@ func NewManager(cfg *ManagerConfig) (manager *Manager, newCacheFunc cache.NewCac
 		onlyWatchClusterNamespace: strings.TrimSpace(os.Getenv(EnvOnlyWatchClusterNamespace)),
 		log:                       log,
 	}
-	return
+	return manager, newCacheFunc, newClientFunc, nil
 }
 
 func (m *Manager) Run(threadiness int, ctx context.Context) error {
@@ -167,7 +167,7 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 	if _, ok := m.hasCluster[cluster]; ok {
 		m.log.V(5).Info("has cluster", "cluster", cluster)
 		m.mutex.Unlock()
-		return
+		return nil
 	}
 	m.mutex.Unlock()
 
@@ -175,7 +175,7 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 
 	mapper, err := apiutil.NewDynamicRESTMapper(cfg)
 	if err != nil {
-		return
+		return err
 	}
 	clusterCache, err := cache.New(cfg, cache.Options{
 		Scheme:    m.clusterScheme,
@@ -184,7 +184,7 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 		Namespace: m.onlyWatchClusterNamespace,
 	})
 	if err != nil {
-		return
+		return err
 	}
 
 	clusterClient, err := client.New(cfg, client.Options{
@@ -192,14 +192,14 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 		Mapper: mapper,
 	})
 	if err != nil {
-		return
+		return err
 	}
 	delegatingClusterClient, err := client.NewDelegatingClient(client.NewDelegatingClientInput{
 		CacheReader: clusterCache,
 		Client:      clusterClient,
 	})
 	if err != nil {
-		return
+		return err
 	}
 
 	m.log.Info("add cluster", "cluster", cluster)
@@ -209,8 +209,7 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 	m.mutex.Lock()
 	m.hasCluster[cluster] = struct{}{}
 	m.mutex.Unlock()
-
-	return
+	return nil
 }
 
 func (m *Manager) deleteHandler(cluster string) {
