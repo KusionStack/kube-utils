@@ -7,6 +7,7 @@ require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.27.6
 	github.com/prometheus/client_golang v1.16.0
+	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.8.2
 	k8s.io/api v0.28.4
 	k8s.io/apimachinery v0.28.4
@@ -42,7 +43,6 @@ require (
 	github.com/prometheus/client_model v0.4.0 // indirect
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.19.0 // indirect
