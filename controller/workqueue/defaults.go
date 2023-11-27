@@ -19,6 +19,7 @@ package workqueue
 import (
 	"context"
 	"strconv"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
@@ -26,11 +27,17 @@ import (
 )
 
 const (
-	DefaultWorkQueuePriorityLabel = "kusionstack.io/workqueue-priority"
+	DefaultWorkQueuePriorityLabel     = "kusionstack.io/workqueue-priority"
+	DefaultUnfinishedWorkUpdatePeriod = 500 * time.Millisecond
+	DefaultWorkQueuePriority          = 2
 )
 
-func DefaultGetPriorityFuncBuilder(cli client.Client, defaultWorkQueuePriority int) GetPriorityFunc {
-	return GetPriorityFuncBuilder(cli, defaultWorkQueuePriority, DefaultWorkQueuePriorityLabel)
+var (
+	DefaultNumOfPriorityLotteries = []int{1, 2, 4, 8, 16}
+)
+
+func DefaultGetPriorityFuncBuilder(cli client.Client) GetPriorityFunc {
+	return GetPriorityFuncBuilder(cli, DefaultWorkQueuePriority, DefaultWorkQueuePriorityLabel)
 }
 
 // GetPriorityFunc is the function to get the priority of an item
@@ -50,21 +57,13 @@ func GetPriorityFuncBuilder(cli client.Client, defaultWorkQueuePriority int, wor
 			return defaultWorkQueuePriority
 		}
 
-		var (
-			checkNamespace     = false
-			priorityLableValue string
-		)
+		var priorityLableValue string
 		labels := clientObject.GetLabels()
-		if len(labels) == 0 {
-			checkNamespace = true
-		} else {
-			priorityLableValue, ok = labels[workQueuePriorityLabel]
-			if !ok {
-				checkNamespace = true
-			}
+		if len(labels) != 0 {
+			priorityLableValue = labels[workQueuePriorityLabel]
 		}
 
-		if checkNamespace {
+		if priorityLableValue == "" {
 			name := clientObject.GetNamespace()
 			if name == "" {
 				return defaultWorkQueuePriority
@@ -72,7 +71,7 @@ func GetPriorityFuncBuilder(cli client.Client, defaultWorkQueuePriority int, wor
 
 			namespace := &corev1.Namespace{}
 			if err := cli.Get(context.Background(), client.ObjectKey{Name: name}, namespace); err != nil {
-				klog.Errorf("Failed to get namespace %s: %v", name, err)
+				klog.V(4).ErrorS(err, "Failed to get namespace", "namespace", name)
 				return defaultWorkQueuePriority
 			} else {
 				labels := namespace.GetLabels()
@@ -89,7 +88,7 @@ func GetPriorityFuncBuilder(cli client.Client, defaultWorkQueuePriority int, wor
 
 		priority, err := strconv.Atoi(priorityLableValue)
 		if err != nil {
-			klog.Errorf("Failed to convert %s to int: %v", priorityLableValue, err)
+			klog.V(4).ErrorS(err, "Failed to convert label value to int", "priorityLableValue", priorityLableValue)
 			return defaultWorkQueuePriority
 		}
 		return priority

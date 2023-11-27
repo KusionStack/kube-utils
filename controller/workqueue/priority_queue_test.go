@@ -17,6 +17,7 @@
 package workqueue
 
 import (
+	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -36,7 +37,7 @@ var _ = Describe("Test prioriry_queue", func() {
 	)
 
 	Context("Get lotteries", func() {
-		It("Invalid numbOfPriorityLotteries", func() {
+		It("Invalid numOfPriorityLotteries", func() {
 			_, err := getLotteries([]int{})
 			Expect(err).To(HaveOccurred())
 
@@ -53,7 +54,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("Valid numbOfPriorityLotteries", func() {
+		It("Valid numOfPriorityLotteries", func() {
 			_, err := getLotteries([]int{1, 2, 3, 4, 5})
 			Expect(err).To(Succeed())
 		})
@@ -119,7 +120,7 @@ var _ = Describe("Test prioriry_queue", func() {
 				GetPriorityFunc: func(obj interface{}) int {
 					return 0
 				},
-				NumbOfPriorityLotteries: []int{1, 2, 3, 4, 5},
+				NumOfPriorityLotteries: []int{1, 2, 3, 4, 5},
 			}
 			_, err := NewPriorityQueue(cfg)
 			Expect(err).To(HaveOccurred())
@@ -127,39 +128,38 @@ var _ = Describe("Test prioriry_queue", func() {
 
 		It("Failed to create PriorityQueue when GetPriorityFunc is nil", func() {
 			cfg := &PriorityQueueConfig{
-				Name:                    "test",
-				NumbOfPriorityLotteries: []int{1, 2, 3, 4, 5},
+				Name:                   "test",
+				NumOfPriorityLotteries: []int{1, 2, 3, 4, 5},
 			}
 			_, err := NewPriorityQueue(cfg)
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("Failed to create PriorityQueue when NumbOfPriorityLotteries is empty", func() {
+		It("Failed to create PriorityQueue when NumOfPriorityLotteries is invalid", func() {
 			cfg := &PriorityQueueConfig{
 				Name:                       "test",
 				GetPriorityFunc:            func(obj interface{}) int { return 0 },
+				NumOfPriorityLotteries:     []int{5, 2, 3, 4, 5},
 				UnfinishedWorkUpdatePeriod: 100,
 			}
 			_, err := NewPriorityQueue(cfg)
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("Failed to create PriorityQueue when NumbOfPriorityLotteries is invalid", func() {
+		It("Succeed to create PriorityQueue using DefaultNumOfPriorityLotteries", func() {
 			cfg := &PriorityQueueConfig{
 				Name:                       "test",
 				GetPriorityFunc:            func(obj interface{}) int { return 0 },
-				NumbOfPriorityLotteries:    []int{5, 2, 3, 4, 5},
 				UnfinishedWorkUpdatePeriod: 100,
 			}
 			_, err := NewPriorityQueue(cfg)
-			Expect(err).To(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("Succeed to create PriorityQueue", func() {
 			cfg := &PriorityQueueConfig{
 				Name:                       "test",
-				GetPriorityFunc:            DefaultGetPriorityFuncBuilder(k8sClient, 1),
-				NumbOfPriorityLotteries:    []int{1, 2, 3, 4, 5},
+				GetPriorityFunc:            DefaultGetPriorityFuncBuilder(k8sClient),
 				UnfinishedWorkUpdatePeriod: 100,
 			}
 			priorityQueue, err := NewPriorityQueue(cfg)
@@ -219,12 +219,11 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(priorityQueue.Len()).To(Equal(0))
 		})
 
-		It("Discard item when the priority is invalid", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, 1)
+		It("Do not discard item when the priority is invalid", func() {
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
 			cfg := &PriorityQueueConfig{
 				Name:                       "test",
 				GetPriorityFunc:            getPriorityFunc,
-				NumbOfPriorityLotteries:    []int{1, 2, 3, 4, 5},
 				UnfinishedWorkUpdatePeriod: 100,
 			}
 			priorityQueue, err := NewPriorityQueue(cfg)
@@ -245,15 +244,14 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(priority).To(Equal(10))
 
 			priorityQueue.Add(configmap1)
-			Expect(priorityQueue.Len()).To(Equal(0))
+			Expect(priorityQueue.Len()).To(Equal(1))
 		})
 
 		It("Higher priority items have a higher chance of being processed", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, 1)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
 			cfg := &PriorityQueueConfig{
 				Name:                       "test",
 				GetPriorityFunc:            getPriorityFunc,
-				NumbOfPriorityLotteries:    []int{1, 2, 3, 10},
 				UnfinishedWorkUpdatePeriod: 100,
 			}
 			priorityQueue, err := NewPriorityQueue(cfg)
@@ -266,7 +264,7 @@ var _ = Describe("Test prioriry_queue", func() {
 						Name:      testConfigmap,
 						Namespace: testNamespace,
 						Labels: map[string]string{
-							DefaultWorkQueuePriorityLabel: "2",
+							DefaultWorkQueuePriorityLabel: strconv.Itoa(DefaultWorkQueuePriority + 1),
 						},
 					},
 					Data: configmapData,
@@ -282,7 +280,7 @@ var _ = Describe("Test prioriry_queue", func() {
 						Name:      testConfigmap,
 						Namespace: testNamespace,
 						Labels: map[string]string{
-							DefaultWorkQueuePriorityLabel: "3",
+							DefaultWorkQueuePriorityLabel: strconv.Itoa(DefaultWorkQueuePriority),
 						},
 					},
 					Data: configmapData,
@@ -292,33 +290,56 @@ var _ = Describe("Test prioriry_queue", func() {
 			}
 			Expect(priorityQueue.Len()).To(Equal(200))
 
+			for i := 0; i < 100; i++ {
+				configmap1 := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      testConfigmap,
+						Namespace: testNamespace,
+						Labels: map[string]string{
+							DefaultWorkQueuePriorityLabel: strconv.Itoa(DefaultWorkQueuePriority - 1),
+						},
+					},
+					Data: configmapData,
+				}
+
+				priorityQueue.Add(configmap1)
+			}
+			Expect(priorityQueue.Len()).To(Equal(300))
+
 			var (
-				finishTime [2]time.Time
-				count      [2]int
+				finishTime [3]time.Time
+				count      [3]int
 			)
-			for i := 0; i < 200; i++ {
+			for i := 0; i < 300; i++ {
 				item, shutdown := priorityQueue.Get()
 				Expect(item).NotTo(BeNil())
 				Expect(shutdown).To(BeFalse())
 
 				priority := getPriorityFunc(item)
 				switch priority {
-				case 2:
+				case DefaultWorkQueuePriority + 1:
 					count[0]++
 					if count[0] == 100 {
 						finishTime[0] = time.Now()
 					}
-				case 3:
+				case DefaultWorkQueuePriority:
 					count[1]++
 					if count[1] == 100 {
 						finishTime[1] = time.Now()
+					}
+				case DefaultWorkQueuePriority - 1:
+					count[2]++
+					if count[2] == 100 {
+						finishTime[2] = time.Now()
 					}
 				}
 			}
 			Expect(priorityQueue.Len()).To(Equal(0))
 			Expect(count[0]).To(Equal(100))
 			Expect(count[1]).To(Equal(100))
+			Expect(count[2]).To(Equal(100))
 			Expect(finishTime[0].Before(finishTime[1])).To(BeTrue())
+			Expect(finishTime[1].Before(finishTime[2])).To(BeTrue())
 		})
 	})
 })

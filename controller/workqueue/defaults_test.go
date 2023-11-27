@@ -42,7 +42,7 @@ var _ = Describe("Test defaults", func() {
 
 	Context("Use default workqueue priority", func() {
 		It("Should get default workqueue priority if the item has no labels", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, 1)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
 			configmap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      testConfigmap,
@@ -52,28 +52,28 @@ var _ = Describe("Test defaults", func() {
 			}
 
 			priority := getPriorityFunc(configmap)
-			Expect(priority).To(Equal(1))
+			Expect(priority).To(Equal(DefaultWorkQueuePriority))
 		})
 
 		It("Should get workqueue priority from item labels", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, 1)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
 			configmap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      testConfigmap,
 					Namespace: testNamespace,
 					Labels: map[string]string{
-						DefaultWorkQueuePriorityLabel: "2",
+						DefaultWorkQueuePriorityLabel: "3",
 					},
 				},
 				Data: configmapData,
 			}
 
 			priority := getPriorityFunc(configmap)
-			Expect(priority).To(Equal(2))
+			Expect(priority).To(Equal(3))
 		})
 
 		It("Should get workqueue priority from namesapce labels", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, 1)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
 			configmap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      testConfigmap,
@@ -85,7 +85,7 @@ var _ = Describe("Test defaults", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: testNamespace,
 					Labels: map[string]string{
-						DefaultWorkQueuePriorityLabel: "3",
+						DefaultWorkQueuePriorityLabel: "4",
 					},
 				},
 			}
@@ -100,11 +100,11 @@ var _ = Describe("Test defaults", func() {
 				if namespace.Labels == nil {
 					return false
 				}
-				return namespace.Labels[DefaultWorkQueuePriorityLabel] == "3"
+				return namespace.Labels[DefaultWorkQueuePriorityLabel] == "4"
 			}, timeout, interval).Should(BeTrue())
 
 			priority := getPriorityFunc(configmap)
-			Expect(priority).To(Equal(3))
+			Expect(priority).To(Equal(4))
 		})
 	})
 

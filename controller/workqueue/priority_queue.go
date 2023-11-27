@@ -24,10 +24,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/client-go/util/workqueue"
-)
-
-const (
-	defaultUnfinishedWorkUpdatePeriod = 500 * time.Millisecond
+	"k8s.io/klog"
 )
 
 type GetPriorityFunc func(item interface{}) int
@@ -36,25 +33,33 @@ var _ workqueue.Interface = &PriorityQueue{}
 
 type PriorityQueueConfig struct {
 	Name                       string          // the name of the queue
-	NumbOfPriorityLotteries    []int           // the number of lotteries for each priority, priority is from low to high, higher priority must has more lotteries
-	GetPriorityFunc            GetPriorityFunc // the function to get the priority of an item, should return a value between 0 and len(NumbOfPriorityLotteries)-1
+	NumOfPriorityLotteries     []int           // the number of lotteries for each priority, priority is from low to high, higher priority must has more lotteries
+	GetPriorityFunc            GetPriorityFunc // the function to get the priority of an item, should return a value between 0 and len(NumOfPriorityLotteries)-1
 	UnfinishedWorkUpdatePeriod time.Duration   // the period to update the unfinished work
 }
 
 func NewPriorityQueue(cfg *PriorityQueueConfig) (*PriorityQueue, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+
+	if cfg.NumOfPriorityLotteries == nil {
+		cfg.NumOfPriorityLotteries = DefaultNumOfPriorityLotteries
+	}
 	if cfg.GetPriorityFunc == nil {
 		return nil, fmt.Errorf("GetPriorityFunc is required")
 	}
 
-	lotteries, err := getLotteries(cfg.NumbOfPriorityLotteries)
+	lotteries, err := getLotteries(cfg.NumOfPriorityLotteries)
 	if err != nil {
 		return nil, err
 	}
 	shuffleLotteries(lotteries)
+	klog.V(1).Infof("Get priority lotteries, length: %v, sequence: %v", len(lotteries), lotteries)
 
 	unfinishedWorkUpdatePeriod := cfg.UnfinishedWorkUpdatePeriod
 	if unfinishedWorkUpdatePeriod == 0 {
-		unfinishedWorkUpdatePeriod = defaultUnfinishedWorkUpdatePeriod
+		unfinishedWorkUpdatePeriod = DefaultUnfinishedWorkUpdatePeriod
 	}
 
 	if cfg.Name == "" {
@@ -65,7 +70,7 @@ func NewPriorityQueue(cfg *PriorityQueueConfig) (*PriorityQueue, error) {
 
 	return newPriorityQueue(
 		lotteries,
-		len(cfg.NumbOfPriorityLotteries)-1,
+		len(cfg.NumOfPriorityLotteries)-1,
 		cfg.GetPriorityFunc,
 		rc,
 		globalPriorityQueueMetricsFactory.newPriorityQueueMetrics(cfg.Name, rc),
@@ -73,22 +78,22 @@ func NewPriorityQueue(cfg *PriorityQueueConfig) (*PriorityQueue, error) {
 	), nil
 }
 
-func getLotteries(numbOfPriorityLotteries []int) ([]int, error) {
-	if len(numbOfPriorityLotteries) == 0 {
-		return nil, fmt.Errorf("NumbOfPriorityLotteries is required")
+func getLotteries(numOfPriorityLotteries []int) ([]int, error) {
+	if len(numOfPriorityLotteries) == 0 {
+		return nil, fmt.Errorf("NumOfPriorityLotteries is required")
 	}
 
 	var lotteries []int
-	for i := 0; i < len(numbOfPriorityLotteries); i++ {
-		if numbOfPriorityLotteries[i] <= 0 {
-			return nil, fmt.Errorf("invalid numbOfPriorityLotteries")
+	for i := 0; i < len(numOfPriorityLotteries); i++ {
+		if numOfPriorityLotteries[i] <= 0 {
+			return nil, fmt.Errorf("invalid numOfPriorityLotteries")
 		}
 
-		if i > 0 && numbOfPriorityLotteries[i] < numbOfPriorityLotteries[i-1] {
-			return nil, fmt.Errorf("invalid numbOfPriorityLotteries")
+		if i > 0 && numOfPriorityLotteries[i] < numOfPriorityLotteries[i-1] {
+			return nil, fmt.Errorf("invalid numOfPriorityLotteries")
 		}
 
-		for j := 0; j < numbOfPriorityLotteries[i]; j++ {
+		for j := 0; j < numOfPriorityLotteries[i]; j++ {
 			lotteries = append(lotteries, i)
 		}
 	}
@@ -140,6 +145,9 @@ type PriorityQueue struct {
 	// processing set.
 	priorityQueue [][]t
 
+	// count is the number of items in the queue.
+	count int
+
 	// dirty defines all of the items that need to be processed.
 	dirty set
 
@@ -184,11 +192,7 @@ func (q *PriorityQueue) Add(item interface{}) {
 		return
 	}
 
-	priority := q.getPriorityFunc(item)
-	if priority < 0 || priority > q.maxPriority {
-		return
-	}
-
+	priority := q.getPriority(item)
 	q.metrics.add(item, priority)
 
 	q.dirty.insert(item)
@@ -197,7 +201,19 @@ func (q *PriorityQueue) Add(item interface{}) {
 	}
 
 	q.priorityQueue[priority] = append(q.priorityQueue[priority], item)
+	q.count++
+	klog.V(5).Infof("Add item to priority queue, priority: %v, count: %v", priority, q.count)
 	q.cond.Signal()
+}
+
+func (q *PriorityQueue) getPriority(item interface{}) int {
+	priority := q.getPriorityFunc(item)
+	if priority < 0 {
+		return 0
+	} else if priority > q.maxPriority {
+		return q.maxPriority
+	}
+	return priority
 }
 
 // Len returns the current queue length, for informational purposes only. You
@@ -211,11 +227,7 @@ func (q *PriorityQueue) Len() int {
 }
 
 func (q *PriorityQueue) lenNoLock() int {
-	count := 0
-	for _, queue := range q.priorityQueue {
-		count += len(queue)
-	}
-	return count
+	return q.count
 }
 
 // Get blocks until it can return an item to be processed. If shutdown = true,
@@ -225,22 +237,24 @@ func (q *PriorityQueue) Get() (item interface{}, shutdown bool) {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
-	length := q.lenNoLock()
-	for length == 0 && !q.shuttingDown {
+	for q.lenNoLock() == 0 && !q.shuttingDown {
 		q.cond.Wait()
 	}
-	if length == 0 {
-		// We must be shutting down.
+	if q.lenNoLock() == 0 {
+		// It must be shutting down.
 		return nil, true
 	}
 
-	lotteryIndex := q.nextLottery()
-	for len(q.priorityQueue[lotteryIndex]) == 0 {
-		lotteryIndex = q.nextLottery()
+	lottery := q.nextLottery()
+	for len(q.priorityQueue[lottery]) == 0 {
+		lottery = q.nextLottery()
 	}
-	item, q.priorityQueue[lotteryIndex] = q.priorityQueue[lotteryIndex][0], q.priorityQueue[lotteryIndex][1:]
 
-	q.metrics.get(item, lotteryIndex)
+	item, q.priorityQueue[lottery] = q.priorityQueue[lottery][0], q.priorityQueue[lottery][1:]
+	q.count--
+	klog.V(5).Infof("Get item from priority queue, lottery: %v, count: %v", lottery, q.count)
+
+	q.metrics.get(item, lottery)
 
 	q.processing.insert(item)
 	q.dirty.delete(item)
@@ -253,7 +267,7 @@ func (q *PriorityQueue) nextLottery() int {
 	if q.lotteryIndex >= len(q.lotteries) {
 		q.lotteryIndex = 0
 	}
-	return q.lotteryIndex
+	return q.lotteries[q.lotteryIndex]
 }
 
 // Done marks item as done processing, and if it has been marked as dirty again
@@ -263,17 +277,15 @@ func (q *PriorityQueue) Done(item interface{}) {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 
-	priority := q.getPriorityFunc(item)
-	if priority < 0 || priority > len(q.lotteries) {
-		return
-	}
-
+	priority := q.getPriority(item)
 	q.metrics.done(item, priority)
 
 	q.processing.delete(item)
 	if q.dirty.has(item) {
 
 		q.priorityQueue[priority] = append(q.priorityQueue[priority], item)
+		q.count++
+		klog.V(5).Infof("Add item to priority queue from dirty, priority: %v, count: %v", priority, q.count)
 		q.cond.Signal()
 	}
 }

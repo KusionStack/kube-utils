@@ -1,6 +1,7 @@
 /**
  * Copyright 2023 KusionStack Authors.
  * Copyright 2019 The Kubernetes Authors.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -30,64 +31,65 @@ import (
 
 // Metrics subsystem and keys used by the priority queue.
 const (
-	WorkQueueSubsystem         = "priority_queue"
+	PriorityQueueSubsystem     = "priority_queue"
 	DepthKey                   = "depth"
 	AddsKey                    = "adds_total"
 	QueueLatencyKey            = "queue_duration_seconds"
 	WorkDurationKey            = "work_duration_seconds"
 	UnfinishedWorkKey          = "unfinished_work_seconds"
 	LongestRunningProcessorKey = "longest_running_processor_seconds"
-	RetriesKey                 = "retries_total"
 )
 
 var (
 	depth = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: WorkQueueSubsystem,
+		Subsystem: PriorityQueueSubsystem,
 		Name:      DepthKey,
-		Help:      "Current depth of workqueue",
+		Help:      "Current depth of priority workqueue",
 	}, []string{"name", "priority"})
 
 	adds = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Subsystem: WorkQueueSubsystem,
+		Subsystem: PriorityQueueSubsystem,
 		Name:      AddsKey,
-		Help:      "Total number of adds handled by workqueue",
+		Help:      "Total number of adds handled by priority workqueue",
 	}, []string{"name", "priority"})
 
 	latency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Subsystem: WorkQueueSubsystem,
+		Subsystem: PriorityQueueSubsystem,
 		Name:      QueueLatencyKey,
 		Help:      "How long in seconds an item stays in workqueue before being requested",
 		Buckets:   prometheus.ExponentialBuckets(10e-9, 10, 10),
 	}, []string{"name", "priority"})
 
 	workDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Subsystem: WorkQueueSubsystem,
+		Subsystem: PriorityQueueSubsystem,
 		Name:      WorkDurationKey,
 		Help:      "How long in seconds processing an item from workqueue takes.",
 		Buckets:   prometheus.ExponentialBuckets(10e-9, 10, 10),
 	}, []string{"name", "priority"})
 
 	unfinished = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: WorkQueueSubsystem,
+		Subsystem: PriorityQueueSubsystem,
 		Name:      UnfinishedWorkKey,
 		Help: "How many seconds of work has been done that " +
 			"is in progress and hasn't been observed by work_duration. Large " +
 			"values indicate stuck threads. One can deduce the number of stuck " +
 			"threads by observing the rate at which this increases.",
-	}, []string{"name", "priority"})
+	}, []string{"name"})
 
 	longestRunningProcessor = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Subsystem: WorkQueueSubsystem,
+		Subsystem: PriorityQueueSubsystem,
 		Name:      LongestRunningProcessorKey,
 		Help: "How many seconds has the longest running " +
 			"processor for workqueue been running.",
-	}, []string{"name", "priority"})
+	}, []string{"name"})
 )
 
 type prometheusMetricsProvider struct {
 }
 
-func init() {
+// RegisterPriorityQueueMetrics registers the prometheus metrics for the priority queue.
+// Must be called before any priority queue is created.
+func RegisterPriorityQueueMetrics() {
 	k8smetrics.Registry.MustRegister(depth)
 	k8smetrics.Registry.MustRegister(adds)
 	k8smetrics.Registry.MustRegister(latency)
@@ -98,48 +100,56 @@ func init() {
 	workqueue.SetPriorityQueueMetricsProvider(prometheusMetricsProvider{})
 }
 
-type GaugeWithPriorityMetric struct {
+type DepthMetric struct {
 	name string
 }
 
-func (g *GaugeWithPriorityMetric) Inc(i int) {
+func (g *DepthMetric) Inc(i int) {
 	depth.WithLabelValues(g.name, strconv.Itoa(i)).Inc()
 }
 
-func (g *GaugeWithPriorityMetric) Dec(i int) {
+func (g *DepthMetric) Dec(i int) {
 	depth.WithLabelValues(g.name, strconv.Itoa(i)).Dec()
 }
 
 func (prometheusMetricsProvider) NewDepthMetric(name string) workqueue.GaugeWithPriorityMetric {
-	return &GaugeWithPriorityMetric{name: name}
+	return &DepthMetric{name: name}
 }
 
-type CounterWithPriorityMetric struct {
+type AddsMetric struct {
 	name string
 }
 
-func (c *CounterWithPriorityMetric) Inc(i int) {
+func (c *AddsMetric) Inc(i int) {
 	adds.WithLabelValues(c.name, strconv.Itoa(i)).Inc()
 }
 
 func (prometheusMetricsProvider) NewAddsMetric(name string) workqueue.CounterWithPriorityMetric {
-	return &CounterWithPriorityMetric{name: name}
+	return &AddsMetric{name: name}
 }
 
-type HistogramWithPriorityMetric struct {
+type LatencyMetric struct {
 	name string
 }
 
-func (h *HistogramWithPriorityMetric) Observe(i int, v float64) {
+func (h *LatencyMetric) Observe(i int, v float64) {
 	latency.WithLabelValues(h.name, strconv.Itoa(i)).Observe(v)
 }
 
 func (prometheusMetricsProvider) NewLatencyMetric(name string) workqueue.HistogramWithPriorityMetric {
-	return &HistogramWithPriorityMetric{name: name}
+	return &LatencyMetric{name: name}
+}
+
+type WorkDurationMetric struct {
+	name string
+}
+
+func (h *WorkDurationMetric) Observe(i int, v float64) {
+	workDuration.WithLabelValues(h.name, strconv.Itoa(i)).Observe(v)
 }
 
 func (prometheusMetricsProvider) NewWorkDurationMetric(name string) workqueue.HistogramWithPriorityMetric {
-	return &HistogramWithPriorityMetric{name: name}
+	return &WorkDurationMetric{name: name}
 }
 
 func (prometheusMetricsProvider) NewUnfinishedWorkSecondsMetric(name string) workqueue.SettableGaugeWithPriorityMetric {
