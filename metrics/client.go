@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package clientmetrics
+package metrics
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	k8smetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 const (
@@ -43,7 +43,7 @@ var (
 )
 
 func init() {
-	metrics.Registry.MustRegister(controllerRestRequestCounter)
+	k8smetrics.Registry.MustRegister(controllerRestRequestCounter)
 }
 
 func NewControllerRestRequestCounter(controller, resource, status, method, code string) prometheus.Counter {
