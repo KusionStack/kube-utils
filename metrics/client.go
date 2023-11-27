@@ -42,7 +42,7 @@ var (
 	}, []string{"controller", "resource", "status", "method", "code"})
 )
 
-func init() {
+func RegisterControllerRestRequestMetrics() {
 	k8smetrics.Registry.MustRegister(controllerRestRequestCounter)
 }
 
