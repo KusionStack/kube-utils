@@ -17,23 +17,28 @@
 package workqueue
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var _ = Describe("Test prioriry_queue", func() {
 	const (
-		testConfigmap = "test1"
-		testNamespace = "default"
+		controllerName = "controller1"
+		testConfigmap  = "configmap1"
+		testNamespace  = "default"
 	)
 
 	var (
-		configmapData = map[string]string{"hello": "world"}
+		objectGetter = func() client.Object {
+			return &corev1.ConfigMap{}
+		}
 	)
 
 	Context("Get lotteries", func() {
@@ -128,7 +133,7 @@ var _ = Describe("Test prioriry_queue", func() {
 
 		It("Failed to create PriorityQueue when GetPriorityFunc is nil", func() {
 			cfg := &PriorityQueueConfig{
-				Name:                   "test",
+				Name:                   controllerName,
 				NumOfPriorityLotteries: []int{1, 2, 3, 4, 5},
 			}
 			_, err := NewPriorityQueue(cfg)
@@ -137,7 +142,7 @@ var _ = Describe("Test prioriry_queue", func() {
 
 		It("Failed to create PriorityQueue when NumOfPriorityLotteries is invalid", func() {
 			cfg := &PriorityQueueConfig{
-				Name:                       "test",
+				Name:                       controllerName,
 				GetPriorityFunc:            func(obj interface{}) int { return 0 },
 				NumOfPriorityLotteries:     []int{5, 2, 3, 4, 5},
 				UnfinishedWorkUpdatePeriod: 100,
@@ -148,7 +153,7 @@ var _ = Describe("Test prioriry_queue", func() {
 
 		It("Succeed to create PriorityQueue using DefaultNumOfPriorityLotteries", func() {
 			cfg := &PriorityQueueConfig{
-				Name:                       "test",
+				Name:                       controllerName,
 				GetPriorityFunc:            func(obj interface{}) int { return 0 },
 				UnfinishedWorkUpdatePeriod: 100,
 			}
@@ -158,54 +163,42 @@ var _ = Describe("Test prioriry_queue", func() {
 
 		It("Succeed to create PriorityQueue", func() {
 			cfg := &PriorityQueueConfig{
-				Name:                       "test",
-				GetPriorityFunc:            DefaultGetPriorityFuncBuilder(k8sClient),
+				Name:                       controllerName,
+				GetPriorityFunc:            DefaultGetPriorityFuncBuilder(k8sClient, objectGetter),
 				UnfinishedWorkUpdatePeriod: 100,
 			}
 			priorityQueue, err := NewPriorityQueue(cfg)
 			Expect(err).To(Succeed())
 			Expect(priorityQueue).NotTo(BeNil())
 
-			configmap1 := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-					Labels: map[string]string{
-						DefaultWorkQueuePriorityLabel: "2",
-					},
-				},
-				Data: configmapData,
-			}
+			err = ensureConfigmap(k8sClient, testNamespace, "configmap1", DefaultWorkQueuePriorityLabel, "10")
+			Expect(err).NotTo(HaveOccurred())
 
-			priorityQueue.Add(configmap1)
+			priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
+				Name:      "configmap1",
+				Namespace: testNamespace,
+			}})
 			Expect(priorityQueue.Len()).To(Equal(1))
 
 			item, shutdown := priorityQueue.Get()
 			Expect(item).NotTo(BeNil())
 			Expect(shutdown).To(BeFalse())
 
-			configmap2 := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-					Labels: map[string]string{
-						DefaultWorkQueuePriorityLabel: "3",
-					},
-				},
-				Data: configmapData,
-			}
-			configmap3 := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-					Labels: map[string]string{
-						DefaultWorkQueuePriorityLabel: "4",
-					},
-				},
-				Data: configmapData,
-			}
-			priorityQueue.Add(configmap2)
-			priorityQueue.Add(configmap3)
+			err = ensureConfigmap(k8sClient, testNamespace, "configmap2", DefaultWorkQueuePriorityLabel, "10")
+			Expect(err).NotTo(HaveOccurred())
+
+			priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
+				Name:      "configmap2",
+				Namespace: testNamespace,
+			}})
+
+			err = ensureConfigmap(k8sClient, testNamespace, "configmap3", DefaultWorkQueuePriorityLabel, "10")
+			Expect(err).NotTo(HaveOccurred())
+
+			priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
+				Name:      "configmap3",
+				Namespace: testNamespace,
+			}})
 			Expect(priorityQueue.Len()).To(Equal(2))
 
 			item, shutdown = priorityQueue.Get()
@@ -220,9 +213,10 @@ var _ = Describe("Test prioriry_queue", func() {
 		})
 
 		It("Do not discard item when the priority is invalid", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, objectGetter)
+
 			cfg := &PriorityQueueConfig{
-				Name:                       "test",
+				Name:                       controllerName,
 				GetPriorityFunc:            getPriorityFunc,
 				UnfinishedWorkUpdatePeriod: 100,
 			}
@@ -230,27 +224,27 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(err).To(Succeed())
 			Expect(priorityQueue).NotTo(BeNil())
 
-			configmap1 := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-					Labels: map[string]string{
-						DefaultWorkQueuePriorityLabel: "10",
-					},
-				},
-				Data: configmapData,
-			}
-			priority := getPriorityFunc(configmap1)
-			Expect(priority).To(Equal(10))
+			err = ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultWorkQueuePriorityLabel, strconv.Itoa(len(DefaultNumOfPriorityLotteries)+1))
+			Expect(err).NotTo(HaveOccurred())
 
-			priorityQueue.Add(configmap1)
+			priority := getPriorityFunc(reconcile.Request{NamespacedName: client.ObjectKey{
+				Name:      "configmap1",
+				Namespace: testNamespace,
+			}})
+			Expect(priority).To(Equal(len(DefaultNumOfPriorityLotteries) + 1))
+
+			priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
+				Name:      testConfigmap,
+				Namespace: testNamespace,
+			}})
 			Expect(priorityQueue.Len()).To(Equal(1))
 		})
 
 		It("Higher priority items have a higher chance of being processed", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, objectGetter)
+
 			cfg := &PriorityQueueConfig{
-				Name:                       "test",
+				Name:                       controllerName,
 				GetPriorityFunc:            getPriorityFunc,
 				UnfinishedWorkUpdatePeriod: 100,
 			}
@@ -259,50 +253,41 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(priorityQueue).NotTo(BeNil())
 
 			for i := 0; i < 100; i++ {
-				configmap1 := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      testConfigmap,
-						Namespace: testNamespace,
-						Labels: map[string]string{
-							DefaultWorkQueuePriorityLabel: strconv.Itoa(DefaultWorkQueuePriority + 1),
-						},
-					},
-					Data: configmapData,
-				}
+				name := fmt.Sprintf("confitmap0%d", i)
 
-				priorityQueue.Add(configmap1)
+				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultWorkQueuePriorityLabel, strconv.Itoa(DefaultWorkQueuePriority))
+				Expect(err).NotTo(HaveOccurred())
+
+				priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
+					Name:      name,
+					Namespace: testNamespace,
+				}})
 			}
 			Expect(priorityQueue.Len()).To(Equal(100))
 
 			for i := 0; i < 100; i++ {
-				configmap1 := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      testConfigmap,
-						Namespace: testNamespace,
-						Labels: map[string]string{
-							DefaultWorkQueuePriorityLabel: strconv.Itoa(DefaultWorkQueuePriority),
-						},
-					},
-					Data: configmapData,
-				}
+				name := fmt.Sprintf("confitmap1%d", i)
 
-				priorityQueue.Add(configmap1)
+				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultWorkQueuePriorityLabel, strconv.Itoa(DefaultWorkQueuePriority+1))
+				Expect(err).NotTo(HaveOccurred())
+
+				priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
+					Name:      name,
+					Namespace: testNamespace,
+				}})
 			}
 			Expect(priorityQueue.Len()).To(Equal(200))
 
 			for i := 0; i < 100; i++ {
-				configmap1 := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      testConfigmap,
-						Namespace: testNamespace,
-						Labels: map[string]string{
-							DefaultWorkQueuePriorityLabel: strconv.Itoa(DefaultWorkQueuePriority - 1),
-						},
-					},
-					Data: configmapData,
-				}
+				name := fmt.Sprintf("confitmap2%d", i)
 
-				priorityQueue.Add(configmap1)
+				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultWorkQueuePriorityLabel, strconv.Itoa(DefaultWorkQueuePriority+2))
+				Expect(err).NotTo(HaveOccurred())
+
+				priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
+					Name:      name,
+					Namespace: testNamespace,
+				}})
 			}
 			Expect(priorityQueue.Len()).To(Equal(300))
 
@@ -317,17 +302,17 @@ var _ = Describe("Test prioriry_queue", func() {
 
 				priority := getPriorityFunc(item)
 				switch priority {
-				case DefaultWorkQueuePriority + 1:
+				case DefaultWorkQueuePriority:
 					count[0]++
 					if count[0] == 100 {
 						finishTime[0] = time.Now()
 					}
-				case DefaultWorkQueuePriority:
+				case DefaultWorkQueuePriority + 1:
 					count[1]++
 					if count[1] == 100 {
 						finishTime[1] = time.Now()
 					}
-				case DefaultWorkQueuePriority - 1:
+				case DefaultWorkQueuePriority + 2:
 					count[2]++
 					if count[2] == 100 {
 						finishTime[2] = time.Now()
@@ -335,11 +320,13 @@ var _ = Describe("Test prioriry_queue", func() {
 				}
 			}
 			Expect(priorityQueue.Len()).To(Equal(0))
+
 			Expect(count[0]).To(Equal(100))
 			Expect(count[1]).To(Equal(100))
 			Expect(count[2]).To(Equal(100))
-			Expect(finishTime[0].Before(finishTime[1])).To(BeTrue())
-			Expect(finishTime[1].Before(finishTime[2])).To(BeTrue())
+
+			Expect(finishTime[0].After(finishTime[1])).To(BeTrue())
+			Expect(finishTime[1].After(finishTime[2])).To(BeTrue())
 		})
 	})
 })
