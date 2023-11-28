@@ -17,162 +17,208 @@
 package workqueue
 
 import (
+	"context"
 	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("Test defaults", func() {
 	const (
-		timeout  = time.Second * 3
-		interval = time.Millisecond * 100
-
-		testConfigmap = "test1"
+		testConfigmap = "configmap1"
 		testNamespace = "default"
 	)
 
 	var (
-		configmapData = map[string]string{"hello": "world"}
+		objectGetter = func() client.Object {
+			return &corev1.ConfigMap{}
+		}
+		req = reconcile.Request{NamespacedName: client.ObjectKey{
+			Name:      testConfigmap,
+			Namespace: testNamespace,
+		}}
 	)
 
 	Context("Use default workqueue priority", func() {
 		It("Should get default workqueue priority if the item has no labels", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
-			configmap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-				},
-				Data: configmapData,
-			}
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultWorkQueuePriorityLabel, "")
+			Expect(err).NotTo(HaveOccurred())
 
-			priority := getPriorityFunc(configmap)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, objectGetter)
+			priority := getPriorityFunc(req)
 			Expect(priority).To(Equal(DefaultWorkQueuePriority))
 		})
 
-		It("Should get workqueue priority from item labels", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
-			configmap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-					Labels: map[string]string{
-						DefaultWorkQueuePriorityLabel: "3",
-					},
-				},
-				Data: configmapData,
-			}
+		It("Should get workqueue priority from default item priority label", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultWorkQueuePriorityLabel, "3")
+			Expect(err).NotTo(HaveOccurred())
 
-			priority := getPriorityFunc(configmap)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, objectGetter)
+			priority := getPriorityFunc(req)
 			Expect(priority).To(Equal(3))
 		})
 
-		It("Should get workqueue priority from namesapce labels", func() {
-			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient)
-			configmap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-				},
-			}
-
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: testNamespace,
-					Labels: map[string]string{
-						DefaultWorkQueuePriorityLabel: "4",
-					},
-				},
-			}
-			err := k8sClient.Update(ctx, namespace)
+		It("Should get workqueue priority from default namesapce priority label", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultWorkQueuePriorityLabel, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			Eventually(func() bool {
-				namespace := &corev1.Namespace{}
-				if err := k8sClient.Get(ctx, client.ObjectKey{Name: testNamespace}, namespace); err != nil {
-					return false
-				}
-				if namespace.Labels == nil {
-					return false
-				}
-				return namespace.Labels[DefaultWorkQueuePriorityLabel] == "4"
-			}, timeout, interval).Should(BeTrue())
+			err = ensureNamespace(k8sClient, testNamespace, DefaultWorkQueuePriorityLabel, "4")
+			Expect(err).NotTo(HaveOccurred())
 
-			priority := getPriorityFunc(configmap)
+			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, objectGetter)
+			priority := getPriorityFunc(req)
 			Expect(priority).To(Equal(4))
 		})
 	})
 
 	Context("Use custom workqueue priority", func() {
-		It("Should get custom workqueue priority if the item has no labels", func() {
-			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, 1, "custom-priority")
-			configmap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-				},
-				Data: configmapData,
-			}
+		It("Should get default workqueue priority if the item has no labels", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", "")
+			Expect(err).NotTo(HaveOccurred())
 
-			priority := getPriorityFunc(configmap)
+			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
+			priority := getPriorityFunc(req)
 			Expect(priority).To(Equal(1))
 		})
 
-		It("Should get custom workqueue priority from item labels", func() {
-			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, 1, "custom-priority")
-			configmap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-					Labels: map[string]string{
-						"custom-priority": "2",
-					},
-				},
-				Data: configmapData,
-			}
-
-			priority := getPriorityFunc(configmap)
-			Expect(priority).To(Equal(2))
-		})
-
-		It("Should get custom workqueue priority from namesapce labels", func() {
-			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, 1, "custom-priority")
-			configmap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testConfigmap,
-					Namespace: testNamespace,
-				},
-			}
-
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: testNamespace,
-					Labels: map[string]string{
-						"custom-priority": "3",
-					},
-				},
-			}
-			err := k8sClient.Update(ctx, namespace)
+		It("Should get workqueue priority from custom item priority label", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", "3")
 			Expect(err).NotTo(HaveOccurred())
 
-			Eventually(func() bool {
-				namespace := &corev1.Namespace{}
-				if err := k8sClient.Get(ctx, client.ObjectKey{Name: testNamespace}, namespace); err != nil {
-					return false
-				}
-				if namespace.Labels == nil {
-					return false
-				}
-				return namespace.Labels["custom-priority"] == "3"
-			}, timeout, interval).Should(BeTrue())
-
-			priority := getPriorityFunc(configmap)
+			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
+			priority := getPriorityFunc(req)
 			Expect(priority).To(Equal(3))
+		})
+
+		It("Should get workqueue priority from custom namesapce priority label", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", "")
+			Expect(err).NotTo(HaveOccurred())
+
+			err = ensureNamespace(k8sClient, testNamespace, "custom-priority", "4")
+			Expect(err).NotTo(HaveOccurred())
+
+			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
+			priority := getPriorityFunc(req)
+			Expect(priority).To(Equal(4))
 		})
 	})
 })
+
+func ensureConfigmap(cli client.Client, namespace, name, priorityLabelKey, priorityLabelValue string) error {
+	// Ensure the configmap exists
+	configmap := &corev1.ConfigMap{}
+	err := cli.Get(context.Background(), client.ObjectKey{Name: name, Namespace: namespace}, configmap)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			labels := map[string]string{}
+			if priorityLabelValue != "" {
+				labels[priorityLabelKey] = priorityLabelValue
+			}
+
+			err := cli.Create(context.Background(), &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+					Labels:    labels,
+				},
+			})
+			return err
+		}
+		return err
+	}
+
+	// If the label is already set, we don't need to update it
+	labelValue, ok := configmap.Labels[priorityLabelKey]
+	if !ok && priorityLabelValue == "" {
+		return nil
+	} else if ok && labelValue == priorityLabelValue {
+		return nil
+	}
+
+	// If the label is not set, we need to set it
+	if priorityLabelValue == "" {
+		configmap.Labels = map[string]string{}
+	} else {
+		configmap.Labels = map[string]string{
+			priorityLabelKey: priorityLabelValue,
+		}
+	}
+
+	// Update the configmap
+	err = cli.Update(context.Background(), configmap)
+	if err != nil {
+		return err
+	}
+	Eventually(func() bool {
+		configmap1 := &corev1.ConfigMap{}
+		err := cli.Get(context.Background(), client.ObjectKey{Name: name, Namespace: namespace}, configmap1)
+		if err != nil {
+			return false
+		}
+		return configmap1.ResourceVersion >= configmap.ResourceVersion
+	}, time.Second*3, time.Millisecond*100).Should(BeTrue())
+
+	return nil
+}
+
+func ensureNamespace(cli client.Client, name, priorityLabelKey, priorityLabelValue string) error {
+	// Ensure the namespace exists
+	namespace := &corev1.Namespace{}
+	err := cli.Get(context.Background(), client.ObjectKey{Name: name}, namespace)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			labels := map[string]string{}
+			if priorityLabelValue != "" {
+				labels[priorityLabelKey] = priorityLabelValue
+			}
+			err := cli.Create(context.Background(), &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   name,
+					Labels: labels,
+				},
+			})
+			return err
+		}
+		return err
+	}
+
+	// If the label is already set, we don't need to update it
+	labelValue, ok := namespace.Labels[priorityLabelKey]
+	if !ok && priorityLabelValue == "" {
+		return nil
+	} else if ok && labelValue == priorityLabelValue {
+		return nil
+	}
+
+	// If the label is not set, we need to set it
+	if priorityLabelValue == "" {
+		namespace.Labels = map[string]string{}
+	} else {
+		namespace.Labels = map[string]string{
+			priorityLabelKey: priorityLabelValue,
+		}
+	}
+
+	// Update the namespace
+	err = cli.Update(context.Background(), namespace)
+	if err != nil {
+		return err
+	}
+	Eventually(func() bool {
+		namespace1 := &corev1.Namespace{}
+		err := cli.Get(context.Background(), client.ObjectKey{Name: name}, namespace1)
+		if err != nil {
+			return false
+		}
+		return namespace1.ResourceVersion >= namespace.ResourceVersion
+	}, time.Second*3, time.Millisecond*100).Should(BeTrue())
+
+	return nil
+}

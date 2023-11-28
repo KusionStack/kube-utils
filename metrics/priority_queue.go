@@ -44,26 +44,26 @@ var (
 	depth = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Subsystem: PriorityQueueSubsystem,
 		Name:      DepthKey,
-		Help:      "Current depth of priority workqueue",
+		Help:      "Current depth of priority queue",
 	}, []string{"name", "priority"})
 
 	adds = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Subsystem: PriorityQueueSubsystem,
 		Name:      AddsKey,
-		Help:      "Total number of adds handled by priority workqueue",
+		Help:      "Total number of adds handled by priority queue",
 	}, []string{"name", "priority"})
 
 	latency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Subsystem: PriorityQueueSubsystem,
 		Name:      QueueLatencyKey,
-		Help:      "How long in seconds an item stays in workqueue before being requested",
+		Help:      "How long in seconds an item stays in priority queue before being requested",
 		Buckets:   prometheus.ExponentialBuckets(10e-9, 10, 10),
 	}, []string{"name", "priority"})
 
 	workDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Subsystem: PriorityQueueSubsystem,
 		Name:      WorkDurationKey,
-		Help:      "How long in seconds processing an item from workqueue takes.",
+		Help:      "How long in seconds processing an item from priority queue takes.",
 		Buckets:   prometheus.ExponentialBuckets(10e-9, 10, 10),
 	}, []string{"name", "priority"})
 
@@ -80,7 +80,7 @@ var (
 		Subsystem: PriorityQueueSubsystem,
 		Name:      LongestRunningProcessorKey,
 		Help: "How many seconds has the longest running " +
-			"processor for workqueue been running.",
+			"processor for priority queue been running.",
 	}, []string{"name"})
 )
 
