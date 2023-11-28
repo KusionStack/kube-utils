@@ -26,14 +26,18 @@ func Test_Initialzier(t *testing.T) {
 	initializer := New()
 	err := initializer.Add("test1", testInitFunc)
 	assert.NoError(t, err)
-	err = initializer.Add("test2", testInitFunc, WithDisableByDefault())
+	err = initializer.Add("test2", testInitFunc)
+	assert.NoError(t, err)
+	err = initializer.Add("test3", testInitFunc, WithDisableByDefault())
 	assert.NoError(t, err)
 
 	controllers := initializer.KnownControllers()
-	assert.EqualValues(t, []string{"test1", "test2"}, controllers)
+	assert.EqualValues(t, []string{"test1", "test2", "test3"}, controllers)
 	assert.True(t, initializer.Enabled("test1"))
-	assert.False(t, initializer.Enabled("test2"))
+	assert.True(t, initializer.Enabled("test2"))
+	assert.False(t, initializer.Enabled("test3"))
 
+	// duplicate
 	err = initializer.Add("test1", testInitFunc)
 	assert.Error(t, err)
 
@@ -44,7 +48,8 @@ func Test_Initialzier(t *testing.T) {
 	err = fs.Parse(nil)
 	assert.NoError(t, err)
 	assert.True(t, initializer.Enabled("test1"))
-	assert.False(t, initializer.Enabled("test2"))
+	assert.True(t, initializer.Enabled("test2"))
+	assert.False(t, initializer.Enabled("test3"))
 
 	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
 	initializer.BindFlag(fs)
@@ -53,14 +58,25 @@ func Test_Initialzier(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, initializer.Enabled("test1"))
 	assert.True(t, initializer.Enabled("test2"))
+	assert.False(t, initializer.Enabled("test3"))
 
 	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
 	initializer.BindFlag(fs)
-	fs.Set("controllers", "-test1,test2")
+	fs.Set("controllers", "-test1,test3")
 	err = fs.Parse(nil)
 	assert.NoError(t, err)
 	assert.False(t, initializer.Enabled("test1"))
-	assert.True(t, initializer.Enabled("test2"))
+	assert.False(t, initializer.Enabled("test2"))
+	assert.True(t, initializer.Enabled("test3"))
+
+	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
+	initializer.BindFlag(fs)
+	fs.Set("controllers", "-test1")
+	err = fs.Parse(nil)
+	assert.NoError(t, err)
+	assert.False(t, initializer.Enabled("test1"))
+	assert.False(t, initializer.Enabled("test2"))
+	assert.False(t, initializer.Enabled("test3"))
 }
 
 func testInitFunc(manager.Manager) (enabled bool, err error) {
