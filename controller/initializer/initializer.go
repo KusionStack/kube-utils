@@ -1,22 +1,23 @@
-// Copyright 2023 The KusionStack Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/**
+ * Copyright 2023 The KusionStack Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 package initializer
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 
@@ -82,7 +83,7 @@ func New() Interface {
 var _ Interface = &controllerInitializer{}
 
 type controllerInitializer struct {
-	lock sync.Mutex
+	lock sync.RWMutex
 
 	initializers     map[string]InitFunc
 	all              sets.String
@@ -126,14 +127,14 @@ func (m *controllerInitializer) BindFlag(fs *pflag.FlagSet) {
 
 // KnownControllers implements ControllerInitialzier.
 func (m *controllerInitializer) KnownControllers() []string {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 	return m.all.List()
 }
 
 func (m *controllerInitializer) SetupWithManager(mgr manager.Manager) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 
 	for _, name := range m.enabled.List() {
 		_, err := m.initializers[name](mgr)
@@ -145,8 +146,8 @@ func (m *controllerInitializer) SetupWithManager(mgr manager.Manager) error {
 }
 
 func (m *controllerInitializer) Enabled(name string) bool {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 
 	return m.enabled.Has(name)
 }
@@ -177,7 +178,8 @@ func (m *controllerInitializer) isControllerEnabled(name string, controllers []s
 func (m *controllerInitializer) Set(value string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	controllers := strings.Split(value, ",")
+
+	controllers := strings.Split(strings.TrimSpace(value), ",")
 	all := m.all.List()
 	for _, name := range all {
 		if m.isControllerEnabled(name, controllers) {
@@ -196,6 +198,9 @@ func (m *controllerInitializer) Type() string {
 
 // String implements pflag.Value interface.
 func (m *controllerInitializer) String() string {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
 	pairs := []string{}
 	for _, name := range m.all.List() {
 		if m.enabled.Has(name) {
@@ -204,6 +209,5 @@ func (m *controllerInitializer) String() string {
 			pairs = append(pairs, "-"+name)
 		}
 	}
-	sort.Strings(pairs)
 	return strings.Join(pairs, ",")
 }
