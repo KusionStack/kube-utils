@@ -26,8 +26,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-// InitFunc is used to launch a particular controller.  It may run additional "should I activate checks".
-// Any error returned will cause the controller process to `Fatal`
+// InitFunc is used to setup manager, particularly to launch a controller.
+// It may run additional "should I activate checks".
+// Any error returned will cause the main process to `Fatal`
 // The bool indicates whether the controller was enabled.
 type InitFunc func(manager.Manager) (enabled bool, err error)
 
@@ -38,6 +39,8 @@ type InitOption interface {
 
 type options struct {
 	disableByDefault bool
+	hidden           bool
+	override         bool
 }
 type optionFunc func(*options)
 
@@ -45,20 +48,34 @@ func (o optionFunc) apply(opt *options) {
 	o(opt)
 }
 
-// WithDisableByDefault disable controller by default
+// WithDisableByDefault disable controller by default.
 func WithDisableByDefault() InitOption {
 	return optionFunc(func(o *options) {
 		o.disableByDefault = true
 	})
 }
 
+// WithHidden hidden the controller name and it will always be enabled.
+func WithHidden() InitOption {
+	return optionFunc(func(o *options) {
+		o.hidden = true
+	})
+}
+
+// WithOverride allows overriding initializer.
+func WithOverride() InitOption {
+	return optionFunc(func(o *options) {
+		o.override = true
+	})
+}
+
 // Interface knows how to set up controllers with manager
 type Interface interface {
-	// Add add new controller setup function to initializer.
-	Add(controllerName string, setup InitFunc, options ...InitOption) error
+	// Add add new setup function to initializer.
+	Add(name string, setup InitFunc, options ...InitOption) error
 
-	// KnownControllers returns a slice of strings describing the ControllerInitialzier's known controllers.
-	KnownControllers() []string
+	// Knowns returns a slice of strings describing all known initializers.
+	Knowns() []string
 
 	// Enabled returns true if the controller is enabled.
 	Enabled(name string) bool
@@ -72,52 +89,73 @@ type Interface interface {
 
 // New returns a new instance of initializer interface
 func New() Interface {
-	return &controllerInitializer{
+	return &managerInitializer{
 		initializers:     make(map[string]InitFunc),
 		all:              sets.NewString(),
 		enabled:          sets.NewString(),
 		disableByDefault: sets.NewString(),
+		hidden:           sets.NewString(),
 	}
 }
 
-var _ Interface = &controllerInitializer{}
+var _ Interface = &managerInitializer{}
 
-type controllerInitializer struct {
+type managerInitializer struct {
 	lock sync.RWMutex
 
 	initializers     map[string]InitFunc
 	all              sets.String
 	enabled          sets.String
 	disableByDefault sets.String
+	hidden           sets.String
 }
 
-func (m *controllerInitializer) Add(controllerName string, setup InitFunc, opts ...InitOption) error {
+func (m *managerInitializer) deleteUnlocked(name string) {
+	if m.all.Has(name) {
+		m.all.Delete(name)
+		m.enabled.Delete(name)
+		m.hidden.Delete(name)
+		m.disableByDefault.Delete()
+		delete(m.initializers, name)
+	}
+}
+
+func (m *managerInitializer) Add(name string, setup InitFunc, opts ...InitOption) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-
-	if m.all.Has(controllerName) {
-		return fmt.Errorf("controller %q has already been registered", controllerName)
-	}
 
 	opt := &options{}
 	for _, o := range opts {
 		o.apply(opt)
 	}
 
-	m.all.Insert(controllerName)
-
-	if opt.disableByDefault {
-		m.disableByDefault.Insert(controllerName)
-	} else {
-		m.enabled.Insert(controllerName)
+	// cleanup if exists
+	if opt.override {
+		m.deleteUnlocked(name)
 	}
 
-	m.initializers[controllerName] = setup
+	if m.all.Has(name) {
+		return fmt.Errorf("initializer %q has already registered", name)
+	}
+
+	m.all.Insert(name)
+
+	if opt.hidden {
+		m.hidden.Insert(name)
+	}
+
+	if opt.disableByDefault && !opt.hidden {
+		m.disableByDefault.Insert(name)
+	} else {
+		m.enabled.Insert(name)
+	}
+
+	m.initializers[name] = setup
 	return nil
 }
 
-func (m *controllerInitializer) BindFlag(fs *pflag.FlagSet) {
-	all := m.all.List()
+func (m *managerInitializer) BindFlag(fs *pflag.FlagSet) {
+	all := m.all.Difference(m.hidden).List()
 	disabled := m.disableByDefault.List()
 	fs.Var(m, "controllers", fmt.Sprintf(""+
 		"A list of controllers to enable. '*' enables all on-by-default controllers, 'foo' enables the controller "+
@@ -125,14 +163,14 @@ func (m *controllerInitializer) BindFlag(fs *pflag.FlagSet) {
 		strings.Join(all, ", "), strings.Join(disabled, ", ")))
 }
 
-// KnownControllers implements ControllerInitialzier.
-func (m *controllerInitializer) KnownControllers() []string {
+// Knowns implements Controllerinitializer.
+func (m *managerInitializer) Knowns() []string {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	return m.all.List()
 }
 
-func (m *controllerInitializer) SetupWithManager(mgr manager.Manager) error {
+func (m *managerInitializer) SetupWithManager(mgr manager.Manager) error {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
@@ -145,16 +183,19 @@ func (m *controllerInitializer) SetupWithManager(mgr manager.Manager) error {
 	return nil
 }
 
-func (m *controllerInitializer) Enabled(name string) bool {
+func (m *managerInitializer) Enabled(name string) bool {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
 	return m.enabled.Has(name)
 }
 
-func (m *controllerInitializer) isControllerEnabled(name string, controllers []string) bool {
+func (m *managerInitializer) enabledUnlocked(name string, flagValue []string) bool {
+	if m.hidden.Has(name) {
+		return true
+	}
 	hasStar := false
-	for _, ctrl := range controllers {
+	for _, ctrl := range flagValue {
 		if ctrl == name {
 			return true
 		}
@@ -175,14 +216,14 @@ func (m *controllerInitializer) isControllerEnabled(name string, controllers []s
 }
 
 // Set implements pflag.Value interface.
-func (m *controllerInitializer) Set(value string) error {
+func (m *managerInitializer) Set(value string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	controllers := strings.Split(strings.TrimSpace(value), ",")
 	all := m.all.List()
 	for _, name := range all {
-		if m.isControllerEnabled(name, controllers) {
+		if m.enabledUnlocked(name, controllers) {
 			m.enabled.Insert(name)
 		} else {
 			m.enabled.Delete(name)
@@ -192,17 +233,21 @@ func (m *controllerInitializer) Set(value string) error {
 }
 
 // Type implements pflag.Value interface.
-func (m *controllerInitializer) Type() string {
+func (m *managerInitializer) Type() string {
 	return "stringSlice"
 }
 
 // String implements pflag.Value interface.
-func (m *controllerInitializer) String() string {
+func (m *managerInitializer) String() string {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
 	pairs := []string{}
 	for _, name := range m.all.List() {
+		if m.hidden.Has(name) {
+			// ignore hidden initializer
+			continue
+		}
 		if m.enabled.Has(name) {
 			pairs = append(pairs, name)
 		} else {
