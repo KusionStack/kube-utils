@@ -29,11 +29,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2/klogr"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 	"kusionstack.io/kube-utils/multicluster/controller"
@@ -75,7 +75,7 @@ func NewManager(cfg *ManagerConfig) (manager *Manager, newCacheFunc cache.NewCac
 	if cfg.Log != nil {
 		log = cfg.Log
 	} else {
-		log = zap.New().WithName("multicluster")
+		log = klogr.New()
 	}
 
 	if cfg.GVRForCluster == nil {

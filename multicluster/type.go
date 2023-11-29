@@ -85,7 +85,7 @@ type DeepCopy interface {
 func (w *wrapResourceEventHandler) OnAdd(obj interface{}) {
 	copiedObj, attachErr := w.attachClusterTo("OnAdd", obj)
 	if copiedObj == nil || attachErr != nil {
-		w.log.Info("OnAdd", "cluster", w.cluster)
+		w.log.V(3).Info("OnAdd", "cluster", w.cluster)
 		w.handler.OnAdd(obj)
 		return
 	}
@@ -99,7 +99,7 @@ func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 
 	if copiedOlbObj == nil || attchOldErr != nil ||
 		copiedNewObj == nil || attachNewErr != nil {
-		w.log.Info("OnUpdate", "cluster", w.cluster)
+		w.log.V(3).Info("OnUpdate", "cluster", w.cluster)
 		w.handler.OnUpdate(oldObj, newObj)
 		return
 	}
@@ -110,7 +110,7 @@ func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
 	copiedObj, attachErr := w.attachClusterTo("OnDelete", obj)
 	if copiedObj == nil || attachErr != nil {
-		w.log.Info("OnDelete", "cluster", w.cluster)
+		w.log.V(3).Info("OnDelete", "cluster", w.cluster)
 		w.handler.OnDelete(obj)
 		return
 	}
@@ -120,12 +120,12 @@ func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
 
 func (w *wrapResourceEventHandler) attachClusterTo(handler string, obj interface{}) (copiedObj runtime.Object, attachErr error) {
 	if o, ok := obj.(client.Object); ok {
-		w.log.Info("attach cluster to object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
+		w.log.V(3).Info("attach cluster to object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
 
 		copiedObj = o.DeepCopyObject()
 		attachErr = attachClusterTo(copiedObj, w.cluster)
 	} else if o, ok := obj.(DeepCopy); ok {
-		w.log.Info("attach cluster to object", "handler", handler, "cluster", w.cluster)
+		w.log.V(3).Info("attach cluster to object", "handler", handler, "cluster", w.cluster)
 
 		copiedObj = o.DeepCopyObject()
 		attachErr = attachClusterTo(copiedObj, w.cluster)
