@@ -18,6 +18,7 @@ package workqueue
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -47,8 +48,8 @@ var _ = Describe("Test defaults", func() {
 	)
 
 	Context("Use default workqueue priority", func() {
-		It("Should get default workqueue priority if the item has no labels", func() {
-			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultWorkQueuePriorityLabel, "")
+		It("Should get default workqueue priority if the item has no annotations", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultAnnotationWorkQueuePriority, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, objectGetter)
@@ -56,8 +57,8 @@ var _ = Describe("Test defaults", func() {
 			Expect(priority).To(Equal(DefaultWorkQueuePriority))
 		})
 
-		It("Should get workqueue priority from default item priority label", func() {
-			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultWorkQueuePriorityLabel, "3")
+		It("Should get workqueue priority from default item priority annotation", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultAnnotationWorkQueuePriority, intPtr(3))
 			Expect(err).NotTo(HaveOccurred())
 
 			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, objectGetter)
@@ -65,11 +66,11 @@ var _ = Describe("Test defaults", func() {
 			Expect(priority).To(Equal(3))
 		})
 
-		It("Should get workqueue priority from default namesapce priority label", func() {
-			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultWorkQueuePriorityLabel, "")
+		It("Should get workqueue priority from default namesapce priority annotation", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultAnnotationWorkQueuePriority, nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			err = ensureNamespace(k8sClient, testNamespace, DefaultWorkQueuePriorityLabel, "4")
+			err = ensureNamespace(k8sClient, testNamespace, DefaultAnnotationWorkQueuePriority, intPtr(4))
 			Expect(err).NotTo(HaveOccurred())
 
 			getPriorityFunc := DefaultGetPriorityFuncBuilder(k8sClient, objectGetter)
@@ -79,8 +80,8 @@ var _ = Describe("Test defaults", func() {
 	})
 
 	Context("Use custom workqueue priority", func() {
-		It("Should get default workqueue priority if the item has no labels", func() {
-			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", "")
+		It("Should get default workqueue priority if the item has no annotations", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
@@ -88,8 +89,8 @@ var _ = Describe("Test defaults", func() {
 			Expect(priority).To(Equal(1))
 		})
 
-		It("Should get workqueue priority from custom item priority label", func() {
-			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", "3")
+		It("Should get workqueue priority from custom item priority annotation", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", intPtr(3))
 			Expect(err).NotTo(HaveOccurred())
 
 			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
@@ -97,11 +98,59 @@ var _ = Describe("Test defaults", func() {
 			Expect(priority).To(Equal(3))
 		})
 
-		It("Should get workqueue priority from custom namesapce priority label", func() {
-			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", "")
+		It("Should get workqueue priority from custom namesapce priority annotation", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			err = ensureNamespace(k8sClient, testNamespace, "custom-priority", "4")
+			err = ensureNamespace(k8sClient, testNamespace, "custom-priority", intPtr(4))
+			Expect(err).NotTo(HaveOccurred())
+
+			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
+			priority := getPriorityFunc(req)
+			Expect(priority).To(Equal(4))
+		})
+	})
+
+	Context("Use custom workqueue priority with endTime", func() {
+		It("Should get default workqueue priority from custom item priority annotation if the endTime is before now", func() {
+			endTime := metav1.NewTime(time.Now().Add(-time.Hour))
+			err := ensureConfigmapWithEndTime(k8sClient, testNamespace, testConfigmap, "custom-priority", intPtr(3), &endTime)
+			Expect(err).NotTo(HaveOccurred())
+
+			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
+			priority := getPriorityFunc(req)
+			Expect(priority).To(Equal(1))
+		})
+
+		It("Should get workqueue priority from custom item priority annotation if the endTime is after now", func() {
+			endTime := metav1.NewTime(time.Now().Add(time.Hour))
+			err := ensureConfigmapWithEndTime(k8sClient, testNamespace, testConfigmap, "custom-priority", intPtr(3), &endTime)
+			Expect(err).NotTo(HaveOccurred())
+
+			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
+			priority := getPriorityFunc(req)
+			Expect(priority).To(Equal(3))
+		})
+
+		It("Should get default workqueue priority from custom namesapce priority annotation if the endTime is before now", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			endTime := metav1.NewTime(time.Now().Add(-time.Hour))
+			err = ensureNamespaceWithEndTime(k8sClient, testNamespace, "custom-priority", intPtr(4), &endTime)
+			Expect(err).NotTo(HaveOccurred())
+
+			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
+			priority := getPriorityFunc(req)
+			Expect(priority).To(Equal(1))
+		})
+
+		It("Should get workqueue priority from custom namesapce priority annotation if the endTime is after now", func() {
+			err := ensureConfigmap(k8sClient, testNamespace, testConfigmap, "custom-priority", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			endTime := metav1.NewTime(time.Now().Add(time.Hour))
+			err = ensureNamespaceWithEndTime(k8sClient, testNamespace, "custom-priority", intPtr(4), &endTime)
 			Expect(err).NotTo(HaveOccurred())
 
 			getPriorityFunc := GetPriorityFuncBuilder(k8sClient, objectGetter, "custom-priority", 1)
@@ -111,22 +160,31 @@ var _ = Describe("Test defaults", func() {
 	})
 })
 
-func ensureConfigmap(cli client.Client, namespace, name, priorityLabelKey, priorityLabelValue string) error {
+func intPtr(i int) *int {
+	return &i
+}
+
+func ensureConfigmap(cli client.Client, namespace, name, priorityAnnoKey string, priority *int) error {
+	return ensureConfigmapWithEndTime(cli, namespace, name, priorityAnnoKey, priority, nil)
+}
+
+func ensureConfigmapWithEndTime(cli client.Client, namespace, name, priorityAnnoKey string, priority *int, endTime *metav1.Time) error {
 	// Ensure the configmap exists
 	configmap := &corev1.ConfigMap{}
 	err := cli.Get(context.Background(), client.ObjectKey{Name: name, Namespace: namespace}, configmap)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			labels := map[string]string{}
-			if priorityLabelValue != "" {
-				labels[priorityLabelKey] = priorityLabelValue
+			annos := map[string]string{}
+			if priority != nil {
+				workQueuePriority := &WorkQueuePriority{Priority: priority, EndTime: endTime}
+				priorityAnnoValueB, _ := json.Marshal(workQueuePriority)
+				annos[priorityAnnoKey] = string(priorityAnnoValueB)
 			}
-
 			err := cli.Create(context.Background(), &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      name,
-					Namespace: namespace,
-					Labels:    labels,
+					Name:        name,
+					Namespace:   namespace,
+					Annotations: annos,
 				},
 			})
 			return err
@@ -134,20 +192,17 @@ func ensureConfigmap(cli client.Client, namespace, name, priorityLabelKey, prior
 		return err
 	}
 
-	// If the label is already set, we don't need to update it
-	labelValue, ok := configmap.Labels[priorityLabelKey]
-	if !ok && priorityLabelValue == "" {
-		return nil
-	} else if ok && labelValue == priorityLabelValue {
-		return nil
-	}
-
-	// If the label is not set, we need to set it
-	if priorityLabelValue == "" {
-		configmap.Labels = map[string]string{}
+	_, ok := configmap.Annotations[priorityAnnoKey]
+	if priority == nil {
+		if !ok {
+			return nil
+		}
+		configmap.Annotations = map[string]string{}
 	} else {
-		configmap.Labels = map[string]string{
-			priorityLabelKey: priorityLabelValue,
+		workQueuePriority := &WorkQueuePriority{Priority: priority, EndTime: endTime}
+		priorityAnnoValueB, _ := json.Marshal(workQueuePriority)
+		configmap.Annotations = map[string]string{
+			priorityAnnoKey: string(priorityAnnoValueB),
 		}
 	}
 
@@ -168,20 +223,26 @@ func ensureConfigmap(cli client.Client, namespace, name, priorityLabelKey, prior
 	return nil
 }
 
-func ensureNamespace(cli client.Client, name, priorityLabelKey, priorityLabelValue string) error {
+func ensureNamespace(cli client.Client, name, priorityAnnoKey string, priority *int) error {
+	return ensureNamespaceWithEndTime(cli, name, priorityAnnoKey, priority, nil)
+}
+
+func ensureNamespaceWithEndTime(cli client.Client, name, priorityAnnoKey string, priority *int, endTime *metav1.Time) error {
 	// Ensure the namespace exists
 	namespace := &corev1.Namespace{}
 	err := cli.Get(context.Background(), client.ObjectKey{Name: name}, namespace)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			labels := map[string]string{}
-			if priorityLabelValue != "" {
-				labels[priorityLabelKey] = priorityLabelValue
+			annos := map[string]string{}
+			if priority != nil {
+				workQueuePriority := &WorkQueuePriority{Priority: priority, EndTime: endTime}
+				priorityAnnoValueB, _ := json.Marshal(workQueuePriority)
+				annos[priorityAnnoKey] = string(priorityAnnoValueB)
 			}
 			err := cli.Create(context.Background(), &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   name,
-					Labels: labels,
+					Name:        name,
+					Annotations: annos,
 				},
 			})
 			return err
@@ -189,20 +250,17 @@ func ensureNamespace(cli client.Client, name, priorityLabelKey, priorityLabelVal
 		return err
 	}
 
-	// If the label is already set, we don't need to update it
-	labelValue, ok := namespace.Labels[priorityLabelKey]
-	if !ok && priorityLabelValue == "" {
-		return nil
-	} else if ok && labelValue == priorityLabelValue {
-		return nil
-	}
-
-	// If the label is not set, we need to set it
-	if priorityLabelValue == "" {
-		namespace.Labels = map[string]string{}
+	_, ok := namespace.Annotations[priorityAnnoKey]
+	if priority == nil {
+		if !ok {
+			return nil
+		}
+		namespace.Annotations = map[string]string{}
 	} else {
-		namespace.Labels = map[string]string{
-			priorityLabelKey: priorityLabelValue,
+		workQueuePriority := &WorkQueuePriority{Priority: priority, EndTime: endTime}
+		priorityAnnoValueB, _ := json.Marshal(workQueuePriority)
+		namespace.Annotations = map[string]string{
+			priorityAnnoKey: string(priorityAnnoValueB),
 		}
 	}
 

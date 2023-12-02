@@ -18,38 +18,44 @@ package workqueue
 
 import (
 	"context"
-	"strconv"
+	"encoding/json"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
-	DefaultWorkQueuePriorityLabel     = "kusionstack.io/workqueue-priority"
-	DefaultUnfinishedWorkUpdatePeriod = 500 * time.Millisecond
-	DefaultWorkQueuePriority          = 2
+	DefaultAnnotationWorkQueuePriority = "kusionstack.io/workqueue-priority"
+	DefaultUnfinishedWorkUpdatePeriod  = 500 * time.Millisecond
+	DefaultWorkQueuePriority           = 2
 )
 
 var (
 	DefaultNumOfPriorityLotteries = []int{1, 2, 4, 8, 16}
 )
 
+type WorkQueuePriority struct {
+	Priority *int         `json:"priority,omitempty"`
+	EndTime  *metav1.Time `json:"endTime,omitempty"`
+}
+
 func DefaultGetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object) GetPriorityFunc {
-	return GetPriorityFuncBuilder(cli, objectGetter, DefaultWorkQueuePriorityLabel, DefaultWorkQueuePriority)
+	return GetPriorityFuncBuilder(cli, objectGetter, DefaultAnnotationWorkQueuePriority, DefaultWorkQueuePriority)
 }
 
 // GetPriorityFunc is the function to get the priority of an item
-// We use the label to get the priority of an item
-// If the label is not set in the item, we will get the priority from the namespace label
-func GetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object, workQueuePriorityLabel string, defaultWorkQueuePriority int) GetPriorityFunc {
+// We use the annotation to get the priority of an item
+// If the annotation is not set in the item, we will get the priority from the namespace annotation
+func GetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object, annotationWorkQueuePriority string, defaultWorkQueuePriority int) GetPriorityFunc {
 	if cli == nil {
 		panic("cli is required")
 	}
-	if workQueuePriorityLabel == "" {
-		panic("workQueuePriorityLabel is required")
+	if annotationWorkQueuePriority == "" {
+		panic("annotationWorkQueuePriority is required")
 	}
 
 	return func(item interface{}) int {
@@ -58,6 +64,7 @@ func GetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object
 			return defaultWorkQueuePriority
 		}
 
+		// Get the priority from the item annotation
 		object := objectGetter()
 		err := cli.Get(context.Background(), req.NamespacedName, object)
 		if err != nil {
@@ -65,13 +72,14 @@ func GetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object
 			return defaultWorkQueuePriority
 		}
 
-		var priorityLableValue string
-		labels := object.GetLabels()
-		if len(labels) != 0 {
-			priorityLableValue = labels[workQueuePriorityLabel]
+		var priorityAnnoValue string
+		annos := object.GetAnnotations()
+		if len(annos) != 0 {
+			priorityAnnoValue = annos[annotationWorkQueuePriority]
 		}
 
-		if priorityLableValue == "" {
+		// Get the priority from the namespace annotation
+		if priorityAnnoValue == "" {
 			if req.Namespace == "" {
 				return defaultWorkQueuePriority
 			}
@@ -81,23 +89,33 @@ func GetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object
 				klog.Errorf("Failed to get namespace: %v, error: %v", req.Namespace, err)
 				return defaultWorkQueuePriority
 			} else {
-				labels := namespace.GetLabels()
-				if len(labels) == 0 {
+				annos := namespace.GetAnnotations()
+				if len(annos) == 0 {
 					return defaultWorkQueuePriority
 				}
-				priorityLableValue = namespace.Labels[workQueuePriorityLabel]
+				priorityAnnoValue, ok = annos[annotationWorkQueuePriority]
+				if !ok {
+					return defaultWorkQueuePriority
+				}
 			}
 		}
 
-		if priorityLableValue == "" {
+		// Check if the priority is valid
+		var workQueuePriority WorkQueuePriority
+		if err := json.Unmarshal([]byte(priorityAnnoValue), &workQueuePriority); err != nil {
+			klog.Errorf("Failed to unmarshal annotation value: %q, error: %v", priorityAnnoValue, err)
 			return defaultWorkQueuePriority
 		}
 
-		priority, err := strconv.Atoi(priorityLableValue)
-		if err != nil {
-			klog.Errorf("Failed to convert label value: %q to int, error: %v", priorityLableValue, err)
-			return defaultWorkQueuePriority
+		// If endTime is not set, or endTime is set and currentTime is before endTime, we will use the priority
+		currentTime := metav1.NewTime(time.Now())
+		if workQueuePriority.EndTime == nil ||
+			(workQueuePriority.EndTime != nil && currentTime.Before(workQueuePriority.EndTime)) {
+
+			if workQueuePriority.Priority != nil && *workQueuePriority.Priority >= 0 {
+				return *workQueuePriority.Priority
+			}
 		}
-		return priority
+		return defaultWorkQueuePriority
 	}
 }

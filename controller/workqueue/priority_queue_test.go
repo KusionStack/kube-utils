@@ -18,7 +18,6 @@ package workqueue
 
 import (
 	"fmt"
-	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -171,7 +170,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(err).To(Succeed())
 			Expect(priorityQueue).NotTo(BeNil())
 
-			err = ensureConfigmap(k8sClient, testNamespace, "configmap1", DefaultWorkQueuePriorityLabel, "10")
+			err = ensureConfigmap(k8sClient, testNamespace, "configmap1", DefaultAnnotationWorkQueuePriority, intPtr(10))
 			Expect(err).NotTo(HaveOccurred())
 
 			priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
@@ -184,7 +183,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(item).NotTo(BeNil())
 			Expect(shutdown).To(BeFalse())
 
-			err = ensureConfigmap(k8sClient, testNamespace, "configmap2", DefaultWorkQueuePriorityLabel, "10")
+			err = ensureConfigmap(k8sClient, testNamespace, "configmap2", DefaultAnnotationWorkQueuePriority, intPtr(10))
 			Expect(err).NotTo(HaveOccurred())
 
 			priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
@@ -192,7 +191,7 @@ var _ = Describe("Test prioriry_queue", func() {
 				Namespace: testNamespace,
 			}})
 
-			err = ensureConfigmap(k8sClient, testNamespace, "configmap3", DefaultWorkQueuePriorityLabel, "10")
+			err = ensureConfigmap(k8sClient, testNamespace, "configmap3", DefaultAnnotationWorkQueuePriority, intPtr(10))
 			Expect(err).NotTo(HaveOccurred())
 
 			priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
@@ -224,7 +223,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(err).To(Succeed())
 			Expect(priorityQueue).NotTo(BeNil())
 
-			err = ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultWorkQueuePriorityLabel, strconv.Itoa(len(DefaultNumOfPriorityLotteries)+1))
+			err = ensureConfigmap(k8sClient, testNamespace, testConfigmap, DefaultAnnotationWorkQueuePriority, intPtr(len(DefaultNumOfPriorityLotteries)+1))
 			Expect(err).NotTo(HaveOccurred())
 
 			priority := getPriorityFunc(reconcile.Request{NamespacedName: client.ObjectKey{
@@ -255,7 +254,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			for i := 0; i < 100; i++ {
 				name := fmt.Sprintf("confitmap0%d", i)
 
-				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultWorkQueuePriorityLabel, strconv.Itoa(DefaultWorkQueuePriority))
+				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultAnnotationWorkQueuePriority, intPtr(DefaultWorkQueuePriority))
 				Expect(err).NotTo(HaveOccurred())
 
 				priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
@@ -268,7 +267,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			for i := 0; i < 100; i++ {
 				name := fmt.Sprintf("confitmap1%d", i)
 
-				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultWorkQueuePriorityLabel, strconv.Itoa(DefaultWorkQueuePriority+1))
+				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultAnnotationWorkQueuePriority, intPtr(DefaultWorkQueuePriority+1))
 				Expect(err).NotTo(HaveOccurred())
 
 				priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
@@ -281,7 +280,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			for i := 0; i < 100; i++ {
 				name := fmt.Sprintf("confitmap2%d", i)
 
-				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultWorkQueuePriorityLabel, strconv.Itoa(DefaultWorkQueuePriority+2))
+				err := ensureConfigmap(k8sClient, testNamespace, name, DefaultAnnotationWorkQueuePriority, intPtr(DefaultWorkQueuePriority+2))
 				Expect(err).NotTo(HaveOccurred())
 
 				priorityQueue.Add(reconcile.Request{NamespacedName: client.ObjectKey{
