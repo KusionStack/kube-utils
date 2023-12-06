@@ -37,14 +37,13 @@ var (
 	DefaultNumOfPriorityLotteries = []int{1, 2, 4, 8, 16}
 )
 
-func DefaultGetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object) GetPriorityFunc {
-	return GetPriorityFuncBuilder(cli, objectGetter, DefaultWorkQueuePriorityLabel, DefaultWorkQueuePriority)
+func DefaultGetPriorityFuncBuilder(cli client.Client) GetPriorityFunc {
+	return GetPriorityFuncBuilder(cli, DefaultWorkQueuePriorityLabel, DefaultWorkQueuePriority)
 }
 
 // GetPriorityFunc is the function to get the priority of an item
-// We use the label to get the priority of an item
-// If the label is not set in the item, we will get the priority from the namespace label
-func GetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object, workQueuePriorityLabel string, defaultWorkQueuePriority int) GetPriorityFunc {
+// We use the namespace label to get the priority of an item
+func GetPriorityFuncBuilder(cli client.Client, workQueuePriorityLabel string, defaultWorkQueuePriority int) GetPriorityFunc {
 	if cli == nil {
 		panic("cli is required")
 	}
@@ -54,43 +53,24 @@ func GetPriorityFuncBuilder(cli client.Client, objectGetter func() client.Object
 
 	return func(item interface{}) int {
 		req, ok := item.(reconcile.Request)
-		if !ok {
-			return defaultWorkQueuePriority
-		}
-
-		object := objectGetter()
-		err := cli.Get(context.Background(), req.NamespacedName, object)
-		if err != nil {
-			klog.Errorf("Failed to get object: %v, error: %v", req.NamespacedName, err)
+		if !ok || req.Namespace == "" {
 			return defaultWorkQueuePriority
 		}
 
 		var priorityLableValue string
-		labels := object.GetLabels()
-		if len(labels) != 0 {
-			priorityLableValue = labels[workQueuePriorityLabel]
-		}
-
-		if priorityLableValue == "" {
-			if req.Namespace == "" {
-				return defaultWorkQueuePriority
-			}
-
-			namespace := &corev1.Namespace{}
-			if err := cli.Get(context.Background(), client.ObjectKey{Name: req.Namespace}, namespace); err != nil {
-				klog.Errorf("Failed to get namespace: %v, error: %v", req.Namespace, err)
-				return defaultWorkQueuePriority
-			} else {
-				labels := namespace.GetLabels()
-				if len(labels) == 0 {
-					return defaultWorkQueuePriority
-				}
-				priorityLableValue = namespace.Labels[workQueuePriorityLabel]
-			}
-		}
-
-		if priorityLableValue == "" {
+		namespace := &corev1.Namespace{}
+		if err := cli.Get(context.Background(), client.ObjectKey{Name: req.Namespace}, namespace); err != nil {
+			klog.Errorf("Failed to get namespace: %v, error: %v", req.Namespace, err)
 			return defaultWorkQueuePriority
+		} else {
+			labels := namespace.GetLabels()
+			if len(labels) == 0 {
+				return defaultWorkQueuePriority
+			}
+			priorityLableValue, ok = namespace.Labels[workQueuePriorityLabel]
+			if !ok {
+				return defaultWorkQueuePriority
+			}
 		}
 
 		priority, err := strconv.Atoi(priorityLableValue)
