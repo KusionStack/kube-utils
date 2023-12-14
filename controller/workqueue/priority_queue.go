@@ -24,7 +24,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 type GetPriorityFunc func(item interface{}) int
