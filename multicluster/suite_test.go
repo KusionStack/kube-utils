@@ -146,7 +146,7 @@ var _ = BeforeSuite(func() {
 			Version:  "v1",
 			Resource: "deployments",
 		},
-	})
+	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())
 	Expect(newCacheFunc).NotTo(BeNil())
