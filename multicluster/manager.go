@@ -54,6 +54,20 @@ type ManagerConfig struct {
 	ClusterToRestConfig func(cluster string) *rest.Config
 }
 
+type Options struct {
+	// NewCache is the function that will create the cache to be used by the controller-runtime manager.
+	// If not set this will use the default new cache function from controller-runtime.
+	NewCache cache.NewCacheFunc
+}
+
+func setOptionsDefaults(options Options) Options {
+	if options.NewCache == nil {
+		options.NewCache = cache.New
+	}
+
+	return options
+}
+
 type Manager struct {
 	clusterScheme       *runtime.Scheme
 	clusterToRestConfig func(cluster string) *rest.Config
@@ -62,6 +76,7 @@ type Manager struct {
 	clusterClientManager ClusterClientManager
 	controller           *controller.Controller
 
+	newCache                  cache.NewCacheFunc
 	resyncPeriod              time.Duration
 	hasCluster                map[string]struct{} // whether cluster has been added
 	clusterFilter             func(string) bool
@@ -70,7 +85,7 @@ type Manager struct {
 	log                       logr.Logger
 }
 
-func NewManager(cfg *ManagerConfig) (manager *Manager, newCacheFunc cache.NewCacheFunc, newClientFunc cluster.NewClientFunc, err error) {
+func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFunc cache.NewCacheFunc, newClientFunc cluster.NewClientFunc, err error) {
 	var log logr.Logger
 	if cfg.Log != nil {
 		log = cfg.Log
@@ -122,7 +137,8 @@ func NewManager(cfg *ManagerConfig) (manager *Manager, newCacheFunc cache.NewCac
 		return nil, nil, nil, err
 	}
 
-	newCacheFunc, clusterCacheManager := MultiClusterCacheBuilder(log)
+	opts = setOptionsDefaults(opts)
+	newCacheFunc, clusterCacheManager := MultiClusterCacheBuilder(log, &opts)
 	newClientFunc, clusterClientManager := MultiClusterClientBuilder(log)
 
 	manager = &Manager{
@@ -133,6 +149,7 @@ func NewManager(cfg *ManagerConfig) (manager *Manager, newCacheFunc cache.NewCac
 		clusterClientManager: clusterClientManager,
 		controller:           controller,
 
+		newCache:                  opts.NewCache,
 		resyncPeriod:              cfg.ResyncPeriod,
 		hasCluster:                make(map[string]struct{}),
 		clusterFilter:             clusterFilter,
@@ -177,7 +194,7 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 	if err != nil {
 		return err
 	}
-	clusterCache, err := cache.New(cfg, cache.Options{
+	clusterCache, err := m.newCache(cfg, cache.Options{
 		Scheme:    m.clusterScheme,
 		Mapper:    mapper,
 		Resync:    &m.resyncPeriod,

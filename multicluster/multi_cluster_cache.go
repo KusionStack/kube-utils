@@ -41,7 +41,7 @@ type ClusterCacheManager interface {
 	RemoveClusterCache(cluster string) bool
 }
 
-func MultiClusterCacheBuilder(log logr.Logger) (cache.NewCacheFunc, ClusterCacheManager) {
+func MultiClusterCacheBuilder(log logr.Logger, opts *Options) (cache.NewCacheFunc, ClusterCacheManager) {
 	mcc := &multiClusterCache{
 		clusterToCache:   map[string]cache.Cache{},
 		clusterToCancel:  map[string]context.CancelFunc{},
@@ -51,8 +51,8 @@ func MultiClusterCacheBuilder(log logr.Logger) (cache.NewCacheFunc, ClusterCache
 		log: log,
 	}
 
-	newCacheFunc := func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
-		fedCache, err := cache.New(config, opts)
+	newCacheFunc := func(config *rest.Config, cacheOpts cache.Options) (cache.Cache, error) {
+		fedCache, err := opts.NewCache(config, cacheOpts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create fed cache: %v", err)
 		}
