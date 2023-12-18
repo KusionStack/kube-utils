@@ -18,7 +18,6 @@ package multicluster
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -43,6 +42,20 @@ const (
 	EnvOnlyWatchClusterNamespace = "ONLY_WATCH_CLUSTER_NAMESPACE"
 )
 
+type Options struct {
+	// NewCache is the function that will create the cache to be used
+	// by the manager. If not set this will use the default new cache function.
+	NewCache cache.NewCacheFunc
+}
+
+func setOptionsDefaults(opts Options) Options {
+	if opts.NewCache == nil {
+		opts.NewCache = cache.New
+	}
+
+	return opts
+}
+
 type ManagerConfig struct {
 	FedConfig     *rest.Config
 	ClusterScheme *runtime.Scheme
@@ -50,33 +63,19 @@ type ManagerConfig struct {
 	ClusterFilter func(string) bool // select cluster
 	Log           logr.Logger
 
-	GVRForCluster       *schema.GroupVersionResource // for test
-	ClusterToRestConfig func(cluster string) *rest.Config
-}
-
-type Options struct {
-	// NewCache is the function that will create the cache to be used by the controller-runtime manager.
-	// If not set this will use the default new cache function from controller-runtime.
-	NewCache cache.NewCacheFunc
-}
-
-func setOptionsDefaults(options Options) Options {
-	if options.NewCache == nil {
-		options.NewCache = cache.New
-	}
-
-	return options
+	// for test
+	ClusterManagermentGVR *schema.GroupVersionResource
+	RestConfigForCluster  func(cluster string) *rest.Config
 }
 
 type Manager struct {
-	clusterScheme       *runtime.Scheme
-	clusterToRestConfig func(cluster string) *rest.Config
+	newCache      cache.NewCacheFunc // function to create cache for cluster
+	clusterScheme *runtime.Scheme    // scheme which is used to create cache for cluster
 
 	clusterCacheManager  ClusterCacheManager
 	clusterClientManager ClusterClientManager
-	controller           *controller.Controller
+	controller           *controller.Controller // controller for cluster managerment
 
-	newCache                  cache.NewCacheFunc
 	resyncPeriod              time.Duration
 	hasCluster                map[string]struct{} // whether cluster has been added
 	clusterFilter             func(string) bool
@@ -93,26 +92,15 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 		log = klogr.New()
 	}
 
-	if cfg.GVRForCluster == nil {
-		cfg.GVRForCluster = &controller.DefaultGVRForCluster
-	}
-	if cfg.ClusterToRestConfig == nil {
-		cfg.ClusterToRestConfig = func(cluster string) *rest.Config {
-			clusterConfig := *cfg.FedConfig
-			clusterConfig.Host = fmt.Sprintf("%s/apis/%s/%s/%s/%s/proxy", cfg.FedConfig.Host, cfg.GVRForCluster.Group, cfg.GVRForCluster.Version, cfg.GVRForCluster.Resource, cluster)
-
-			return &clusterConfig
-		}
-	}
 	if cfg.ClusterScheme == nil {
 		cfg.ClusterScheme = scheme.Scheme
 	}
 
 	clusterFilter := cfg.ClusterFilter
-	whiteList := strings.TrimSpace(os.Getenv(clusterinfo.EnvClusterWhiteList))
-	if clusterFilter == nil && whiteList != "" {
-		clusters := strings.Split(whiteList, ",")
-		log.Info("ignore clusters", "clusters", clusters)
+	allowList := strings.TrimSpace(os.Getenv(clusterinfo.EnvClusterAllowList))
+	if clusterFilter == nil && allowList != "" {
+		clusters := strings.Split(allowList, ",")
+		log.Info("allow list", "clusters", clusters)
 
 		hasCluster := map[string]struct{}{}
 		for _, cluster := range clusters {
@@ -127,11 +115,21 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 		}
 	}
 
+	var clusterManagermentType controller.ClusterManagermentType
+	if cfg.ClusterManagermentGVR != nil {
+		clusterManagermentType = controller.TestCluterManagement
+	} else {
+		clusterManagermentType = controller.AlipayOpenClusterManagement
+	}
+
 	controller, err := controller.NewController(&controller.ControllerConfig{
-		Config:       cfg.FedConfig,
-		ResyncPeriod: cfg.ResyncPeriod,
-		GVR:          cfg.GVRForCluster,
-		Log:          log,
+		Config:                 cfg.FedConfig,
+		ResyncPeriod:           cfg.ResyncPeriod,
+		ClusterManagermentType: clusterManagermentType,
+		Log:                    log,
+
+		ClusterManagermentGVR: cfg.ClusterManagermentGVR,
+		RestConfigForCluster:  cfg.RestConfigForCluster,
 	})
 	if err != nil {
 		return nil, nil, nil, err
@@ -142,14 +140,13 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 	newClientFunc, clusterClientManager := MultiClusterClientBuilder(log)
 
 	manager = &Manager{
-		clusterScheme:       cfg.ClusterScheme,
-		clusterToRestConfig: cfg.ClusterToRestConfig,
+		clusterScheme: cfg.ClusterScheme,
+		newCache:      opts.NewCache,
 
 		clusterCacheManager:  clusterCacheManager,
 		clusterClientManager: clusterClientManager,
 		controller:           controller,
 
-		newCache:                  opts.NewCache,
 		resyncPeriod:              cfg.ResyncPeriod,
 		hasCluster:                make(map[string]struct{}),
 		clusterFilter:             clusterFilter,
@@ -188,8 +185,10 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 	}
 	m.mutex.Unlock()
 
-	cfg := m.clusterToRestConfig(cluster)
+	// Get rest.Config for the cluster
+	cfg := m.controller.RestConfigForCluster(cluster)
 
+	// Create cache for the cluster
 	mapper, err := apiutil.NewDynamicRESTMapper(cfg)
 	if err != nil {
 		return err
@@ -204,6 +203,7 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 		return err
 	}
 
+	// Create delegating client for the cluster
 	clusterClient, err := client.New(cfg, client.Options{
 		Scheme: m.clusterScheme,
 		Mapper: mapper,
@@ -212,8 +212,9 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 		return err
 	}
 	delegatingClusterClient, err := client.NewDelegatingClient(client.NewDelegatingClientInput{
-		CacheReader: clusterCache,
-		Client:      clusterClient,
+		CacheReader:       clusterCache,
+		Client:            clusterClient,
+		CacheUnstructured: true,
 	})
 	if err != nil {
 		return err
@@ -226,6 +227,7 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 	m.mutex.Lock()
 	m.hasCluster[cluster] = struct{}{}
 	m.mutex.Unlock()
+
 	return nil
 }
 

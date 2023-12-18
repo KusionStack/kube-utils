@@ -26,9 +26,9 @@ type contextKey string
 const (
 	clusterInfo contextKey = "clusterInfo"
 
-	ClusterLabelKey = "kydra.antgroup.com/cluster"
+	ClusterLabelKey = "kusionstack.io/cluster"
 
-	EnvClusterWhiteList = "CLUSTER_WHITE_LIST"
+	EnvClusterAllowList = "CLUSTER_ALLOW_LIST"
 )
 
 const (

@@ -22,11 +22,10 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	"k8s.io/client-go/rest"
-
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -109,15 +108,14 @@ func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, op
 		metrics.NewClientCountMetrics(cluster, "Create", err)
 	}()
 
-	cluster, err = getCluater(ctx, obj.GetLabels())
+	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
 
 	if cluster == clusterinfo.Fed {
-		err = mcc.fedClient.Create(ctx, obj, opts...)
-		return
+		return mcc.fedClient.Create(ctx, obj, opts...)
 	}
 
 	mcc.mutex.RLock()
@@ -125,11 +123,9 @@ func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, op
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
-		err = fmt.Errorf("unable to create: %v because of unknown cluster: %s for the client", obj, cluster)
-		return
+		return fmt.Errorf("unable to create: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
-	err = clusterClient.Create(ctx, obj, opts...)
-	return
+	return clusterClient.Create(ctx, obj, opts...)
 }
 
 func (mcc *multiClusterClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) (err error) {
@@ -138,15 +134,14 @@ func (mcc *multiClusterClient) Delete(ctx context.Context, obj client.Object, op
 		metrics.NewClientCountMetrics(cluster, "Delete", err).Inc()
 	}()
 
-	cluster, err = getCluater(ctx, obj.GetLabels())
+	cluster, err = getClusterName(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
 
 	if cluster == clusterinfo.Fed {
-		err = mcc.fedClient.Delete(ctx, obj, opts...)
-		return
+		return mcc.fedClient.Delete(ctx, obj, opts...)
 	}
 
 	mcc.mutex.RLock()
@@ -154,11 +149,9 @@ func (mcc *multiClusterClient) Delete(ctx context.Context, obj client.Object, op
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
-		err = fmt.Errorf("unable to delete: %v because of unknown cluster: %s for the client", obj, cluster)
-		return
+		return fmt.Errorf("unable to delete: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
-	err = clusterClient.Delete(ctx, obj, opts...)
-	return
+	return clusterClient.Delete(ctx, obj, opts...)
 }
 
 func (mcc *multiClusterClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) (err error) {
@@ -167,15 +160,14 @@ func (mcc *multiClusterClient) DeleteAllOf(ctx context.Context, obj client.Objec
 		metrics.NewClientCountMetrics(cluster, "DeleteAllOf", err).Inc()
 	}()
 
-	cluster, err = getCluater(ctx, obj.GetLabels())
+	cluster, err = getClusterName(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
 
 	if cluster == clusterinfo.Fed {
-		err = mcc.fedClient.DeleteAllOf(ctx, obj, opts...)
-		return
+		return mcc.fedClient.DeleteAllOf(ctx, obj, opts...)
 	}
 
 	mcc.mutex.RLock()
@@ -194,20 +186,19 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster) //nolint
+			attachClusterTo(obj, cluster)
 		}
 		metrics.NewClientCountMetrics(cluster, "Get", err).Inc()
 	}()
 
-	cluster, err = getCluater(ctx, obj.GetLabels())
+	cluster, err = getClusterName(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
 
 	if cluster == clusterinfo.Fed {
-		err = mcc.fedClient.Get(ctx, key, obj)
-		return err
+		return mcc.fedClient.Get(ctx, key, obj)
 	}
 
 	mcc.mutex.RLock()
@@ -215,18 +206,16 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
-		err = fmt.Errorf("unable to get: %v because of unknown cluster: %s for the client", obj, cluster)
-		return err
+		return fmt.Errorf("unable to get: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
-	err = clusterClient.Get(ctx, key, obj)
-	return err
+	return clusterClient.Get(ctx, key, obj)
 }
 
 func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (err error) {
 	listOpts := client.ListOptions{}
 	listOpts.ApplyOptions(opts)
 
-	clusters, err := mcc.getClusters(ctx)
+	clusters, err := mcc.getClusterNames(ctx)
 	if err != nil {
 		mcc.log.Error(err, "failed to get clusters")
 		return err
@@ -250,8 +239,7 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 			var ok bool
 			c, ok = mcc.clusterToClient[cluster]
 			if !ok {
-				err = fmt.Errorf("unable to list because of unknown cluster: %s for the client", cluster)
-				return err
+				return fmt.Errorf("unable to list because of unknown cluster: %s for the client", cluster)
 			}
 		}
 
@@ -262,7 +250,7 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 			return err
 		}
 
-		attachClusterTo(listObj, cluster) //nolint
+		attachClusterTo(listObj, cluster)
 		items, err := meta.ExtractList(listObj)
 		if err != nil {
 			return err
@@ -284,20 +272,19 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster) //nolint
+			attachClusterTo(obj, cluster)
 		}
 		metrics.NewClientCountMetrics(cluster, "Patch", err).Inc()
 	}()
 
-	cluster, err = getCluater(ctx, obj.GetLabels())
+	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
 
 	if cluster == clusterinfo.Fed {
-		err = mcc.fedClient.Patch(ctx, obj, patch, opts...)
-		return err
+		return mcc.fedClient.Patch(ctx, obj, patch, opts...)
 	}
 
 	mcc.mutex.RLock()
@@ -305,31 +292,28 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
-		err = fmt.Errorf("unable to patch: %v because of unknown cluster: %v for the client", obj, cluster)
-		return err
+		return fmt.Errorf("unable to patch: %v because of unknown cluster: %v for the client", obj, cluster)
 	}
-	err = clusterClient.Patch(ctx, obj, patch, opts...)
-	return err
+	return clusterClient.Patch(ctx, obj, patch, opts...)
 }
 
 func (mcc *multiClusterClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) (err error) {
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster) //nolint
+			attachClusterTo(obj, cluster)
 		}
 		metrics.NewClientCountMetrics(cluster, "Update", err).Inc()
 	}()
 
-	cluster, err = getCluater(ctx, obj.GetLabels())
+	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
 
 	if cluster == clusterinfo.Fed {
-		err = mcc.fedClient.Update(ctx, obj, opts...)
-		return
+		return mcc.fedClient.Update(ctx, obj, opts...)
 	}
 
 	mcc.mutex.RLock()
@@ -340,8 +324,7 @@ func (mcc *multiClusterClient) Update(ctx context.Context, obj client.Object, op
 		err = fmt.Errorf("unable to update: %v because of unknown cluster: %s for the client", obj, cluster)
 		return
 	}
-	err = clusterClient.Update(ctx, obj, opts...)
-	return
+	return clusterClient.Update(ctx, obj, opts...)
 }
 
 func (mcc *multiClusterClient) RESTMapper() meta.RESTMapper {
@@ -370,61 +353,57 @@ func (sw *statusWriter) Update(ctx context.Context, obj client.Object, opts ...c
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster) //nolint
+			attachClusterTo(obj, cluster)
 		}
 		metrics.NewClientCountMetrics(cluster, "StatusUpdate", err).Inc()
 	}()
 
-	cluster, err = getCluater(ctx, obj.GetLabels())
+	// Should not write cluster info into apiserver
+	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
 	if err != nil {
 		sw.log.Error(err, "failed to get cluster")
 		return err
 	}
 
 	if cluster == clusterinfo.Fed {
-		err = sw.fedClient.Status().Update(ctx, obj, opts...)
-		return
+		return sw.fedClient.Status().Update(ctx, obj, opts...)
 	}
 
 	clusterClient, ok := sw.clusterToClient[cluster]
 	if !ok {
-		err = fmt.Errorf("unable to update: %v because of unknown cluster: %s for the client", obj, cluster)
-		return
+		return fmt.Errorf("unable to update: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
-	err = clusterClient.Status().Update(ctx, obj, opts...)
-	return
+	return clusterClient.Status().Update(ctx, obj, opts...)
 }
 
 func (sw *statusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) (err error) {
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster) //nolint
+			attachClusterTo(obj, cluster)
 		}
 		metrics.NewClientCountMetrics(cluster, "StatusPatch", err).Inc()
 	}()
 
-	cluster, err = getCluater(ctx, obj.GetLabels())
+	// Should not write cluster info into apiserver
+	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
 	if err != nil {
 		sw.log.Error(err, "failed to get cluster")
 		return err
 	}
 
 	if cluster == clusterinfo.Fed {
-		err = sw.fedClient.Status().Patch(ctx, obj, patch, opts...)
-		return
+		return sw.fedClient.Status().Patch(ctx, obj, patch, opts...)
 	}
 
 	clusterClient, ok := sw.clusterToClient[cluster]
 	if !ok {
-		err = fmt.Errorf("unable to update: %v because of unknown cluster: %s for the client", obj, cluster)
-		return
+		return fmt.Errorf("unable to update: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
-	err = clusterClient.Status().Patch(ctx, obj, patch, opts...)
-	return
+	return clusterClient.Status().Patch(ctx, obj, patch, opts...)
 }
 
-func (mcc *multiClusterClient) getClusters(ctx context.Context) (clusters []string, err error) {
+func (mcc *multiClusterClient) getClusterNames(ctx context.Context) (clusters []string, err error) {
 	mcc.mutex.RLock()
 	defer mcc.mutex.RUnlock()
 

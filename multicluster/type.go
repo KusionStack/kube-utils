@@ -18,6 +18,7 @@ package multicluster
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -118,17 +119,20 @@ func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
 	w.handler.OnDelete(copiedObj)
 }
 
-func (w *wrapResourceEventHandler) attachClusterTo(handler string, obj interface{}) (copiedObj runtime.Object, attachErr error) {
+func (w *wrapResourceEventHandler) attachClusterTo(handler string, obj interface{}) (copiedObj interface{}, attachErr error) {
 	if o, ok := obj.(client.Object); ok {
-		w.log.V(3).Info("attach cluster to object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
+		w.log.V(3).Info("attach cluster info into object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
 
 		copiedObj = o.DeepCopyObject()
 		attachErr = attachClusterTo(copiedObj, w.cluster)
-	} else if o, ok := obj.(DeepCopy); ok {
-		w.log.V(3).Info("attach cluster to object", "handler", handler, "cluster", w.cluster)
-
-		copiedObj = o.DeepCopyObject()
-		attachErr = attachClusterTo(copiedObj, w.cluster)
+		return copiedObj, attachErr
 	}
-	return
+	if o, ok := obj.(DeepCopy); ok {
+		w.log.V(3).Info("attach cluster info into object", "handler", handler, "cluster", w.cluster)
+
+		copiedObj = o.DeepCopyObject()
+		attachErr = attachClusterTo(copiedObj, w.cluster)
+		return copiedObj, attachErr
+	}
+	return obj, fmt.Errorf("failed to attach cluster info into obj")
 }

@@ -64,7 +64,7 @@ func attachClusterTo(obj interface{}, cluster string) error {
 	return nil
 }
 
-func getCluater(ctx context.Context, label map[string]string) (cluster string, err error) {
+func getClusterName(ctx context.Context, label map[string]string) (cluster string, err error) {
 	clusterFromContext, ok1 := clusterinfo.GetCluster(ctx)
 	if ok1 {
 		cluster = clusterFromContext
@@ -78,6 +78,15 @@ func getCluater(ctx context.Context, label map[string]string) (cluster string, e
 	if (ok1 && ok2 && clusterFromContext != clusterFromLabel) || (!ok1 && !ok2) {
 		return "", fmt.Errorf("invalid cluster")
 	}
+	return
+}
+
+func getThenDeleteClusterName(ctx context.Context, label map[string]string) (cluster string, err error) {
+	cluster, err = getClusterName(ctx, label)
+	if err != nil {
+		return
+	}
+	delete(label, clusterinfo.ClusterLabelKey)
 	return
 }
 
