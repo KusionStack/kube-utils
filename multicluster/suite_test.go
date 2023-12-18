@@ -147,7 +147,10 @@ var _ = BeforeSuite(func() {
 			Version:  "v1",
 			Resource: "deployments",
 		},
+<<<<<<< HEAD
 		ClusterManagermentType: controller.TestCluterManagement,
+=======
+>>>>>>> ef0022d (add UT)
 	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())

@@ -68,6 +68,21 @@ var _ = Describe("cache support no DeepCopy", func() {
 		Expect(podListNoDeepCopy1.Items[0]).ShouldNot(BeEquivalentTo(podListDeepCopy.Items[0]))
 	})
 
+	It("support list without DeepCopy using field index", func() {
+		fieldIndexOption := &client.ListOptions{
+			FieldSelector: fields.AndSelectors(fields.OneTermEqualSelector(TestPodNamespaceFieldIndex, pod.Namespace),
+				fields.OneTermEqualSelector(TestPodContainerNumberFieldIndex, fmt.Sprintf("%d", len(pod.Spec.Containers))))}
+		podListNoDeepCopy1 := &corev1.PodList{}
+		Expect(c.List(context.TODO(), podListNoDeepCopy1, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
+		podListNoDeepCopy2 := &corev1.PodList{}
+		Expect(c.List(context.TODO(), podListNoDeepCopy2, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
+		podListDeepCopy := &corev1.PodList{}
+		Expect(c.List(context.TODO(), podListDeepCopy)).Should(BeNil())
+
+		Expect(podListNoDeepCopy1.Items[0]).Should(BeEquivalentTo(podListNoDeepCopy2.Items[0]))
+		Expect(podListNoDeepCopy1.Items[0]).ShouldNot(BeEquivalentTo(podListDeepCopy.Items[0]))
+	})
+
 	It("support get without DeepCopy", func() {
 		podWithoutDeepCopy1 := &ObjectWithoutDeepCopy{Object: &corev1.Pod{}}
 		Expect(c.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy1)).Should(BeNil())
@@ -83,21 +98,6 @@ var _ = Describe("cache support no DeepCopy", func() {
 		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe == podWithDeepCopy.Spec.Containers[0].ReadinessProbe).Should(BeFalse())
 
 		Expect(errors.IsNotFound(c.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: "not-found"}, podWithoutDeepCopy1))).Should(BeTrue())
-	})
-
-	It("support list without DeepCopy using field index", func() {
-		fieldIndexOption := &client.ListOptions{
-			FieldSelector: fields.AndSelectors(fields.OneTermEqualSelector(TestPodNamespaceFieldIndex, pod.Namespace),
-				fields.OneTermEqualSelector(TestPodContainerNumberFieldIndex, fmt.Sprintf("%d", len(pod.Spec.Containers))))}
-		podListNoDeepCopy1 := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListNoDeepCopy1, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
-		podListNoDeepCopy2 := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListNoDeepCopy2, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
-		podListDeepCopy := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListDeepCopy)).Should(BeNil())
-
-		Expect(podListNoDeepCopy1.Items[0]).Should(BeEquivalentTo(podListNoDeepCopy2.Items[0]))
-		Expect(podListNoDeepCopy1.Items[0]).ShouldNot(BeEquivalentTo(podListDeepCopy.Items[0]))
 	})
 
 	It("support uncached object", func() {

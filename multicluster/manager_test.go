@@ -17,6 +17,7 @@
 package multicluster
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -27,8 +28,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	utilcache "kusionstack.io/kube-utils/cache"
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
@@ -406,4 +410,58 @@ var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
 		_, err := clusterCache.GetInformer(clusterCtx, &configmap)
 		Expect(err).To(HaveOccurred())
 	})
+
+	It("MultiClusterClient supports DisableDeepCopy options", func() {
+		mcc := clusterClient.(*multiClusterClient)
+		mockClient := newMockClient()
+		mcc.clusterToClient["mock"] = mockClient
+		mcc.List(clusterinfo.WithClusters(ctx, []string{"mock"}), &corev1.PodList{}, utilcache.DisableDeepCopy)
+		Expect(mockClient.Observed).Should(BeTrue())
+	})
+
+	It("MultiClusterCache supports DisableDeepCopy options", func() {
+		mcc := clusterCache.(*multiClusterCache)
+		mockCache := &MockCache{Cache: nil}
+		mcc.clusterToCache["mock"] = mockCache
+		mcc.List(clusterinfo.WithClusters(ctx, []string{"mock"}), &corev1.PodList{}, utilcache.DisableDeepCopy)
+		Expect(mockCache.Observed).Should(BeTrue())
+	})
 })
+
+func newMockClient() *MockClient {
+	return &MockClient{
+		WithWatch: fake.NewFakeClient(),
+	}
+}
+
+type MockClient struct {
+	client.WithWatch
+
+	Observed bool
+}
+
+func (mc *MockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	for _, opt := range opts {
+		if opt == utilcache.DisableDeepCopy {
+			mc.Observed = true
+		}
+	}
+
+	return nil
+}
+
+type MockCache struct {
+	cache.Cache
+
+	Observed bool
+}
+
+func (mc *MockCache) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	for _, opt := range opts {
+		if opt == utilcache.DisableDeepCopy {
+			mc.Observed = true
+		}
+	}
+
+	return nil
+}
