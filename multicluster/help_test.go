@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package multicluster
 
 import (
@@ -23,6 +22,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -130,8 +130,7 @@ var _ = Describe("help", func() {
 		podList, ok := podListObj.(*corev1.PodList)
 		Expect(ok).To(BeTrue())
 		for _, pod := range podList.Items {
-			var cluster string
-			cluster, ok = pod.GetLabels()[clusterinfo.ClusterLabelKey]
+			cluster, ok := pod.GetLabels()[clusterinfo.ClusterLabelKey]
 			Expect(ok).To(BeTrue())
 			Expect(cluster).To(Equal("cluster1"))
 		}

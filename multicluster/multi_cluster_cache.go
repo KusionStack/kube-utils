@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package multicluster
 
 import (
@@ -41,7 +40,7 @@ type ClusterCacheManager interface {
 	RemoveClusterCache(cluster string) bool
 }
 
-func MultiClusterCacheBuilder(log logr.Logger, opts *Options) (cache.NewCacheFunc, ClusterCacheManager) {
+func MultiClusterCacheBuilder(log logr.Logger, managerOption *Options) (cache.NewCacheFunc, ClusterCacheManager) {
 	mcc := &multiClusterCache{
 		clusterToCache:   map[string]cache.Cache{},
 		clusterToCancel:  map[string]context.CancelFunc{},
@@ -51,8 +50,8 @@ func MultiClusterCacheBuilder(log logr.Logger, opts *Options) (cache.NewCacheFun
 		log: log,
 	}
 
-	newCacheFunc := func(config *rest.Config, cacheOpts cache.Options) (cache.Cache, error) {
-		fedCache, err := opts.NewCache(config, cacheOpts)
+	newCacheFunc := func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
+		fedCache, err := managerOption.NewCache(config, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create fed cache: %v", err)
 		}
@@ -65,17 +64,17 @@ func MultiClusterCacheBuilder(log logr.Logger, opts *Options) (cache.NewCacheFun
 }
 
 type multiClusterCache struct {
-	fedCache       cache.Cache
-	clusterToCache map[string]cache.Cache
+	fedCache       cache.Cache            // cache for fed cluster
+	clusterToCache map[string]cache.Cache // cluster to cache
 
-	mutex            sync.RWMutex
-	clusterCtx       context.Context
-	started          bool
-	clusterToCancel  map[string]context.CancelFunc
-	objectToInformer map[client.Object]*multiClusterInformer
-	gvkToInformer    map[schema.GroupVersionKind]*multiClusterInformer
+	clusterCtx       context.Context                                   // context for all cluster caches
+	started          bool                                              // whether all known cluster caches already started
+	clusterToCancel  map[string]context.CancelFunc                     // cancel function for each cluster cache
+	objectToInformer map[client.Object]*multiClusterInformer           // object to informer
+	gvkToInformer    map[schema.GroupVersionKind]*multiClusterInformer // gvk to informer
 
-	log logr.Logger
+	mutex sync.RWMutex
+	log   logr.Logger
 }
 
 var _ cache.Cache = &multiClusterCache{}
@@ -87,10 +86,12 @@ func (mcc *multiClusterCache) AddClusterCache(cluster string, clusterCache cache
 	mcc.clusterToCache[cluster] = clusterCache
 	mcc.log.Info("add cluster cache", "cluster", cluster, "other cluster caches started", mcc.started)
 
+	// Wait for all cluster caches to start together
 	if !mcc.started {
 		return
 	}
 
+	// When a new cluster cache is added, we need to start it and add it to the multiClusterInformer for each object and gvk
 	clusterCtx, cancel := context.WithCancel(mcc.clusterCtx)
 	mcc.clusterToCancel[cluster] = cancel
 
@@ -257,7 +258,7 @@ func (mcc *multiClusterCache) GetInformerForKind(ctx context.Context, kind schem
 }
 
 func (mcc *multiClusterCache) Start(ctx context.Context) error {
-	mcc.log.Info("start multicluster cache")
+	mcc.log.Info("start multicluster cache ...")
 
 	go func() {
 		mcc.log.Info("start fed cache")
@@ -279,7 +280,7 @@ func (mcc *multiClusterCache) Start(ctx context.Context) error {
 		go func(clusterCtx context.Context, cluster string, clusterCache cache.Cache) {
 			err := clusterCache.Start(clusterCtx)
 			if err != nil {
-				mcc.log.Error(err, "failed to start cluster", "cluster", cluster)
+				mcc.log.Error(err, "failed to start cluster cache", "cluster", cluster)
 				return
 			}
 		}(clusterCtx, cluster, clusterCache)
@@ -371,9 +372,10 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster) //nolint
+			attachClusterTo(obj, cluster)
 		}
 		metrics.NewCacheCountMetrics(cluster, "Get", err).Inc()
+		return
 	}()
 
 	cluster, err = getCluater(ctx, obj.GetLabels())
@@ -384,7 +386,7 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 
 	if cluster == clusterinfo.Fed {
 		err = mcc.fedCache.Get(ctx, key, obj)
-		return err
+		return
 	}
 
 	mcc.mutex.RLock()
@@ -394,10 +396,10 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 	clusterCache, ok := clusterToCache[cluster]
 	if !ok {
 		err = fmt.Errorf("unable to get: %v because of unknown namespace for the cache", key)
-		return err
+		return
 	}
 	err = clusterCache.Get(ctx, key, obj)
-	return err
+	return
 }
 
 func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (err error) {
@@ -428,7 +430,7 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 			c, ok = clusterToCache[cluster]
 			if !ok {
 				err = fmt.Errorf("unable to get: %v because of unknown cluster for the client", cluster)
-				return err
+				return
 			}
 		}
 
@@ -439,7 +441,7 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 			return err
 		}
 
-		attachClusterTo(list, cluster) //nolint
+		attachClusterTo(list, cluster)
 		items, err := meta.ExtractList(listObj)
 		if err != nil {
 			return err
@@ -454,7 +456,8 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 			}
 		}
 	}
-	return meta.SetList(list, allItems)
+	meta.SetList(list, allItems)
+	return
 }
 
 func (mcc *multiClusterCache) getClusters(ctx context.Context) (clusters []string, multi bool, err error) {
@@ -467,11 +470,11 @@ func (mcc *multiClusterCache) getClusters(ctx context.Context) (clusters []strin
 		return nil, false, err
 	}
 
-	clusters, multi = mcc.convertClusters(clusters)
-	return clusters, multi, nil
+	clusters, multi, err = mcc.convertClusters(clusters)
+	return
 }
 
-func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool) {
+func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool, error) {
 	mcc.mutex.RLock()
 	defer mcc.mutex.RUnlock()
 
@@ -488,11 +491,11 @@ func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool
 		}
 		multi = true
 	}
-	return clusters, multi
+	return clusters, multi, nil
 }
 
 type multiClusterInformer struct {
-	multi             bool
+	multi             bool // whether this informer is for managed clusters, or only for fed cluster
 	kind              string
 	clusterToInformer map[string]cache.Informer
 
@@ -576,7 +579,7 @@ func (mci *multiClusterInformer) addClusterInformer(cluster string, clusterInfor
 	}
 
 	if mci.indexers != nil {
-		clusterInformer.AddIndexers(mci.indexers) //nolint
+		clusterInformer.AddIndexers(mci.indexers)
 	}
 
 	mci.clusterToInformer[cluster] = clusterInformer

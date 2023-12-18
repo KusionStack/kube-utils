@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package controller
 
 import (
@@ -38,8 +37,15 @@ import (
 	"kusionstack.io/kube-utils/multicluster/metrics"
 )
 
+type ClusterManagermentType string
+
+const (
+	AlipayOpenClusterManagement ClusterManagermentType = "AlipayOpenClusterManagement"
+	TestCluterManagement        ClusterManagermentType = "TestCluterManagement"
+)
+
 var (
-	DefaultGVRForCluster = schema.GroupVersionResource{
+	AlipayOpenClusterManagementGVR = schema.GroupVersionResource{
 		Group:    "cluster.alipay-addon.open-cluster-management.io",
 		Version:  "v1",
 		Resource: "clusterextensions",
@@ -47,49 +53,76 @@ var (
 )
 
 type Controller struct {
-	client          dynamic.Interface
+	config                 *rest.Config
+	clusterManagermentType ClusterManagermentType
+	clusterManagermentGVR  schema.GroupVersionResource
+
+	client          dynamic.Interface // client to get cluster info
 	informerFactory dynamicinformer.DynamicSharedInformerFactory
-	gvr             schema.GroupVersionResource
 	informer        cache.SharedIndexInformer
-	hasSynced       cache.InformerSynced
 	workqueue       workqueue.RateLimitingInterface
 
 	mutex     sync.Mutex
-	syncedNum int
+	syncedNum int // number of synced cluster
 	syncedCh  chan struct{}
 
-	addUpdateHandler func(string) error
-	deleteHandler    func(string)
+	addUpdateHandler func(string) error // when cluster is added or updated, this handler will be called
+	deleteHandler    func(string)       // when cluster is deleted, this handler will be called
 	log              logr.Logger
+
+	// for test
+	restConfigForCluster func(cluster string) *rest.Config
 }
 
 type ControllerConfig struct {
-	Config       *rest.Config
-	GVR          *schema.GroupVersionResource
-	ResyncPeriod time.Duration
-	Log          logr.Logger
+	Config                 *rest.Config // config for cluster managerment
+	ClusterManagermentType ClusterManagermentType
+	ResyncPeriod           time.Duration // resync period for cluster managerment
+	Log                    logr.Logger
+
+	// for test
+	ClusterManagermentGVR *schema.GroupVersionResource
+	RestConfigForCluster  func(cluster string) *rest.Config
 }
 
+// NewController creates a new Controller which will process events about cluster.
 func NewController(cfg *ControllerConfig) (*Controller, error) {
+	var clusterManagermentGVR schema.GroupVersionResource
+	switch cfg.ClusterManagermentType {
+	case AlipayOpenClusterManagement:
+		clusterManagermentGVR = AlipayOpenClusterManagementGVR
+	case TestCluterManagement:
+		if cfg.ClusterManagermentGVR == nil || cfg.RestConfigForCluster == nil {
+			return nil, fmt.Errorf("ClusterManagermentGVR and RestConfigForCluster must be set when in test mode")
+		}
+		clusterManagermentGVR = *cfg.ClusterManagermentGVR
+	default:
+		return nil, fmt.Errorf("not support cluster managerment type: %d", cfg.ClusterManagermentType)
+	}
+
 	client, err := dynamic.NewForConfig(cfg.Config)
 	if err != nil {
 		return nil, err
 	}
 	informerFactory := dynamicinformer.NewDynamicSharedInformerFactory(client, cfg.ResyncPeriod)
-	infomer := informerFactory.ForResource(*cfg.GVR).Informer()
+	informer := informerFactory.ForResource(clusterManagermentGVR).Informer()
 
 	return &Controller{
-		client:          client,
-		informerFactory: informerFactory,
-		gvr:             *cfg.GVR,
-		informer:        infomer,
-		hasSynced:       infomer.HasSynced,
-		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), (*cfg.GVR).Resource),
-		syncedCh:        make(chan struct{}),
-		log:             cfg.Log,
+		config:                 cfg.Config,
+		client:                 client,
+		informerFactory:        informerFactory,
+		clusterManagermentType: cfg.ClusterManagermentType,
+		clusterManagermentGVR:  clusterManagermentGVR,
+		informer:               informer,
+		workqueue:              workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), clusterManagermentGVR.Resource),
+		syncedCh:               make(chan struct{}),
+		log:                    cfg.Log,
+
+		restConfigForCluster: cfg.RestConfigForCluster,
 	}, nil
 }
 
+// AddEventHandler adds event handler for events about cluster.
 func (c *Controller) AddEventHandler(addUpdateHandler func(string) error, deleteHandler func(string)) {
 	c.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: c.enqueueClusterExtension,
@@ -109,7 +142,8 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 
 	c.informerFactory.Start(stopCh)
 
-	if ok := cache.WaitForCacheSync(stopCh, c.hasSynced); !ok {
+	// Wait for the caches to be synced before starting workers
+	if ok := cache.WaitForCacheSync(stopCh, c.informer.HasSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
@@ -117,6 +151,7 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	c.syncedNum = c.workqueue.Len()
 	c.mutex.Unlock()
 
+	// Start workers to process cluster events
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
@@ -127,7 +162,7 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 
 func (c *Controller) WaitForSynced(ctx context.Context) bool {
 	select {
-	case <-c.syncedCh:
+	case <-c.syncedCh: // Wait for all cluster has been processed
 		return true
 	case <-ctx.Done():
 		return false
@@ -190,6 +225,7 @@ func (c *Controller) processNextWorkItem() bool {
 	return true
 }
 
+// eventHandler is called when an event about cluster is received.
 func (c *Controller) eventHandler(key string) error {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -197,15 +233,35 @@ func (c *Controller) eventHandler(key string) error {
 		return nil
 	}
 
-	_, err = c.client.Resource(c.gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	_, err = c.client.Resource(c.clusterManagermentGVR).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			c.deleteHandler(name)
 			return nil
 		}
 		c.log.Error(err, "failed to get resource", "key", key)
-		return nil
+		return err
 	}
 
-	return c.addUpdateHandler(name)
+	err = c.addUpdateHandler(name)
+	if err != nil {
+		c.log.Error(err, "failed to add or update cluster", "key", key)
+		return err
+	}
+
+	return nil
+}
+
+// GetClusterConfig returns the rest config for the mangered cluster.
+func (c *Controller) RestConfigForCluster(cluster string) *rest.Config {
+	switch c.clusterManagermentType {
+	case AlipayOpenClusterManagement:
+		clusterConfig := *c.config
+		clusterConfig.Host = fmt.Sprintf("%s/apis/%s/%s/%s/%s/proxy", clusterConfig.Host, AlipayOpenClusterManagementGVR.Group, AlipayOpenClusterManagementGVR.Version, AlipayOpenClusterManagementGVR.Resource, cluster)
+		return &clusterConfig
+	case TestCluterManagement:
+		return c.restConfigForCluster(cluster)
+	default:
+		return nil
+	}
 }

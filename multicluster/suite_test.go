@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package multicluster
 
 import (
@@ -31,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
+
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -131,7 +131,7 @@ var _ = BeforeSuite(func() {
 		ClusterScheme: clusterScheme,
 		ResyncPeriod:  10 * time.Minute,
 
-		ClusterToRestConfig: func(clusterName string) *rest.Config {
+		RestConfigForCluster: func(clusterName string) *rest.Config {
 			switch clusterName {
 			case "cluster1":
 				return clusterConfig1
@@ -141,7 +141,7 @@ var _ = BeforeSuite(func() {
 				return fedConfig
 			}
 		},
-		GVRForCluster: &schema.GroupVersionResource{
+		ClusterManagermentGVR: &schema.GroupVersionResource{
 			Group:    "apps",
 			Version:  "v1",
 			Resource: "deployments",
