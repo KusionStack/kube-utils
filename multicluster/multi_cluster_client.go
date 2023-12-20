@@ -52,9 +52,10 @@ func MultiClusterClientBuilder(log logr.Logger) (cluster.NewClientFunc, ClusterC
 		}
 
 		delegatingFedClient, err := client.NewDelegatingClient(client.NewDelegatingClientInput{
-			CacheReader:     cache,
-			Client:          fedClient,
-			UncachedObjects: uncachedObjects,
+			CacheReader:       cache,
+			Client:            fedClient,
+			UncachedObjects:   uncachedObjects,
+			CacheUnstructured: true,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create fed client: %v", err)
@@ -108,7 +109,8 @@ func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, op
 		metrics.NewClientCountMetrics(cluster, "Create", err)
 	}()
 
-	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
+	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
+	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
@@ -134,7 +136,7 @@ func (mcc *multiClusterClient) Delete(ctx context.Context, obj client.Object, op
 		metrics.NewClientCountMetrics(cluster, "Delete", err).Inc()
 	}()
 
-	cluster, err = getClusterName(ctx, obj.GetLabels())
+	cluster, err = getCluster(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
@@ -160,7 +162,7 @@ func (mcc *multiClusterClient) DeleteAllOf(ctx context.Context, obj client.Objec
 		metrics.NewClientCountMetrics(cluster, "DeleteAllOf", err).Inc()
 	}()
 
-	cluster, err = getClusterName(ctx, obj.GetLabels())
+	cluster, err = getCluster(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
@@ -186,12 +188,12 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterToObjects(cluster, obj)
 		}
 		metrics.NewClientCountMetrics(cluster, "Get", err).Inc()
 	}()
 
-	cluster, err = getClusterName(ctx, obj.GetLabels())
+	cluster, err = getCluster(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
@@ -250,11 +252,13 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 			return err
 		}
 
-		attachClusterTo(listObj, cluster)
 		items, err := meta.ExtractList(listObj)
 		if err != nil {
 			return err
 		}
+
+		// Attach cluster name to each item
+		attachClusterToObjects(cluster, items...)
 
 		allItems = append(allItems, items...)
 
@@ -272,12 +276,13 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterToObjects(cluster, obj)
 		}
 		metrics.NewClientCountMetrics(cluster, "Patch", err).Inc()
 	}()
 
-	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
+	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
+	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
@@ -301,12 +306,13 @@ func (mcc *multiClusterClient) Update(ctx context.Context, obj client.Object, op
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterToObjects(cluster, obj)
 		}
 		metrics.NewClientCountMetrics(cluster, "Update", err).Inc()
 	}()
 
-	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
+	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
+	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
@@ -353,13 +359,13 @@ func (sw *statusWriter) Update(ctx context.Context, obj client.Object, opts ...c
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterToObjects(cluster, obj)
 		}
 		metrics.NewClientCountMetrics(cluster, "StatusUpdate", err).Inc()
 	}()
 
-	// Should not write cluster info into apiserver
-	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
+	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
+	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
 		sw.log.Error(err, "failed to get cluster")
 		return err
@@ -380,13 +386,13 @@ func (sw *statusWriter) Patch(ctx context.Context, obj client.Object, patch clie
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterToObjects(cluster, obj)
 		}
 		metrics.NewClientCountMetrics(cluster, "StatusPatch", err).Inc()
 	}()
 
-	// Should not write cluster info into apiserver
-	cluster, err = getThenDeleteClusterName(ctx, obj.GetLabels())
+	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
+	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
 		sw.log.Error(err, "failed to get cluster")
 		return err

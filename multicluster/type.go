@@ -84,8 +84,8 @@ type DeepCopy interface {
 }
 
 func (w *wrapResourceEventHandler) OnAdd(obj interface{}) {
-	copiedObj, attachErr := w.attachClusterTo("OnAdd", obj)
-	if copiedObj == nil || attachErr != nil {
+	copiedObj, attachErr := w.attachCluster("OnAdd", obj)
+	if attachErr != nil {
 		w.log.V(3).Info("OnAdd", "cluster", w.cluster)
 		w.handler.OnAdd(obj)
 		return
@@ -95,8 +95,8 @@ func (w *wrapResourceEventHandler) OnAdd(obj interface{}) {
 }
 
 func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
-	copiedOlbObj, attchOldErr := w.attachClusterTo("OnUpdate", oldObj)
-	copiedNewObj, attachNewErr := w.attachClusterTo("OnUpdate", newObj)
+	copiedOlbObj, attchOldErr := w.attachCluster("OnUpdate", oldObj)
+	copiedNewObj, attachNewErr := w.attachCluster("OnUpdate", newObj)
 
 	if copiedOlbObj == nil || attchOldErr != nil ||
 		copiedNewObj == nil || attachNewErr != nil {
@@ -109,8 +109,8 @@ func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 }
 
 func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
-	copiedObj, attachErr := w.attachClusterTo("OnDelete", obj)
-	if copiedObj == nil || attachErr != nil {
+	copiedObj, attachErr := w.attachCluster("OnDelete", obj)
+	if attachErr != nil {
 		w.log.V(3).Info("OnDelete", "cluster", w.cluster)
 		w.handler.OnDelete(obj)
 		return
@@ -119,20 +119,13 @@ func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
 	w.handler.OnDelete(copiedObj)
 }
 
-func (w *wrapResourceEventHandler) attachClusterTo(handler string, obj interface{}) (copiedObj interface{}, attachErr error) {
+func (w *wrapResourceEventHandler) attachCluster(handler string, obj interface{}) (interface{}, error) {
 	if o, ok := obj.(client.Object); ok {
 		w.log.V(3).Info("attach cluster info into object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
 
-		copiedObj = o.DeepCopyObject()
-		attachErr = attachClusterTo(copiedObj, w.cluster)
-		return copiedObj, attachErr
+		copiedObj := o.DeepCopyObject()
+		attachClusterToObjects(w.cluster, copiedObj)
+		return copiedObj, nil
 	}
-	if o, ok := obj.(DeepCopy); ok {
-		w.log.V(3).Info("attach cluster info into object", "handler", handler, "cluster", w.cluster)
-
-		copiedObj = o.DeepCopyObject()
-		attachErr = attachClusterTo(copiedObj, w.cluster)
-		return copiedObj, attachErr
-	}
-	return obj, fmt.Errorf("failed to attach cluster info into obj")
+	return nil, fmt.Errorf("failed to attach cluster info into obj")
 }

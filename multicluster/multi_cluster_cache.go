@@ -372,12 +372,12 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 	var cluster string
 	defer func() {
 		if err == nil {
-			attachClusterTo(obj, cluster)
+			attachClusterToObjects(cluster, obj)
 		}
 		metrics.NewCacheCountMetrics(cluster, "Get", err).Inc()
 	}()
 
-	cluster, err = getClusterName(ctx, obj.GetLabels())
+	cluster, err = getCluster(ctx, obj.GetLabels())
 	if err != nil {
 		mcc.log.Error(err, "failed to get cluster")
 		return err
@@ -437,11 +437,13 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 			return err
 		}
 
-		attachClusterTo(list, cluster)
 		items, err := meta.ExtractList(listObj)
 		if err != nil {
 			return err
 		}
+
+		// Attach cluster name to each item
+		attachClusterToObjects(cluster, items...)
 
 		allItems = append(allItems, items...)
 

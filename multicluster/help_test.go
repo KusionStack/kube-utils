@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
@@ -125,8 +126,10 @@ var _ = Describe("help", func() {
 		err := json.Unmarshal([]byte(podListInput), podListObj)
 		Expect(err).NotTo(HaveOccurred())
 
-		err = attachClusterTo(podListObj, "cluster1")
+		items, err := meta.ExtractList(podListObj)
 		Expect(err).NotTo(HaveOccurred())
+
+		attachClusterToObjects("cluster1", items...)
 
 		podList, ok := podListObj.(*corev1.PodList)
 		Expect(ok).To(BeTrue())
@@ -140,8 +143,7 @@ var _ = Describe("help", func() {
 		err = json.Unmarshal([]byte(podInput), podObj)
 		Expect(err).NotTo(HaveOccurred())
 
-		err = attachClusterTo(podObj, "cluster2")
-		Expect(err).NotTo(HaveOccurred())
+		attachClusterToObjects("cluster2", podObj)
 
 		pod, ok := podObj.(*corev1.Pod)
 		Expect(ok).To(BeTrue())
@@ -176,7 +178,7 @@ var _ = Describe("help", func() {
 			},
 		}
 		for _, v := range cases {
-			cluster, err := getClusterName(v.context, v.labels)
+			cluster, err := getCluster(v.context, v.labels)
 			if v.err != nil {
 				Expect(err).To(HaveOccurred())
 			} else {
