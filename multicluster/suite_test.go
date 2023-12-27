@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
+	"kusionstack.io/kube-utils/multicluster/controller"
 )
 
 var (
@@ -146,6 +147,7 @@ var _ = BeforeSuite(func() {
 			Version:  "v1",
 			Resource: "deployments",
 		},
+		ClusterManagermentType: controller.TestCluterManagement,
 	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())

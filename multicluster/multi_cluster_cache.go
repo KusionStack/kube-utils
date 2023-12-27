@@ -159,7 +159,7 @@ func (mcc *multiClusterCache) RemoveClusterCache(cluster string) bool {
 
 func (mcc *multiClusterCache) GetInformer(ctx context.Context, obj client.Object) (cache.Informer, error) {
 	var clusters []string
-	clusters, multi, err := mcc.getClusters(ctx)
+	clusters, enableMultiple, err := mcc.getClusters(ctx)
 	if err != nil {
 		mcc.log.Error(err, "failed to get clusters", "kind", reflect.TypeOf(obj).String())
 		return nil, err
@@ -197,7 +197,7 @@ func (mcc *multiClusterCache) GetInformer(ctx context.Context, obj client.Object
 	}
 
 	mci := &multiClusterInformer{
-		multi:             multi,
+		enableMultiple:    enableMultiple,
 		kind:              reflect.TypeOf(obj).String(),
 		clusterToInformer: informers,
 		log:               mcc.log,
@@ -209,7 +209,7 @@ func (mcc *multiClusterCache) GetInformer(ctx context.Context, obj client.Object
 
 func (mcc *multiClusterCache) GetInformerForKind(ctx context.Context, kind schema.GroupVersionKind) (cache.Informer, error) {
 	var clusters []string
-	clusters, multi, err := mcc.getClusters(ctx)
+	clusters, enableMultiple, err := mcc.getClusters(ctx)
 	if err != nil {
 		mcc.log.Error(err, "failed to get clusters")
 		return nil, err
@@ -247,7 +247,7 @@ func (mcc *multiClusterCache) GetInformerForKind(ctx context.Context, kind schem
 	}
 
 	mci := &multiClusterInformer{
-		multi:             multi,
+		enableMultiple:    enableMultiple,
 		kind:              kind.String(),
 		clusterToInformer: informers,
 		log:               mcc.log,
@@ -457,7 +457,7 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 	return meta.SetList(list, allItems)
 }
 
-func (mcc *multiClusterCache) getClusters(ctx context.Context) (clusters []string, multi bool, err error) {
+func (mcc *multiClusterCache) getClusters(ctx context.Context) (clusters []string, enableMultiple bool, err error) {
 	clusters, ok := clusterinfo.GetClusters(ctx)
 	if !ok {
 		return nil, false, fmt.Errorf("invalid context")
@@ -467,7 +467,7 @@ func (mcc *multiClusterCache) getClusters(ctx context.Context) (clusters []strin
 		return nil, false, err
 	}
 
-	clusters, multi = mcc.convertClusters(clusters)
+	clusters, enableMultiple = mcc.convertClusters(clusters)
 	return
 }
 
@@ -475,7 +475,7 @@ func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool
 	mcc.mutex.RLock()
 	defer mcc.mutex.RUnlock()
 
-	multi := false
+	enableMultiple := false
 	if len(clusters) == 1 && clusters[0] == clusterinfo.All {
 		clusters = []string{clusterinfo.Fed}
 		for cluster := range mcc.clusterToCache {
@@ -486,13 +486,13 @@ func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool
 		for cluster := range mcc.clusterToCache {
 			clusters = append(clusters, cluster)
 		}
-		multi = true
+		enableMultiple = true
 	}
-	return clusters, multi
+	return clusters, enableMultiple
 }
 
 type multiClusterInformer struct {
-	multi             bool // whether this informer is for managed clusters, or only for fed cluster
+	enableMultiple    bool // whether this informer is for managed clusters, or only for fed cluster
 	kind              string
 	clusterToInformer map[string]cache.Informer
 
@@ -511,7 +511,7 @@ func (mci *multiClusterInformer) AddEventHandler(handler toolscache.ResourceEven
 	defer mci.mutex.RUnlock()
 
 	for cluster, informer := range mci.clusterToInformer {
-		mci.log.Info("add event handler", "multi", mci.multi, "cluster", cluster, "kind", mci.kind)
+		mci.log.Info("add event handler", "enableMultiple", mci.enableMultiple, "cluster", cluster, "kind", mci.kind)
 
 		w := &wrapResourceEventHandler{
 			cluster: cluster,
@@ -528,7 +528,7 @@ func (mci *multiClusterInformer) AddEventHandlerWithResyncPeriod(handler toolsca
 	defer mci.mutex.RUnlock()
 
 	for cluster, informer := range mci.clusterToInformer {
-		mci.log.Info("add event handler", "multi", mci.multi, "cluster", cluster, "kind", mci.kind)
+		mci.log.Info("add event handler", "enableMultiple", mci.enableMultiple, "cluster", cluster, "kind", mci.kind)
 
 		w := &wrapResourceEventHandler{
 			cluster: cluster,
@@ -589,5 +589,5 @@ func (mci *multiClusterInformer) removeClusterInformer(cluster string) {
 }
 
 func (mci *multiClusterInformer) isMulti() bool {
-	return mci.multi
+	return mci.enableMultiple
 }

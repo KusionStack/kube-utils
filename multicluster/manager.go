@@ -57,15 +57,17 @@ func setOptionsDefaults(opts Options) Options {
 }
 
 type ManagerConfig struct {
-	FedConfig     *rest.Config
-	ClusterScheme *runtime.Scheme
+	FedConfig              *rest.Config
+	ClusterScheme          *runtime.Scheme
+	ClusterManagermentGVR  *schema.GroupVersionResource
+	ClusterManagermentType controller.ClusterManagermentType
+
 	ResyncPeriod  time.Duration
 	ClusterFilter func(string) bool // select cluster
 	Log           logr.Logger
 
 	// for test
-	ClusterManagermentGVR *schema.GroupVersionResource
-	RestConfigForCluster  func(cluster string) *rest.Config
+	RestConfigForCluster func(cluster string) *rest.Config
 }
 
 type Manager struct {
@@ -115,21 +117,19 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 		}
 	}
 
-	var clusterManagermentType controller.ClusterManagermentType
-	if cfg.ClusterManagermentGVR != nil {
-		clusterManagermentType = controller.TestCluterManagement
-	} else {
-		clusterManagermentType = controller.OpenClusterManagement
+	clusterManagermentType := controller.OpenClusterManagement
+	if cfg.ClusterManagermentType != "" {
+		clusterManagermentType = cfg.ClusterManagermentType
 	}
 
 	controller, err := controller.NewController(&controller.ControllerConfig{
 		Config:                 cfg.FedConfig,
 		ResyncPeriod:           cfg.ResyncPeriod,
 		ClusterManagermentType: clusterManagermentType,
+		ClusterManagermentGVR:  cfg.ClusterManagermentGVR,
 		Log:                    log,
 
-		ClusterManagermentGVR: cfg.ClusterManagermentGVR,
-		RestConfigForCluster:  cfg.RestConfigForCluster,
+		RestConfigForCluster: cfg.RestConfigForCluster,
 	})
 	if err != nil {
 		return nil, nil, nil, err
