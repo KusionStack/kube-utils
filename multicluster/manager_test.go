@@ -317,11 +317,12 @@ var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
 		Expect(len(configmaps.Items)).To(Equal(2))
 
 		var configmap corev1.ConfigMap
-		clusterClient.DeleteAllOf(clusterCtx, &configmap, &client.DeleteAllOfOptions{
+		err = clusterClient.DeleteAllOf(clusterCtx, &configmap, &client.DeleteAllOfOptions{
 			ListOptions: client.ListOptions{
 				Namespace: "default",
 			},
 		})
+		Expect(err).NotTo(HaveOccurred())
 
 		time.Sleep(300 * time.Millisecond)
 

@@ -18,6 +18,7 @@ package multicluster
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -83,9 +84,9 @@ type DeepCopy interface {
 }
 
 func (w *wrapResourceEventHandler) OnAdd(obj interface{}) {
-	copiedObj, attachErr := w.attachClusterTo("OnAdd", obj)
-	if copiedObj == nil || attachErr != nil {
-		w.log.V(3).Info("OnAdd", "cluster", w.cluster)
+	copiedObj, attachErr := w.attachCluster("OnAdd", obj)
+	if attachErr != nil {
+		w.log.Error(attachErr, "failed to attach cluster into object", "cluster", w.cluster)
 		w.handler.OnAdd(obj)
 		return
 	}
@@ -94,12 +95,16 @@ func (w *wrapResourceEventHandler) OnAdd(obj interface{}) {
 }
 
 func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
-	copiedOlbObj, attchOldErr := w.attachClusterTo("OnUpdate", oldObj)
-	copiedNewObj, attachNewErr := w.attachClusterTo("OnUpdate", newObj)
+	copiedOlbObj, attchOldErr := w.attachCluster("OnUpdate", oldObj)
+	if attchOldErr != nil {
+		w.log.Error(attchOldErr, "failed to attach cluster into old object", "cluster", w.cluster)
+		w.handler.OnUpdate(oldObj, newObj)
+		return
+	}
 
-	if copiedOlbObj == nil || attchOldErr != nil ||
-		copiedNewObj == nil || attachNewErr != nil {
-		w.log.V(3).Info("OnUpdate", "cluster", w.cluster)
+	copiedNewObj, attachNewErr := w.attachCluster("OnUpdate", newObj)
+	if attachNewErr != nil {
+		w.log.Error(attachNewErr, "failed to attach cluster into new object", "cluster", w.cluster)
 		w.handler.OnUpdate(oldObj, newObj)
 		return
 	}
@@ -108,9 +113,9 @@ func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 }
 
 func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
-	copiedObj, attachErr := w.attachClusterTo("OnDelete", obj)
-	if copiedObj == nil || attachErr != nil {
-		w.log.V(3).Info("OnDelete", "cluster", w.cluster)
+	copiedObj, attachErr := w.attachCluster("OnDelete", obj)
+	if attachErr != nil {
+		w.log.Error(attachErr, "failed to attach cluster into object", "cluster", w.cluster)
 		w.handler.OnDelete(obj)
 		return
 	}
@@ -118,17 +123,13 @@ func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
 	w.handler.OnDelete(copiedObj)
 }
 
-func (w *wrapResourceEventHandler) attachClusterTo(handler string, obj interface{}) (copiedObj runtime.Object, attachErr error) {
+func (w *wrapResourceEventHandler) attachCluster(handler string, obj interface{}) (interface{}, error) {
 	if o, ok := obj.(client.Object); ok {
-		w.log.V(3).Info("attach cluster to object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
+		w.log.V(5).Info("attach cluster info into object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
 
-		copiedObj = o.DeepCopyObject()
-		attachErr = attachClusterTo(copiedObj, w.cluster)
-	} else if o, ok := obj.(DeepCopy); ok {
-		w.log.V(3).Info("attach cluster to object", "handler", handler, "cluster", w.cluster)
-
-		copiedObj = o.DeepCopyObject()
-		attachErr = attachClusterTo(copiedObj, w.cluster)
+		copiedObj := o.DeepCopyObject()
+		attachClusterToObjects(w.cluster, copiedObj)
+		return copiedObj, nil
 	}
-	return
+	return nil, fmt.Errorf("invalid object")
 }

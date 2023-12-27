@@ -23,7 +23,9 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
@@ -124,14 +126,15 @@ var _ = Describe("help", func() {
 		err := json.Unmarshal([]byte(podListInput), podListObj)
 		Expect(err).NotTo(HaveOccurred())
 
-		err = attachClusterTo(podListObj, "cluster1")
+		items, err := meta.ExtractList(podListObj)
 		Expect(err).NotTo(HaveOccurred())
+
+		attachClusterToObjects("cluster1", items...)
 
 		podList, ok := podListObj.(*corev1.PodList)
 		Expect(ok).To(BeTrue())
 		for _, pod := range podList.Items {
-			var cluster string
-			cluster, ok = pod.GetLabels()[clusterinfo.ClusterLabelKey]
+			cluster, ok := pod.GetLabels()[clusterinfo.ClusterLabelKey]
 			Expect(ok).To(BeTrue())
 			Expect(cluster).To(Equal("cluster1"))
 		}
@@ -140,8 +143,7 @@ var _ = Describe("help", func() {
 		err = json.Unmarshal([]byte(podInput), podObj)
 		Expect(err).NotTo(HaveOccurred())
 
-		err = attachClusterTo(podObj, "cluster2")
-		Expect(err).NotTo(HaveOccurred())
+		attachClusterToObjects("cluster2", podObj)
 
 		pod, ok := podObj.(*corev1.Pod)
 		Expect(ok).To(BeTrue())
@@ -160,7 +162,7 @@ var _ = Describe("help", func() {
 			{
 				context: clusterinfo.ContextFed,
 				labels:  map[string]string{},
-				cluster: "fed",
+				cluster: clusterinfo.Fed,
 			},
 			{
 				context: clusterinfo.WithCluster(context.Background(), "cluster2"),
@@ -176,7 +178,7 @@ var _ = Describe("help", func() {
 			},
 		}
 		for _, v := range cases {
-			cluster, err := getCluater(v.context, v.labels)
+			cluster, err := getCluster(v.context, v.labels)
 			if v.err != nil {
 				Expect(err).To(HaveOccurred())
 			} else {

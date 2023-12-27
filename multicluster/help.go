@@ -20,51 +20,25 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
-func attachClusterTo(obj interface{}, cluster string) error {
-	m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
-	if err != nil {
-		return err
-	}
-	u := unstructured.Unstructured{Object: m}
-
-	if u.IsList() {
-		list, err := u.ToList()
-		if err != nil {
-			return err
-		}
-		for _, item := range list.Items {
-			labels := item.GetLabels()
-			if labels == nil {
-				labels = make(map[string]string)
-			}
-			labels[clusterinfo.ClusterLabelKey] = cluster
-
-			item.SetLabels(labels)
-		}
-	} else {
-		labels := u.GetLabels()
+func attachClusterToObjects(cluster string, objects ...runtime.Object) {
+	for _, obj := range objects {
+		metaOjbect := obj.(metav1.Object)
+		labels := metaOjbect.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
 		}
 		labels[clusterinfo.ClusterLabelKey] = cluster
-
-		u.SetLabels(labels)
+		metaOjbect.SetLabels(labels)
 	}
-
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(m, obj)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
-func getCluater(ctx context.Context, label map[string]string) (cluster string, err error) {
+func getCluster(ctx context.Context, label map[string]string) (cluster string, err error) {
 	clusterFromContext, ok1 := clusterinfo.GetCluster(ctx)
 	if ok1 {
 		cluster = clusterFromContext
@@ -78,6 +52,15 @@ func getCluater(ctx context.Context, label map[string]string) (cluster string, e
 	if (ok1 && ok2 && clusterFromContext != clusterFromLabel) || (!ok1 && !ok2) {
 		return "", fmt.Errorf("invalid cluster")
 	}
+	return
+}
+
+func getThenDeleteCluster(ctx context.Context, label map[string]string) (cluster string, err error) {
+	cluster, err = getCluster(ctx, label)
+	if err != nil {
+		return
+	}
+	delete(label, clusterinfo.ClusterLabelKey)
 	return
 }
 

@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
+	"kusionstack.io/kube-utils/multicluster/controller"
 )
 
 var (
@@ -47,13 +48,13 @@ var (
 	fedClient client.Client
 
 	clusterEnv1    *envtest.Environment
-	clusterClient1 client.Client
+	clusterClient1 client.Client // cluster 1 client
 
 	clusterEnv2    *envtest.Environment
-	clusterClient2 client.Client
+	clusterClient2 client.Client // cluster 2 client
 
-	clusterClient client.Client
-	clusterCache  cache.Cache
+	clusterClient client.Client // multi cluster client
+	clusterCache  cache.Cache   // multi cluster cache
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -125,13 +126,13 @@ var _ = BeforeSuite(func() {
 		newCacheFunc  cache.NewCacheFunc
 		newClientFunc cluster.NewClientFunc
 	)
-	os.Setenv(clusterinfo.EnvClusterWhiteList, "cluster1,cluster2")
+	os.Setenv(clusterinfo.EnvClusterAllowList, "cluster1,cluster2")
 	manager, newCacheFunc, newClientFunc, err = NewManager(&ManagerConfig{
 		FedConfig:     fedConfig,
 		ClusterScheme: clusterScheme,
 		ResyncPeriod:  10 * time.Minute,
 
-		ClusterToRestConfig: func(clusterName string) *rest.Config {
+		RestConfigForCluster: func(clusterName string) *rest.Config {
 			switch clusterName {
 			case "cluster1":
 				return clusterConfig1
@@ -141,11 +142,12 @@ var _ = BeforeSuite(func() {
 				return fedConfig
 			}
 		},
-		GVRForCluster: &schema.GroupVersionResource{
+		ClusterManagermentGVR: &schema.GroupVersionResource{
 			Group:    "apps",
 			Version:  "v1",
 			Resource: "deployments",
 		},
+		ClusterManagermentType: controller.TestCluterManagement,
 	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())
