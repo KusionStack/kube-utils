@@ -41,16 +41,8 @@ import (
 type ClusterManagermentType string
 
 const (
-	AlipayOpenClusterManagement ClusterManagermentType = "AlipayOpenClusterManagement"
-	TestCluterManagement        ClusterManagermentType = "TestCluterManagement"
-)
-
-var (
-	AlipayOpenClusterManagementGVR = schema.GroupVersionResource{
-		Group:    "cluster.alipay-addon.open-cluster-management.io",
-		Version:  "v1",
-		Resource: "clusterextensions",
-	}
+	OpenClusterManagement ClusterManagermentType = "OpenClusterManagement"
+	TestCluterManagement  ClusterManagermentType = "TestCluterManagement"
 )
 
 type Controller struct {
@@ -78,23 +70,26 @@ type Controller struct {
 type ControllerConfig struct {
 	Config                 *rest.Config // config for cluster managerment
 	ClusterManagermentType ClusterManagermentType
+	ClusterManagermentGVR  *schema.GroupVersionResource
 	ResyncPeriod           time.Duration // resync period for cluster managerment
 	Log                    logr.Logger
 
 	// for test
-	ClusterManagermentGVR *schema.GroupVersionResource
-	RestConfigForCluster  func(cluster string) *rest.Config
+	RestConfigForCluster func(cluster string) *rest.Config
 }
 
 // NewController creates a new Controller which will process events about cluster.
 func NewController(cfg *ControllerConfig) (*Controller, error) {
 	var clusterManagermentGVR schema.GroupVersionResource
 	switch cfg.ClusterManagermentType {
-	case AlipayOpenClusterManagement:
-		clusterManagermentGVR = AlipayOpenClusterManagementGVR
+	case OpenClusterManagement:
+		if cfg.ClusterManagermentGVR == nil {
+			return nil, fmt.Errorf("ClusterManagermentGVR must be set when use %s", cfg.ClusterManagermentType)
+		}
+		clusterManagermentGVR = *cfg.ClusterManagermentGVR
 	case TestCluterManagement:
 		if cfg.ClusterManagermentGVR == nil || cfg.RestConfigForCluster == nil {
-			return nil, fmt.Errorf("ClusterManagermentGVR and RestConfigForCluster must be set when in test mode")
+			return nil, fmt.Errorf("ClusterManagermentGVR and RestConfigForCluster must be set when use %s", cfg.ClusterManagermentType)
 		}
 		clusterManagermentGVR = *cfg.ClusterManagermentGVR
 	default:
@@ -256,9 +251,9 @@ func (c *Controller) eventHandler(key string) error {
 // RestConfigForCluster returns the rest config for the mangered cluster.
 func (c *Controller) RestConfigForCluster(cluster string) *rest.Config {
 	switch c.clusterManagermentType {
-	case AlipayOpenClusterManagement:
+	case OpenClusterManagement:
 		clusterConfig := *c.config
-		clusterConfig.Host = fmt.Sprintf("%s/apis/%s/%s/%s/%s/proxy", clusterConfig.Host, AlipayOpenClusterManagementGVR.Group, AlipayOpenClusterManagementGVR.Version, AlipayOpenClusterManagementGVR.Resource, cluster)
+		clusterConfig.Host = fmt.Sprintf("%s/apis/%s/%s/%s/%s/proxy", clusterConfig.Host, c.clusterManagermentGVR.Group, c.clusterManagermentGVR.Version, c.clusterManagermentGVR.Resource, cluster)
 		return &clusterConfig
 	case TestCluterManagement:
 		return c.restConfigForCluster(cluster)

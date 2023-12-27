@@ -86,7 +86,7 @@ type DeepCopy interface {
 func (w *wrapResourceEventHandler) OnAdd(obj interface{}) {
 	copiedObj, attachErr := w.attachCluster("OnAdd", obj)
 	if attachErr != nil {
-		w.log.V(3).Info("OnAdd", "cluster", w.cluster)
+		w.log.Error(attachErr, "failed to attach cluster into object", "cluster", w.cluster)
 		w.handler.OnAdd(obj)
 		return
 	}
@@ -96,11 +96,15 @@ func (w *wrapResourceEventHandler) OnAdd(obj interface{}) {
 
 func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 	copiedOlbObj, attchOldErr := w.attachCluster("OnUpdate", oldObj)
-	copiedNewObj, attachNewErr := w.attachCluster("OnUpdate", newObj)
+	if attchOldErr != nil {
+		w.log.Error(attchOldErr, "failed to attach cluster into old object", "cluster", w.cluster)
+		w.handler.OnUpdate(oldObj, newObj)
+		return
+	}
 
-	if copiedOlbObj == nil || attchOldErr != nil ||
-		copiedNewObj == nil || attachNewErr != nil {
-		w.log.V(3).Info("OnUpdate", "cluster", w.cluster)
+	copiedNewObj, attachNewErr := w.attachCluster("OnUpdate", newObj)
+	if attachNewErr != nil {
+		w.log.Error(attachNewErr, "failed to attach cluster into new object", "cluster", w.cluster)
 		w.handler.OnUpdate(oldObj, newObj)
 		return
 	}
@@ -111,7 +115,7 @@ func (w *wrapResourceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
 	copiedObj, attachErr := w.attachCluster("OnDelete", obj)
 	if attachErr != nil {
-		w.log.V(3).Info("OnDelete", "cluster", w.cluster)
+		w.log.Error(attachErr, "failed to attach cluster into object", "cluster", w.cluster)
 		w.handler.OnDelete(obj)
 		return
 	}
@@ -121,11 +125,11 @@ func (w *wrapResourceEventHandler) OnDelete(obj interface{}) {
 
 func (w *wrapResourceEventHandler) attachCluster(handler string, obj interface{}) (interface{}, error) {
 	if o, ok := obj.(client.Object); ok {
-		w.log.V(3).Info("attach cluster info into object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
+		w.log.V(5).Info("attach cluster info into object", "handler", handler, "cluster", w.cluster, "namespace", o.GetNamespace(), "name", o.GetName(), "resource version", o.GetResourceVersion())
 
 		copiedObj := o.DeepCopyObject()
 		attachClusterToObjects(w.cluster, copiedObj)
 		return copiedObj, nil
 	}
-	return nil, fmt.Errorf("failed to attach cluster info into obj")
+	return nil, fmt.Errorf("invalid object")
 }

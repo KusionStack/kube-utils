@@ -119,7 +119,7 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 	if cfg.ClusterManagermentGVR != nil {
 		clusterManagermentType = controller.TestCluterManagement
 	} else {
-		clusterManagermentType = controller.AlipayOpenClusterManagement
+		clusterManagermentType = controller.OpenClusterManagement
 	}
 
 	controller, err := controller.NewController(&controller.ControllerConfig{
