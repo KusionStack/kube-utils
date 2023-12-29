@@ -214,6 +214,7 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 }
 
 func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (err error) {
+	// still use opts, not this, to list
 	listOpts := client.ListOptions{}
 	listOpts.ApplyOptions(opts)
 
@@ -246,7 +247,7 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 		}
 
 		listObj := list.DeepCopyObject().(client.ObjectList)
-		err = c.List(ctx, listObj, &listOpts)
+		err = c.List(ctx, listObj, opts...)
 		metrics.NewClientCountMetrics(cluster, "List", err).Inc()
 		if err != nil {
 			return err
