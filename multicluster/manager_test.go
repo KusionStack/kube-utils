@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -179,6 +180,29 @@ var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
 	It("multiClusterCache has synced", func() {
 		synced := clusterCache.WaitForCacheSync(clusterinfo.ContextAll)
 		Expect(synced).To(Equal(true))
+	})
+
+	It("multiClusterClient get server groups and resources", func() {
+		serverGroupsAndResourcesClient, ok := clusterClient.(CachedDiscoveryInterface)
+		Expect(ok).To(Equal(true))
+		apiGroups, apiResourceLists, err := serverGroupsAndResourcesClient.ServerGroupsAndResources()
+		Expect(err).NotTo(HaveOccurred())
+
+		groupVersionSets := sets.NewString()
+		for _, apiGroup := range apiGroups {
+			groupVersion := apiGroup.PreferredVersion.GroupVersion
+			groupVersionSets.Insert(groupVersion)
+		}
+		Expect(groupVersionSets.HasAll("apps/v1", "v1")).To(Equal(true))
+
+		apiResourceSets := sets.NewString()
+		for _, apiResourceList := range apiResourceLists {
+			for _, apiResource := range apiResourceList.APIResources {
+				groupVersionKind := fmt.Sprintf("%s/%s", apiResourceList.GroupVersion, apiResource.Kind)
+				apiResourceSets.Insert(groupVersionKind)
+			}
+		}
+		Expect(apiResourceSets.HasAll("apps/v1/Deployment", "v1/ConfigMap")).To(Equal(true))
 	})
 
 	It("multiClusterClient update the deployment status of cluster1", func() {

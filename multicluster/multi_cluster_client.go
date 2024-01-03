@@ -23,8 +23,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,15 +36,23 @@ import (
 	"kusionstack.io/kube-utils/multicluster/metrics"
 )
 
+type CachedDiscoveryInterface interface {
+	ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error)
+	Invalidate()
+	Fresh() bool
+}
+
 type ClusterClientManager interface {
-	AddClusterClient(cluster string, clusterClient client.Client)
-	RemoveClusterClient(cluster string) bool
+	AddClusterClient(cluster string, clusterClient client.Client, clusterCachedDiscoveryClient discovery.CachedDiscoveryInterface)
+	RemoveClusterClient(cluster string)
 }
 
 func MultiClusterClientBuilder(log logr.Logger) (cluster.NewClientFunc, ClusterClientManager) {
 	mcc := &multiClusterClient{
-		clusterToClient: map[string]client.Client{},
-		log:             log,
+		clusterToClient:                map[string]client.Client{},
+		clusterToCachedDiscoveryClient: map[string]discovery.CachedDiscoveryInterface{},
+
+		log: log,
 	}
 
 	newClientFunc := func(cache cache.Cache, config *rest.Config, options client.Options, uncachedObjects ...client.Object) (client.Client, error) {
@@ -75,31 +85,118 @@ type multiClusterClient struct {
 	fedScheme *runtime.Scheme
 	fedMapper meta.RESTMapper
 
-	clusterToClient map[string]client.Client
-	mutex           sync.RWMutex
-	log             logr.Logger
+	clusterToClient                map[string]client.Client
+	clusterToCachedDiscoveryClient map[string]discovery.CachedDiscoveryInterface
+
+	mutex sync.RWMutex
+	log   logr.Logger
 }
 
-var _ client.Client = &multiClusterClient{}
+var (
+	_ client.Client            = &multiClusterClient{}
+	_ CachedDiscoveryInterface = &multiClusterClient{}
 
-func (mcc *multiClusterClient) AddClusterClient(cluster string, clusterClient client.Client) {
-	mcc.mutex.Lock()
-	mcc.clusterToClient[cluster] = clusterClient
-	mcc.log.V(5).Info("add cluster client", "cluster", cluster)
-	mcc.mutex.Unlock()
-}
+	_ ClusterClientManager = &multiClusterClient{}
+)
 
-func (mcc *multiClusterClient) RemoveClusterClient(cluster string) bool {
+func (mcc *multiClusterClient) AddClusterClient(cluster string, clusterClient client.Client, clusterCachedDiscoveryClient discovery.CachedDiscoveryInterface) {
 	mcc.mutex.Lock()
 	defer mcc.mutex.Unlock()
 
-	_, ok := mcc.clusterToClient[cluster]
-	if !ok {
-		return false
-	}
+	mcc.clusterToClient[cluster] = clusterClient
+	mcc.clusterToCachedDiscoveryClient[cluster] = clusterCachedDiscoveryClient
+	mcc.log.V(5).Info("add cluster client", "cluster", cluster)
+}
+
+func (mcc *multiClusterClient) RemoveClusterClient(cluster string) {
+	mcc.mutex.Lock()
+	defer mcc.mutex.Unlock()
 
 	delete(mcc.clusterToClient, cluster)
+	delete(mcc.clusterToCachedDiscoveryClient, cluster)
 	mcc.log.V(5).Info("remove cluster client", "cluster", cluster)
+}
+
+// ServerGroupsAndResources returns the supported server groups and resources for all clusters.
+func (mcc *multiClusterClient) ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error) {
+	mcc.mutex.RLock()
+	defer mcc.mutex.RUnlock()
+
+	// If there is only one cluster, we can use the cached discovery client to get the server groups and resources
+	if len(mcc.clusterToCachedDiscoveryClient) == 1 {
+		for _, clusterCachedDiscoveryClient := range mcc.clusterToCachedDiscoveryClient {
+			return clusterCachedDiscoveryClient.ServerGroupsAndResources()
+		}
+	}
+
+	// If there are multiple clusters, we need to get the intersection of groups and resources
+	var (
+		groupVersionCount     = make(map[string]int)
+		groupVersionKindCount = make(map[string]int)
+
+		apiGroupsRes        []*metav1.APIGroup
+		apiResourceListsRes []*metav1.APIResourceList
+	)
+	for _, clusterCachedDiscoveryClient := range mcc.clusterToCachedDiscoveryClient {
+		apiGroups, apiResourceLists, err := clusterCachedDiscoveryClient.ServerGroupsAndResources()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		for _, apiGroup := range apiGroups {
+			groupVersion := apiGroup.PreferredVersion.GroupVersion
+
+			if _, ok := groupVersionCount[groupVersion]; !ok {
+				groupVersionCount[groupVersion] = 1
+			} else {
+				groupVersionCount[groupVersion]++
+
+				if groupVersionCount[groupVersion] == len(mcc.clusterToCachedDiscoveryClient) { // all clusters have this PreferredVersion
+					apiGroupsRes = append(apiGroupsRes, apiGroup)
+				}
+			}
+		}
+
+		for _, apiResourceList := range apiResourceLists {
+			for _, apiResource := range apiResourceList.APIResources {
+				groupVersionKind := fmt.Sprintf("%s/%s", apiResourceList.GroupVersion, apiResource.Kind)
+
+				if _, ok := groupVersionKindCount[groupVersionKind]; !ok {
+					groupVersionKindCount[groupVersionKind] = 1
+				} else {
+					groupVersionKindCount[groupVersionKind]++
+
+					if groupVersionKindCount[groupVersionKind] == len(mcc.clusterToCachedDiscoveryClient) { // all clusters have this GroupVersion and Kind
+						apiResourceListsRes = append(apiResourceListsRes, apiResourceList)
+					}
+				}
+			}
+		}
+	}
+
+	return apiGroupsRes, apiResourceListsRes, nil
+}
+
+// Invalidate invalidates the cached discovery clients for all clusters.
+func (mcc *multiClusterClient) Invalidate() {
+	mcc.mutex.RLock()
+	defer mcc.mutex.RUnlock()
+
+	for _, clusterCachedDiscoveryClient := range mcc.clusterToCachedDiscoveryClient {
+		clusterCachedDiscoveryClient.Invalidate()
+	}
+}
+
+// Fresh returns true if all cached discovery clients are fresh.
+func (mcc *multiClusterClient) Fresh() bool {
+	mcc.mutex.RLock()
+	defer mcc.mutex.RUnlock()
+
+	for _, clusterCachedDiscoveryClient := range mcc.clusterToCachedDiscoveryClient {
+		if !clusterCachedDiscoveryClient.Fresh() {
+			return false
+		}
+	}
 	return true
 }
 

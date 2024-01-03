@@ -26,6 +26,8 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2/klogr"
@@ -82,7 +84,7 @@ type Manager struct {
 	hasCluster                map[string]struct{} // whether cluster has been added
 	clusterFilter             func(string) bool
 	onlyWatchClusterNamespace string
-	mutex                     sync.Mutex
+	mutex                     sync.RWMutex
 	log                       logr.Logger
 }
 
@@ -177,16 +179,23 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 		return nil
 	}
 
-	m.mutex.Lock()
+	m.mutex.RLock()
 	if _, ok := m.hasCluster[cluster]; ok {
 		m.log.V(5).Info("has cluster", "cluster", cluster)
-		m.mutex.Unlock()
+		m.mutex.RUnlock()
 		return nil
 	}
-	m.mutex.Unlock()
+	m.mutex.RUnlock()
 
 	// Get rest.Config for the cluster
 	cfg := m.controller.RestConfigForCluster(cluster)
+
+	// Get MemCacheClient for the cluster
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return err
+	}
+	clusterCachedDiscoveryClient := memory.NewMemCacheClient(clientset.Discovery())
 
 	// Create cache for the cluster
 	mapper, err := apiutil.NewDynamicRESTMapper(cfg)
@@ -222,7 +231,7 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 
 	m.log.Info("add cluster", "cluster", cluster)
 	m.clusterCacheManager.AddClusterCache(cluster, clusterCache)
-	m.clusterClientManager.AddClusterClient(cluster, delegatingClusterClient)
+	m.clusterClientManager.AddClusterClient(cluster, delegatingClusterClient, clusterCachedDiscoveryClient)
 
 	m.mutex.Lock()
 	m.hasCluster[cluster] = struct{}{}

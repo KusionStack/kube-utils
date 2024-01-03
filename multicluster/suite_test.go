@@ -91,6 +91,8 @@ var _ = BeforeSuite(func() {
 	clusterScheme := runtime.NewScheme()
 	err = corev1.SchemeBuilder.AddToScheme(clusterScheme) // configmap and service
 	Expect(err).NotTo(HaveOccurred())
+	err = appsv1.SchemeBuilder.AddToScheme(clusterScheme) // deployment
+	Expect(err).NotTo(HaveOccurred())
 
 	clusterEnv1 = &envtest.Environment{
 		Scheme: clusterScheme,
@@ -147,10 +149,7 @@ var _ = BeforeSuite(func() {
 			Version:  "v1",
 			Resource: "deployments",
 		},
-<<<<<<< HEAD
 		ClusterManagermentType: controller.TestCluterManagement,
-=======
->>>>>>> ef0022d (add UT)
 	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())
