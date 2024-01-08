@@ -453,8 +453,9 @@ var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
 })
 
 func newMockClient() *MockClient {
+	clientBuilder := fake.NewClientBuilder()
 	return &MockClient{
-		WithWatch: fake.NewFakeClient(),
+		WithWatch: clientBuilder.Build(),
 	}
 }
 

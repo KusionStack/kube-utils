@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -45,11 +44,13 @@ const (
 )
 
 var (
-	env     *envtest.Environment
-	mgr     manager.Manager
-	request chan reconcile.Request
-	pod     *corev1.Pod
-	deploy  *appsv1.Deployment
+	env    *envtest.Environment
+	mgr    manager.Manager
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	pod    *corev1.Pod
+	deploy *appsv1.Deployment
 
 	c client.Client
 )
@@ -58,11 +59,11 @@ var _ = Describe("cache support no DeepCopy", func() {
 
 	It("support list without DeepCopy", func() {
 		podListNoDeepCopy1 := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListNoDeepCopy1, DisableDeepCopy)).Should(BeNil())
+		Expect(c.List(ctx, podListNoDeepCopy1, DisableDeepCopy)).Should(BeNil())
 		podListNoDeepCopy2 := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListNoDeepCopy2, DisableDeepCopy)).Should(BeNil())
+		Expect(c.List(ctx, podListNoDeepCopy2, DisableDeepCopy)).Should(BeNil())
 		podListDeepCopy := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListDeepCopy)).Should(BeNil())
+		Expect(c.List(ctx, podListDeepCopy)).Should(BeNil())
 
 		Expect(podListNoDeepCopy1.Items[0]).Should(BeEquivalentTo(podListNoDeepCopy2.Items[0]))
 		Expect(podListNoDeepCopy1.Items[0]).ShouldNot(BeEquivalentTo(podListDeepCopy.Items[0]))
@@ -73,11 +74,11 @@ var _ = Describe("cache support no DeepCopy", func() {
 			FieldSelector: fields.AndSelectors(fields.OneTermEqualSelector(TestPodNamespaceFieldIndex, pod.Namespace),
 				fields.OneTermEqualSelector(TestPodContainerNumberFieldIndex, fmt.Sprintf("%d", len(pod.Spec.Containers))))}
 		podListNoDeepCopy1 := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListNoDeepCopy1, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
+		Expect(c.List(ctx, podListNoDeepCopy1, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
 		podListNoDeepCopy2 := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListNoDeepCopy2, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
+		Expect(c.List(ctx, podListNoDeepCopy2, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
 		podListDeepCopy := &corev1.PodList{}
-		Expect(c.List(context.TODO(), podListDeepCopy)).Should(BeNil())
+		Expect(c.List(ctx, podListDeepCopy)).Should(BeNil())
 
 		Expect(podListNoDeepCopy1.Items[0]).Should(BeEquivalentTo(podListNoDeepCopy2.Items[0]))
 		Expect(podListNoDeepCopy1.Items[0]).ShouldNot(BeEquivalentTo(podListDeepCopy.Items[0]))
@@ -85,11 +86,11 @@ var _ = Describe("cache support no DeepCopy", func() {
 
 	It("support get without DeepCopy", func() {
 		podWithoutDeepCopy1 := &ObjectWithoutDeepCopy{Object: &corev1.Pod{}}
-		Expect(c.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy1)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy1)).Should(BeNil())
 		podWithoutDeepCopy2 := &ObjectWithoutDeepCopy{Object: &corev1.Pod{}}
-		Expect(c.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy2)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy2)).Should(BeNil())
 		podWithDeepCopy := &corev1.Pod{}
-		Expect(c.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithDeepCopy)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithDeepCopy)).Should(BeNil())
 
 		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).ShouldNot(BeNil())
 		Expect(podWithoutDeepCopy2.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).ShouldNot(BeNil())
@@ -97,16 +98,16 @@ var _ = Describe("cache support no DeepCopy", func() {
 		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe == podWithoutDeepCopy2.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).Should(BeTrue())
 		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe == podWithDeepCopy.Spec.Containers[0].ReadinessProbe).Should(BeFalse())
 
-		Expect(errors.IsNotFound(c.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: "not-found"}, podWithoutDeepCopy1))).Should(BeTrue())
+		Expect(errors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: "not-found"}, podWithoutDeepCopy1))).Should(BeTrue())
 	})
 
 	It("support uncached object", func() {
 		deployUncached0 := &ObjectWithoutDeepCopy{Object: &appsv1.Deployment{}}
-		Expect(c.Get(context.TODO(), types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached0)).ShouldNot(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached0)).ShouldNot(BeNil())
 		deployUncached1 := &appsv1.Deployment{}
-		Expect(c.Get(context.TODO(), types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached1)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached1)).Should(BeNil())
 		deployUncached2 := &appsv1.Deployment{}
-		Expect(c.Get(context.TODO(), types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached2)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached2)).Should(BeNil())
 
 		Expect(deployUncached1.Spec.Selector).ShouldNot(BeNil())
 		Expect(deployUncached2.Spec.Selector).ShouldNot(BeNil())
@@ -114,8 +115,8 @@ var _ = Describe("cache support no DeepCopy", func() {
 	})
 })
 
-func initPod() *corev1.Pod {
-	pod := &corev1.Pod{
+func initPod() {
+	pod = &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "default",
 			Name:      "foo",
@@ -137,16 +138,14 @@ func initPod() *corev1.Pod {
 			},
 		},
 	}
-	Expect(c.Create(context.TODO(), pod)).Should(BeNil())
+	Expect(c.Create(ctx, pod)).Should(BeNil())
 	Eventually(func() bool {
-		return c.Get(context.TODO(), types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, pod) == nil
+		return c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, pod) == nil
 	}, 5*time.Second, 1*time.Second).Should(BeTrue())
-
-	return pod
 }
 
-func initDeploy() *appsv1.Deployment {
-	deploy := &appsv1.Deployment{
+func initDeploy() {
+	deploy = &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "default",
 			Name:      "foo",
@@ -174,12 +173,10 @@ func initDeploy() *appsv1.Deployment {
 			},
 		},
 	}
-	Expect(c.Create(context.TODO(), deploy)).Should(BeNil())
+	Expect(c.Create(ctx, deploy)).Should(BeNil())
 	Eventually(func() bool {
-		return c.Get(context.TODO(), types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deploy) == nil
+		return c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deploy) == nil
 	}, 5*time.Second, 1*time.Second).Should(BeTrue())
-
-	return deploy
 }
 
 func TestCache(t *testing.T) {
@@ -197,6 +194,8 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(config).NotTo(BeNil())
 
+	ctx, cancel = context.WithCancel(context.Background())
+
 	mgr, err = manager.New(config, manager.Options{
 		MetricsBindAddress:    "0",
 		NewCache:              NewCacheSupportDisableDeepCopy,
@@ -207,25 +206,26 @@ var _ = BeforeSuite(func() {
 	c = mgr.GetClient()
 
 	c := mgr.GetCache()
-	c.IndexField(context.TODO(), &corev1.Pod{}, TestPodNamespaceFieldIndex, func(obj client.Object) []string {
-		pod := obj.(*corev1.Pod)
-		return []string{pod.Namespace}
+	c.IndexField(ctx, &corev1.Pod{}, TestPodNamespaceFieldIndex, func(obj client.Object) []string {
+		po := obj.(*corev1.Pod)
+		return []string{po.Namespace}
 	})
-	c.IndexField(context.TODO(), &corev1.Pod{}, TestPodContainerNumberFieldIndex, func(obj client.Object) []string {
-		pod := obj.(*corev1.Pod)
-		return []string{fmt.Sprintf("%d", len(pod.Spec.Containers))}
+	c.IndexField(ctx, &corev1.Pod{}, TestPodContainerNumberFieldIndex, func(obj client.Object) []string {
+		po := obj.(*corev1.Pod)
+		return []string{fmt.Sprintf("%d", len(po.Spec.Containers))}
 	})
 
 	go func() {
-		err = mgr.Start(context.TODO())
+		err = mgr.Start(ctx)
 		Expect(err).NotTo(HaveOccurred())
 	}()
 
-	pod = initPod()
-	deploy = initDeploy()
+	initPod()
+	initDeploy()
 })
 
 var _ = AfterSuite(func() {
+	cancel()
 	By("tearing down the test environment")
 
 	Expect(env.Stop()).NotTo(HaveOccurred())

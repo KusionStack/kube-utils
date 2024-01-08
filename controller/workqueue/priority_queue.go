@@ -282,7 +282,6 @@ func (q *PriorityQueue) Done(item interface{}) {
 
 	q.processing.delete(item)
 	if q.dirty.has(item) {
-
 		q.priorityQueue[priority] = append(q.priorityQueue[priority], item)
 		q.count++
 		klog.V(5).Infof("Add item to priority queue from dirty, priority: %v, count: %v", priority, q.count)
