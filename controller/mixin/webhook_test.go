@@ -33,6 +33,7 @@ func TestNewWebhookHandlerMixin(t *testing.T) {
 		MapperProvider: func(c *rest.Config) (meta.RESTMapper, error) {
 			return apiutil.NewDynamicRESTMapper(c, apiutil.WithLazyDiscovery)
 		},
+		MetricsBindAddress: "0",
 	})
 	assert.Nil(t, err)
 

@@ -570,14 +570,18 @@ func (mci *multiClusterInformer) addClusterInformer(cluster string, clusterInfor
 	mci.mutex.Lock()
 	defer mci.mutex.Unlock()
 
+	if mci.indexers != nil {
+		err := clusterInformer.AddIndexers(mci.indexers)
+		if err != nil {
+			mci.log.Error(err, "failed to add indexer", "cluster", cluster)
+			return
+		}
+	}
+
 	if mci.handler != nil && mci.resyncPeriod != 0 {
 		clusterInformer.AddEventHandlerWithResyncPeriod(mci.handler, mci.resyncPeriod)
 	} else if mci.handler != nil {
 		clusterInformer.AddEventHandler(mci.handler)
-	}
-
-	if mci.indexers != nil {
-		clusterInformer.AddIndexers(mci.indexers)
 	}
 
 	mci.clusterToInformer[cluster] = clusterInformer
