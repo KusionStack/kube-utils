@@ -36,7 +36,8 @@ import (
 	"kusionstack.io/kube-utils/multicluster/metrics"
 )
 
-type CachedDiscoveryInterface interface {
+// PartialCachedDiscoveryInterface is a subset of discovery.CachedDiscoveryInterface.
+type PartialCachedDiscoveryInterface interface {
 	ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error)
 	Invalidate()
 	Fresh() bool
@@ -93,8 +94,8 @@ type multiClusterClient struct {
 }
 
 var (
-	_ client.Client            = &multiClusterClient{}
-	_ CachedDiscoveryInterface = &multiClusterClient{}
+	_ client.Client                   = &multiClusterClient{}
+	_ PartialCachedDiscoveryInterface = &multiClusterClient{}
 
 	_ ClusterClientManager = &multiClusterClient{}
 )
@@ -119,8 +120,8 @@ func (mcc *multiClusterClient) RemoveClusterClient(cluster string) {
 
 // ServerGroupsAndResources returns the supported server groups and resources for all clusters.
 func (mcc *multiClusterClient) ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error) {
-	mcc.mutex.RLock()
-	defer mcc.mutex.RUnlock()
+	mcc.mutex.Lock()
+	defer mcc.mutex.Unlock()
 
 	// If there is only one cluster, we can use the cached discovery client to get the server groups and resources
 	if len(mcc.clusterToCachedDiscoveryClient) == 1 {
@@ -179,8 +180,8 @@ func (mcc *multiClusterClient) ServerGroupsAndResources() ([]*metav1.APIGroup, [
 
 // Invalidate invalidates the cached discovery clients for all clusters.
 func (mcc *multiClusterClient) Invalidate() {
-	mcc.mutex.RLock()
-	defer mcc.mutex.RUnlock()
+	mcc.mutex.Lock()
+	defer mcc.mutex.Unlock()
 
 	for _, clusterCachedDiscoveryClient := range mcc.clusterToCachedDiscoveryClient {
 		clusterCachedDiscoveryClient.Invalidate()
@@ -189,8 +190,8 @@ func (mcc *multiClusterClient) Invalidate() {
 
 // Fresh returns true if all cached discovery clients are fresh.
 func (mcc *multiClusterClient) Fresh() bool {
-	mcc.mutex.RLock()
-	defer mcc.mutex.RUnlock()
+	mcc.mutex.Lock()
+	defer mcc.mutex.Unlock()
 
 	for _, clusterCachedDiscoveryClient := range mcc.clusterToCachedDiscoveryClient {
 		if !clusterCachedDiscoveryClient.Fresh() {

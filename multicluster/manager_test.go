@@ -183,7 +183,7 @@ var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
 	})
 
 	It("multiClusterClient get server groups and resources", func() {
-		serverGroupsAndResourcesClient, ok := clusterClient.(CachedDiscoveryInterface)
+		serverGroupsAndResourcesClient, ok := clusterClient.(PartialCachedDiscoveryInterface)
 		Expect(ok).To(Equal(true))
 		apiGroups, apiResourceLists, err := serverGroupsAndResourcesClient.ServerGroupsAndResources()
 		Expect(err).NotTo(HaveOccurred())
