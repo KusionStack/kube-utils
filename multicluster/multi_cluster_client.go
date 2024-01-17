@@ -38,8 +38,8 @@ import (
 
 // MultiClusterDiscovery provides fed and member clusters discovery interface
 type MultiClusterDiscovery interface {
-	GetFedDiscoveryInterface() discovery.DiscoveryInterface
-	GetMembersCachedDiscoveryInterface() PartialCachedDiscoveryInterface
+	FedDiscoveryInterface() discovery.DiscoveryInterface
+	MembersCachedDiscoveryInterface() PartialCachedDiscoveryInterface
 }
 
 // PartialCachedDiscoveryInterface is a subset of discovery.DiscoveryInterface.
@@ -466,11 +466,11 @@ func (mcc *multiClusterClient) getClusterNames(ctx context.Context) (clusters []
 	return
 }
 
-func (mcc *multiClusterClient) GetFedDiscoveryInterface() discovery.DiscoveryInterface {
+func (mcc *multiClusterClient) FedDiscoveryInterface() discovery.DiscoveryInterface {
 	return mcc.fedDiscovery
 }
 
-func (mcc *multiClusterClient) GetMembersCachedDiscoveryInterface() PartialCachedDiscoveryInterface {
+func (mcc *multiClusterClient) MembersCachedDiscoveryInterface() PartialCachedDiscoveryInterface {
 	return &cachedMultiClusterDiscoveryClient{
 		delegate: mcc,
 	}
