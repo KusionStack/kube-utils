@@ -183,9 +183,10 @@ var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
 	})
 
 	It("multiClusterClient get server groups and resources", func() {
-		serverGroupsAndResourcesClient, ok := clusterClient.(PartialCachedDiscoveryInterface)
+		mcdiscovery, ok := clusterClient.(MultiClusterDiscovery)
 		Expect(ok).To(Equal(true))
-		apiGroups, apiResourceLists, err := serverGroupsAndResourcesClient.ServerGroupsAndResources()
+		cachedDiscoveryClient := mcdiscovery.MembersCachedDiscoveryInterface()
+		apiGroups, apiResourceLists, err := cachedDiscoveryClient.ServerGroupsAndResources()
 		Expect(err).NotTo(HaveOccurred())
 
 		groupVersionSets := sets.NewString()

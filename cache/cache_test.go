@@ -19,7 +19,6 @@ package cache
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"testing"
 	"time"
 
@@ -186,9 +185,6 @@ func TestCache(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	env = &envtest.Environment{}
-	env.ControlPlane.GetAPIServer().URL = &url.URL{
-		Host: "127.0.0.1:65221",
-	}
 
 	config, err := env.Start()
 	Expect(err).NotTo(HaveOccurred())
