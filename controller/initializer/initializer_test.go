@@ -52,7 +52,7 @@ func Test_Initializer(t *testing.T) {
 	// test bind flag
 	fs := pflag.NewFlagSet("test-*", pflag.PanicOnError)
 	initializer.BindFlag(fs)
-	fs.Set("controllers", "*")
+	fs.Set(defaultName, "*")
 	err = fs.Parse(nil)
 	assert.NoError(t, err)
 	assert.True(t, initializer.Enabled("test1"))
@@ -62,7 +62,7 @@ func Test_Initializer(t *testing.T) {
 
 	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
 	initializer.BindFlag(fs)
-	fs.Set("controllers", "test1,test2")
+	fs.Set(defaultName, "test1,test2")
 	err = fs.Parse(nil)
 	assert.NoError(t, err)
 	assert.True(t, initializer.Enabled("test1"))
@@ -72,7 +72,7 @@ func Test_Initializer(t *testing.T) {
 
 	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
 	initializer.BindFlag(fs)
-	fs.Set("controllers", "-test1,test3")
+	fs.Set(defaultName, "-test1,test3")
 	err = fs.Parse(nil)
 	assert.NoError(t, err)
 	assert.False(t, initializer.Enabled("test1"))
@@ -82,7 +82,7 @@ func Test_Initializer(t *testing.T) {
 
 	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
 	initializer.BindFlag(fs)
-	fs.Set("controllers", "-test1,-__internal")
+	fs.Set(defaultName, "-test1,-__internal")
 	err = fs.Parse(nil)
 	assert.NoError(t, err)
 	assert.False(t, initializer.Enabled("test1"))

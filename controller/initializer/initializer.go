@@ -26,6 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+var defaultName = "controllers"
+
 // InitFunc is used to setup manager, particularly to launch a controller.
 // It may run additional "should I activate checks".
 // Any error returned will cause the main process to `Fatal`
@@ -69,7 +71,7 @@ func WithOverride() InitOption {
 	})
 }
 
-// Interface knows how to set up controllers with manager
+// Interface knows how to set up initializers with manager
 type Interface interface {
 	// Add add new setup function to initializer.
 	Add(name string, setup InitFunc, options ...InitOption) error
@@ -80,7 +82,7 @@ type Interface interface {
 	// Enabled returns true if the controller is enabled.
 	Enabled(name string) bool
 
-	// SetupWithManager add all enabled controllers to manager
+	// SetupWithManager add all enabled initializers to manager
 	SetupWithManager(mgr manager.Manager) error
 
 	// BindFlag adds a flag for setting global feature gates to the specified FlagSet.
@@ -89,7 +91,14 @@ type Interface interface {
 
 // New returns a new instance of initializer interface
 func New() Interface {
+	return NewNamed(defaultName)
+}
+
+// NewNamed returns a new instance of initializer interface with the specified name.
+// The name will be used as the flag name in BindFlags.
+func NewNamed(name string) Interface {
 	return &managerInitializer{
+		name:             name,
 		initializers:     make(map[string]InitFunc),
 		all:              sets.NewString(),
 		enabled:          sets.NewString(),
@@ -103,6 +112,7 @@ var _ Interface = &managerInitializer{}
 type managerInitializer struct {
 	lock sync.RWMutex
 
+	name             string
 	initializers     map[string]InitFunc
 	all              sets.String
 	enabled          sets.String
@@ -157,10 +167,10 @@ func (m *managerInitializer) Add(name string, setup InitFunc, opts ...InitOption
 func (m *managerInitializer) BindFlag(fs *pflag.FlagSet) {
 	all := m.all.Difference(m.hidden).List()
 	disabled := m.disableByDefault.List()
-	fs.Var(m, "controllers", fmt.Sprintf(""+
-		"A list of controllers to enable. '*' enables all on-by-default controllers, 'foo' enables the controller "+
-		"named 'foo', '-foo' disables the controller named 'foo'.\nAll controllers: %s\nDisabled-by-default controllers: %s",
-		strings.Join(all, ", "), strings.Join(disabled, ", ")))
+	fs.Var(m, m.name, fmt.Sprintf(""+
+		"A list of %s to enable. '*' enables all on-by-default %s, 'foo' enables the %s "+
+		"named 'foo', '-foo' disables the %s named 'foo'.\nAll: %s\nDisabled-by-default: %s",
+		m.name, m.name, m.name, m.name, strings.Join(all, ", "), strings.Join(disabled, ", ")))
 }
 
 // Knowns implements Controllerinitializer.
@@ -177,7 +187,7 @@ func (m *managerInitializer) SetupWithManager(mgr manager.Manager) error {
 	for _, name := range m.enabled.List() {
 		_, err := m.initializers[name](mgr)
 		if err != nil {
-			return fmt.Errorf("failed to initialize controller %q: %v", name, err)
+			return fmt.Errorf("failed to initialize %q: %v", name, err)
 		}
 	}
 	return nil
@@ -220,10 +230,10 @@ func (m *managerInitializer) Set(value string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	controllers := strings.Split(strings.TrimSpace(value), ",")
+	initializers := strings.Split(strings.TrimSpace(value), ",")
 	all := m.all.List()
 	for _, name := range all {
-		if m.enabledUnlocked(name, controllers) {
+		if m.enabledUnlocked(name, initializers) {
 			m.enabled.Insert(name)
 		} else {
 			m.enabled.Delete(name)
