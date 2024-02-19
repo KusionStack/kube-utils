@@ -497,10 +497,11 @@ func (c *cachedMultiClusterDiscoveryClient) ServerGroupsAndResources() ([]*metav
 	// If there are multiple clusters, we need to get the intersection of groups and resources
 	var (
 		groupVersionCount     = make(map[string]int)
-		groupVersionKindCount = make(map[string]int)
+		groupVersionNameCount = make(map[string]int)
 
-		apiGroupsRes        []*metav1.APIGroup
-		apiResourceListsRes []*metav1.APIResourceList
+		apiGroupsRes            []*metav1.APIGroup
+		apiResourceListsRes     []*metav1.APIResourceList
+		groupVersionToResources = make(map[string][]metav1.APIResource)
 	)
 	for _, cachedClient := range allDiscoveryClient {
 		apiGroups, apiResourceLists, err := cachedClient.ServerGroupsAndResources()
@@ -524,19 +525,28 @@ func (c *cachedMultiClusterDiscoveryClient) ServerGroupsAndResources() ([]*metav
 
 		for _, apiResourceList := range apiResourceLists {
 			for _, apiResource := range apiResourceList.APIResources {
-				groupVersionKind := fmt.Sprintf("%s/%s", apiResourceList.GroupVersion, apiResource.Kind)
+				groupVersionName := fmt.Sprintf("%s/%s", apiResourceList.GroupVersion, apiResource.Name)
 
-				if _, ok := groupVersionKindCount[groupVersionKind]; !ok {
-					groupVersionKindCount[groupVersionKind] = 1
+				if _, ok := groupVersionNameCount[groupVersionName]; !ok {
+					groupVersionNameCount[groupVersionName] = 1
 				} else {
-					groupVersionKindCount[groupVersionKind]++
+					groupVersionNameCount[groupVersionName]++
 
-					if groupVersionKindCount[groupVersionKind] == len(allDiscoveryClient) { // all clusters have this GroupVersion and Kind
-						apiResourceListsRes = append(apiResourceListsRes, apiResourceList)
+					if groupVersionNameCount[groupVersionName] == len(allDiscoveryClient) { // all clusters have this GroupVersion and Name
+						groupVersionToResources[apiResourceList.GroupVersion] = append(groupVersionToResources[apiResourceList.GroupVersion], apiResource)
 					}
 				}
 			}
 		}
+	}
+
+	for groupVersion, resources := range groupVersionToResources {
+		apiResourceList := metav1.APIResourceList{
+			TypeMeta:     metav1.TypeMeta{Kind: "APIResourceList", APIVersion: "v1"},
+			GroupVersion: groupVersion,
+		}
+		apiResourceList.APIResources = append(apiResourceList.APIResources, resources...)
+		apiResourceListsRes = append(apiResourceListsRes, &apiResourceList)
 	}
 
 	return apiGroupsRes, apiResourceListsRes, nil

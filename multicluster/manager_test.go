@@ -23,12 +23,12 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -199,11 +199,11 @@ var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
 		apiResourceSets := sets.NewString()
 		for _, apiResourceList := range apiResourceLists {
 			for _, apiResource := range apiResourceList.APIResources {
-				groupVersionKind := fmt.Sprintf("%s/%s", apiResourceList.GroupVersion, apiResource.Kind)
-				apiResourceSets.Insert(groupVersionKind)
+				groupVersionName := fmt.Sprintf("%s/%s", apiResourceList.GroupVersion, apiResource.Name)
+				apiResourceSets.Insert(groupVersionName)
 			}
 		}
-		Expect(apiResourceSets.HasAll("apps/v1/Deployment", "v1/ConfigMap")).To(Equal(true))
+		Expect(apiResourceSets.HasAll("apps/v1/deployments", "apps/v1/deployments/status", "v1/configmaps")).To(Equal(true))
 	})
 
 	It("multiClusterClient update the deployment status of cluster1", func() {
