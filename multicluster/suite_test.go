@@ -130,22 +130,18 @@ var _ = BeforeSuite(func() {
 		ClusterScheme: clusterScheme,
 		ResyncPeriod:  10 * time.Minute,
 
-		RestConfigForCluster: func(clusterName string) *rest.Config {
-			switch clusterName {
-			case "cluster1":
-				return clusterConfig1
-			case "cluster2":
-				return clusterConfig2
-			default:
-				return fedConfig
-			}
+		ClusterProvider: &controller.TestClusterProvider{
+			GroupVersionResource: schema.GroupVersionResource{ // Use deployment as cluster management resource
+				Group:    "apps",
+				Version:  "v1",
+				Resource: "deployments",
+			},
+			ClusterNameToConfig: map[string]*rest.Config{
+				"cluster1":      clusterConfig1,
+				"cluster2":      clusterConfig2,
+				clusterinfo.Fed: fedConfig,
+			},
 		},
-		ClusterManagementGVR: &schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
-			Resource: "deployments",
-		},
-		ClusterManagementType: controller.TestCluterManagement,
 	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())

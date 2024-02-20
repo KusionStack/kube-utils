@@ -64,14 +64,14 @@ func MultiClusterCacheBuilder(log logr.Logger, managerOption *Options) (cache.Ne
 }
 
 type multiClusterCache struct {
-	fedCache       cache.Cache            // cache for fed cluster
-	clusterToCache map[string]cache.Cache // cluster to cache
+	fedCache       cache.Cache            // Cache for fed cluster
+	clusterToCache map[string]cache.Cache // Cluster to cache
 
-	clusterCtx       context.Context                                   // context for all cluster caches
-	started          bool                                              // whether all known cluster caches already started
-	clusterToCancel  map[string]context.CancelFunc                     // cancel function for each cluster cache
-	objectToInformer map[client.Object]*multiClusterInformer           // object to informer
-	gvkToInformer    map[schema.GroupVersionKind]*multiClusterInformer // gvk to informer
+	clusterCtx       context.Context                                   // Context for all cluster caches
+	started          bool                                              // Whether all known cluster caches already started
+	clusterToCancel  map[string]context.CancelFunc                     // Cancel function for each cluster cache
+	objectToInformer map[client.Object]*multiClusterInformer           // Object to informer
+	gvkToInformer    map[schema.GroupVersionKind]*multiClusterInformer // GVK to informer
 
 	mutex sync.RWMutex
 	log   logr.Logger
@@ -493,7 +493,7 @@ func (mcc *multiClusterCache) convertClusters(clusters []string) ([]string, bool
 }
 
 type multiClusterInformer struct {
-	enableMultiple    bool // whether this informer is for managed clusters, or only for fed cluster
+	enableMultiple    bool // Whether this informer is for managed clusters, or only for fed cluster
 	kind              string
 	clusterToInformer map[string]cache.Informer
 

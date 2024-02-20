@@ -26,9 +26,10 @@ type contextKey string
 const (
 	clusterInfo contextKey = "clusterInfo"
 
-	ClusterLabelKey = "kusionstack.io/cluster"
+	ClusterLabelKey = "kusionstack.io/cluster" // Label key for cluster name that will be attached when use Client or Cache to read
 
-	EnvClusterAllowList = "CLUSTER_ALLOW_LIST"
+	EnvClusterAllowList = "CLUSTER_ALLOW_LIST" // Comma separated list of cluster names that are allowed to be accessed
+	EnvClusterBlockList = "CLUSTER_BLOCK_LIST" // Comma separated list of cluster names that are blocked to be accessed
 )
 
 const (

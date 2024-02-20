@@ -18,6 +18,8 @@ package multicluster
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -25,7 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -45,8 +47,7 @@ const (
 )
 
 type Options struct {
-	// NewCache is the function that will create the cache to be used
-	// by the manager. If not set this will use the default new cache function.
+	// NewCache is the function to create the cache to be used by the manager. Default is cache.New.
 	NewCache cache.NewCacheFunc
 }
 
@@ -59,29 +60,25 @@ func setOptionsDefaults(opts Options) Options {
 }
 
 type ManagerConfig struct {
-	FedConfig             *rest.Config
-	ClusterScheme         *runtime.Scheme
-	ClusterManagementGVR  *schema.GroupVersionResource
-	ClusterManagementType controller.ClusterManagementType
+	FedConfig     *rest.Config
+	ClusterScheme *runtime.Scheme
+	controller.ClusterProvider
 
 	ResyncPeriod  time.Duration
 	ClusterFilter func(string) bool // select cluster
 	Log           logr.Logger
-
-	// for test
-	RestConfigForCluster func(cluster string) *rest.Config
 }
 
 type Manager struct {
-	newCache      cache.NewCacheFunc // function to create cache for cluster
-	clusterScheme *runtime.Scheme    // scheme which is used to create cache for cluster
+	newCache      cache.NewCacheFunc // Function to create cache for cluster
+	clusterScheme *runtime.Scheme    // Scheme which is used to create cache for cluster
 
 	clusterCacheManager  ClusterCacheManager
 	clusterClientManager ClusterClientManager
-	controller           *controller.Controller // controller for cluster management
+	controller           *controller.Controller // Controller for cluster management
 
 	resyncPeriod              time.Duration
-	hasCluster                map[string]struct{} // whether cluster has been added
+	hasCluster                map[string]struct{} // Whether cluster has been added
 	clusterFilter             func(string) bool
 	onlyWatchClusterNamespace string
 	mutex                     sync.RWMutex
@@ -100,38 +97,11 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 		cfg.ClusterScheme = scheme.Scheme
 	}
 
-	clusterFilter := cfg.ClusterFilter
-	allowList := strings.TrimSpace(os.Getenv(clusterinfo.EnvClusterAllowList))
-	if clusterFilter == nil && allowList != "" {
-		clusters := strings.Split(allowList, ",")
-		log.Info("allow list", "clusters", clusters)
-
-		hasCluster := map[string]struct{}{}
-		for _, cluster := range clusters {
-			if _, ok := hasCluster[cluster]; ok {
-				continue
-			}
-			hasCluster[cluster] = struct{}{}
-		}
-		clusterFilter = func(cluster string) bool {
-			_, ok := hasCluster[cluster]
-			return ok
-		}
-	}
-
-	clusterManagementType := controller.OpenClusterManagement
-	if cfg.ClusterManagementType != "" {
-		clusterManagementType = cfg.ClusterManagementType
-	}
-
 	controller, err := controller.NewController(&controller.ControllerConfig{
-		Config:                cfg.FedConfig,
-		ResyncPeriod:          cfg.ResyncPeriod,
-		ClusterManagementType: clusterManagementType,
-		ClusterManagementGVR:  cfg.ClusterManagementGVR,
-		Log:                   log,
-
-		RestConfigForCluster: cfg.RestConfigForCluster,
+		Config:          cfg.FedConfig,
+		ClusterProvider: cfg.ClusterProvider,
+		ResyncPeriod:    cfg.ResyncPeriod,
+		Log:             log,
 	})
 	if err != nil {
 		return nil, nil, nil, err
@@ -140,6 +110,11 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 	opts = setOptionsDefaults(opts)
 	newCacheFunc, clusterCacheManager := MultiClusterCacheBuilder(log, &opts)
 	newClientFunc, clusterClientManager := MultiClusterClientBuilder(log)
+
+	clusterFilter, err := getClusterFilter(cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	manager = &Manager{
 		clusterScheme: cfg.ClusterScheme,
@@ -189,6 +164,9 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 
 	// Get rest.Config for the cluster
 	cfg := m.controller.RestConfigForCluster(cluster)
+	if cfg == nil {
+		return fmt.Errorf("failed to get rest.Config for cluster %s", cluster)
+	}
 
 	// Get MemCacheClient for the cluster
 	clientset, err := kubernetes.NewForConfig(cfg)
@@ -264,4 +242,49 @@ func (m *Manager) SyncedClusters() []string {
 		clusters = append(clusters, cluster)
 	}
 	return clusters
+}
+
+// getClusterFilter returns a function to filter clusters
+func getClusterFilter(cfg *ManagerConfig) (func(string) bool, error) {
+	var (
+		log                = klogr.New()
+		allowSet, blockSet sets.String
+	)
+	allowList := strings.TrimSpace(os.Getenv(clusterinfo.EnvClusterAllowList))
+	if allowList != "" {
+		allowSet = sets.NewString(strings.Split(allowList, ",")...)
+	}
+
+	blockList := strings.TrimSpace(os.Getenv(clusterinfo.EnvClusterBlockList))
+	if blockList != "" {
+		blockSet = sets.NewString(strings.Split(blockList, ",")...)
+	}
+
+	fmt.Printf("allowList: %v, blockList: %v, allowSet: %v, blockSet: %v\n", allowList, blockList, allowSet, blockSet)
+
+	if allowSet != nil && blockSet != nil {
+		return nil, errors.New("both cluster allow and block lists are set")
+	}
+	if cfg.ClusterFilter != nil {
+		if allowSet != nil || blockSet != nil {
+			return nil, errors.New("both cluster allow and block lists are set")
+		}
+		return cfg.ClusterFilter, nil
+	}
+
+	clusterFilter := func(cluster string) bool {
+		if allowSet != nil && allowSet.Len() > 0 {
+			has := allowSet.Has(cluster)
+			log.V(4).Info("check cluster allow list", "cluster", cluster, "has", has)
+			return has
+		}
+		if blockSet != nil && blockSet.Len() > 0 {
+			has := blockSet.Has(cluster)
+			log.V(4).Info("check cluster block list", "cluster", cluster, "has", has)
+			return !has
+		}
+		return true // Default is allow all clusters
+	}
+
+	return clusterFilter, nil
 }

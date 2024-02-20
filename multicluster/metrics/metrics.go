@@ -44,17 +44,17 @@ var (
 		Help:      "count the number of client call",
 	}, []string{"cluster", "method", "code"})
 
-	controllerEventCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+	clusterEventCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Subsystem: MultiClusterSubSystem,
 		Name:      ClusterEventCount,
 		Help:      "count the number of cluster event",
-	}, []string{"cluster", "status"})
+	}, []string{"cluster", "event", "success"})
 )
 
 func init() {
 	metrics.Registry.MustRegister(cacheCounter)
 	metrics.Registry.MustRegister(clientCounter)
-	metrics.Registry.MustRegister(controllerEventCounter)
+	metrics.Registry.MustRegister(clusterEventCounter)
 }
 
 func NewCacheCountMetrics(cluster, method string, err error) prometheus.Counter {
@@ -65,8 +65,8 @@ func NewClientCountMetrics(cluster, method string, err error) prometheus.Counter
 	return clientCounter.WithLabelValues(cluster, method, CodeForError(err))
 }
 
-func NewControllerEventCountMetrics(cluster, status string) prometheus.Counter {
-	return controllerEventCounter.WithLabelValues(cluster, status)
+func NewClusterEventCountMetrics(cluster, event, success string) prometheus.Counter {
+	return clusterEventCounter.WithLabelValues(cluster, event, success)
 }
 
 func CodeForError(err error) string {
