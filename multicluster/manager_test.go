@@ -19,6 +19,7 @@ package multicluster
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -37,7 +38,7 @@ import (
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
-var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
+var _ = Describe("multicluster", func() {
 	It("fed adds 4 clusters", func() {
 		for i := 1; i < 5; i++ {
 			name := fmt.Sprintf("cluster%d", i)
@@ -450,6 +451,88 @@ var _ = Describe("multicluster with 1 fed and 4 clusters", func() {
 		mcc.clusterToCache["mock"] = mockCache
 		mcc.List(clusterinfo.WithClusters(ctx, []string{"mock"}), &corev1.PodList{}, utilcache.DisableDeepCopy)
 		Expect(mockCache.Observed).Should(BeTrue())
+	})
+})
+
+var _ = Describe("test cluster filter", func() {
+	AfterEach(func() {
+		os.Unsetenv(clusterinfo.EnvClusterAllowList)
+		os.Unsetenv(clusterinfo.EnvClusterBlockList)
+	})
+
+	It("both allow and block lists are used", func() {
+		err := os.Setenv(clusterinfo.EnvClusterAllowList, "cluster1,cluster2")
+		Expect(err).NotTo(HaveOccurred())
+
+		err = os.Setenv(clusterinfo.EnvClusterBlockList, "cluster3,cluster4")
+		Expect(err).NotTo(HaveOccurred())
+
+		clusterFilter, err := getClusterFilter(&ManagerConfig{})
+		Expect(err).To(HaveOccurred())
+		Expect(clusterFilter).To(BeNil())
+	})
+
+	It("ClusterFilter and allow lists are used", func() {
+		err := os.Setenv(clusterinfo.EnvClusterAllowList, "cluster1,cluster2")
+		Expect(err).NotTo(HaveOccurred())
+
+		clusterFilter, err := getClusterFilter(&ManagerConfig{
+			ClusterFilter: func(cluster string) bool {
+				return cluster == "cluster1"
+			},
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(clusterFilter).To(BeNil())
+	})
+
+	It("ClusterFilter and block lists are used", func() {
+		err := os.Setenv(clusterinfo.EnvClusterBlockList, "cluster1,cluster2")
+		Expect(err).NotTo(HaveOccurred())
+
+		clusterFilter, err := getClusterFilter(&ManagerConfig{
+			ClusterFilter: func(cluster string) bool {
+				return cluster == "cluster3"
+			},
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(clusterFilter).To(BeNil())
+	})
+
+	It("use allow lists", func() {
+		err := os.Setenv(clusterinfo.EnvClusterAllowList, "cluster1,cluster2")
+		Expect(err).NotTo(HaveOccurred())
+
+		clusterFilter, err := getClusterFilter(&ManagerConfig{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(clusterFilter("cluster1")).To(Equal(true))
+		Expect(clusterFilter("cluster2")).To(Equal(true))
+	})
+
+	It("use block lists", func() {
+		err := os.Setenv(clusterinfo.EnvClusterBlockList, "cluster1,cluster2")
+		Expect(err).NotTo(HaveOccurred())
+
+		clusterFilter, err := getClusterFilter(&ManagerConfig{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(clusterFilter("cluster1")).To(Equal(false))
+		Expect(clusterFilter("cluster2")).To(Equal(false))
+	})
+
+	It("use ClusterFilter", func() {
+		clusterFilter, err := getClusterFilter(&ManagerConfig{
+			ClusterFilter: func(cluster string) bool {
+				if cluster == "cluster1" {
+					return true
+				}
+				if cluster == "cluster2" {
+					return true
+				}
+				return false
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(clusterFilter("cluster1")).To(Equal(true))
+		Expect(clusterFilter("cluster3")).To(Equal(false))
 	})
 })
 
