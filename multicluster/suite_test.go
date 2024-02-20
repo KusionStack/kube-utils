@@ -140,12 +140,12 @@ var _ = BeforeSuite(func() {
 				return fedConfig
 			}
 		},
-		ClusterManagermentGVR: &schema.GroupVersionResource{
+		ClusterManagementGVR: &schema.GroupVersionResource{
 			Group:    "apps",
 			Version:  "v1",
 			Resource: "deployments",
 		},
-		ClusterManagermentType: controller.TestCluterManagement,
+		ClusterManagementType: controller.TestCluterManagement,
 	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())

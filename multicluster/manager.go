@@ -59,10 +59,10 @@ func setOptionsDefaults(opts Options) Options {
 }
 
 type ManagerConfig struct {
-	FedConfig              *rest.Config
-	ClusterScheme          *runtime.Scheme
-	ClusterManagermentGVR  *schema.GroupVersionResource
-	ClusterManagermentType controller.ClusterManagermentType
+	FedConfig             *rest.Config
+	ClusterScheme         *runtime.Scheme
+	ClusterManagementGVR  *schema.GroupVersionResource
+	ClusterManagementType controller.ClusterManagementType
 
 	ResyncPeriod  time.Duration
 	ClusterFilter func(string) bool // select cluster
@@ -78,7 +78,7 @@ type Manager struct {
 
 	clusterCacheManager  ClusterCacheManager
 	clusterClientManager ClusterClientManager
-	controller           *controller.Controller // controller for cluster managerment
+	controller           *controller.Controller // controller for cluster management
 
 	resyncPeriod              time.Duration
 	hasCluster                map[string]struct{} // whether cluster has been added
@@ -119,17 +119,17 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 		}
 	}
 
-	clusterManagermentType := controller.OpenClusterManagement
-	if cfg.ClusterManagermentType != "" {
-		clusterManagermentType = cfg.ClusterManagermentType
+	clusterManagementType := controller.OpenClusterManagement
+	if cfg.ClusterManagementType != "" {
+		clusterManagementType = cfg.ClusterManagementType
 	}
 
 	controller, err := controller.NewController(&controller.ControllerConfig{
-		Config:                 cfg.FedConfig,
-		ResyncPeriod:           cfg.ResyncPeriod,
-		ClusterManagermentType: clusterManagermentType,
-		ClusterManagermentGVR:  cfg.ClusterManagermentGVR,
-		Log:                    log,
+		Config:                cfg.FedConfig,
+		ResyncPeriod:          cfg.ResyncPeriod,
+		ClusterManagementType: clusterManagementType,
+		ClusterManagementGVR:  cfg.ClusterManagementGVR,
+		Log:                   log,
 
 		RestConfigForCluster: cfg.RestConfigForCluster,
 	})

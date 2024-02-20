@@ -37,17 +37,17 @@ import (
 	"kusionstack.io/kube-utils/multicluster/metrics"
 )
 
-type ClusterManagermentType string
+type ClusterManagementType string
 
 const (
-	OpenClusterManagement ClusterManagermentType = "OpenClusterManagement"
-	TestCluterManagement  ClusterManagermentType = "TestCluterManagement"
+	OpenClusterManagement ClusterManagementType = "OpenClusterManagement"
+	TestCluterManagement  ClusterManagementType = "TestCluterManagement"
 )
 
 type Controller struct {
-	config                 *rest.Config
-	clusterManagermentType ClusterManagermentType
-	clusterManagermentGVR  schema.GroupVersionResource
+	config                *rest.Config
+	clusterManagementType ClusterManagementType
+	clusterManagementGVR  schema.GroupVersionResource
 
 	client          dynamic.Interface // client to get cluster info
 	informerFactory dynamicinformer.DynamicSharedInformerFactory
@@ -67,11 +67,11 @@ type Controller struct {
 }
 
 type ControllerConfig struct {
-	Config                 *rest.Config // config for cluster managerment
-	ClusterManagermentType ClusterManagermentType
-	ClusterManagermentGVR  *schema.GroupVersionResource
-	ResyncPeriod           time.Duration // resync period for cluster managerment
-	Log                    logr.Logger
+	Config                *rest.Config // config for cluster management
+	ClusterManagementType ClusterManagementType
+	ClusterManagementGVR  *schema.GroupVersionResource
+	ResyncPeriod          time.Duration // resync period for cluster management
+	Log                   logr.Logger
 
 	// for test
 	RestConfigForCluster func(cluster string) *rest.Config
@@ -79,20 +79,20 @@ type ControllerConfig struct {
 
 // NewController creates a new Controller which will process events about cluster.
 func NewController(cfg *ControllerConfig) (*Controller, error) {
-	var clusterManagermentGVR schema.GroupVersionResource
-	switch cfg.ClusterManagermentType {
+	var clusterManagementGVR schema.GroupVersionResource
+	switch cfg.ClusterManagementType {
 	case OpenClusterManagement:
-		if cfg.ClusterManagermentGVR == nil {
-			return nil, fmt.Errorf("ClusterManagermentGVR must be set when use %s", cfg.ClusterManagermentType)
+		if cfg.ClusterManagementGVR == nil {
+			return nil, fmt.Errorf("ClusterManagementGVR must be set when use %s", cfg.ClusterManagementType)
 		}
-		clusterManagermentGVR = *cfg.ClusterManagermentGVR
+		clusterManagementGVR = *cfg.ClusterManagementGVR
 	case TestCluterManagement:
-		if cfg.ClusterManagermentGVR == nil || cfg.RestConfigForCluster == nil {
-			return nil, fmt.Errorf("ClusterManagermentGVR and RestConfigForCluster must be set when use %s", cfg.ClusterManagermentType)
+		if cfg.ClusterManagementGVR == nil || cfg.RestConfigForCluster == nil {
+			return nil, fmt.Errorf("ClusterManagementGVR and RestConfigForCluster must be set when use %s", cfg.ClusterManagementType)
 		}
-		clusterManagermentGVR = *cfg.ClusterManagermentGVR
+		clusterManagementGVR = *cfg.ClusterManagementGVR
 	default:
-		return nil, fmt.Errorf("not support cluster managerment type: %v", cfg.ClusterManagermentType)
+		return nil, fmt.Errorf("not support cluster management type: %v", cfg.ClusterManagementType)
 	}
 
 	client, err := dynamic.NewForConfig(cfg.Config)
@@ -100,18 +100,18 @@ func NewController(cfg *ControllerConfig) (*Controller, error) {
 		return nil, err
 	}
 	informerFactory := dynamicinformer.NewDynamicSharedInformerFactory(client, cfg.ResyncPeriod)
-	informer := informerFactory.ForResource(clusterManagermentGVR).Informer()
+	informer := informerFactory.ForResource(clusterManagementGVR).Informer()
 
 	return &Controller{
-		config:                 cfg.Config,
-		client:                 client,
-		informerFactory:        informerFactory,
-		clusterManagermentType: cfg.ClusterManagermentType,
-		clusterManagermentGVR:  clusterManagermentGVR,
-		informer:               informer,
-		workqueue:              workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), clusterManagermentGVR.Resource),
-		syncedCh:               make(chan struct{}),
-		log:                    cfg.Log,
+		config:                cfg.Config,
+		client:                client,
+		informerFactory:       informerFactory,
+		clusterManagementType: cfg.ClusterManagementType,
+		clusterManagementGVR:  clusterManagementGVR,
+		informer:              informer,
+		workqueue:             workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), clusterManagementGVR.Resource),
+		syncedCh:              make(chan struct{}),
+		log:                   cfg.Log,
 
 		restConfigForCluster: cfg.RestConfigForCluster,
 	}, nil
@@ -228,7 +228,7 @@ func (c *Controller) eventHandler(key string) error {
 		return nil
 	}
 
-	_, err = c.client.Resource(c.clusterManagermentGVR).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	_, err = c.client.Resource(c.clusterManagementGVR).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			c.deleteHandler(name)
@@ -249,10 +249,10 @@ func (c *Controller) eventHandler(key string) error {
 
 // RestConfigForCluster returns the rest config for the mangered cluster.
 func (c *Controller) RestConfigForCluster(cluster string) *rest.Config {
-	switch c.clusterManagermentType {
+	switch c.clusterManagementType {
 	case OpenClusterManagement:
 		clusterConfig := *c.config
-		clusterConfig.Host = fmt.Sprintf("%s/apis/%s/%s/%s/%s/proxy", clusterConfig.Host, c.clusterManagermentGVR.Group, c.clusterManagermentGVR.Version, c.clusterManagermentGVR.Resource, cluster)
+		clusterConfig.Host = fmt.Sprintf("%s/apis/%s/%s/%s/%s/proxy", clusterConfig.Host, c.clusterManagementGVR.Group, c.clusterManagementGVR.Version, c.clusterManagementGVR.Resource, cluster)
 		return &clusterConfig
 	case TestCluterManagement:
 		return c.restConfigForCluster(cluster)
