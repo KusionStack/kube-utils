@@ -41,7 +41,6 @@ type InitOption interface {
 
 type options struct {
 	disableByDefault bool
-	hidden           bool
 	override         bool
 }
 type optionFunc func(*options)
@@ -140,7 +139,7 @@ func (m *managerInitializer) Add(name string, setup InitFunc, opts ...InitOption
 
 	m.all.Insert(name)
 
-	if opt.disableByDefault && !opt.hidden {
+	if opt.disableByDefault {
 		m.disableByDefault.Insert(name)
 	} else {
 		m.enabled.Insert(name)
@@ -153,10 +152,18 @@ func (m *managerInitializer) Add(name string, setup InitFunc, opts ...InitOption
 func (m *managerInitializer) BindFlag(fs *pflag.FlagSet) {
 	all := m.all.List()
 	disabled := m.disableByDefault.List()
-	fs.Var(m, m.name, fmt.Sprintf(""+
-		"A list of %s to enable. '*' enables all on-by-default %s, 'foo' enables the %s "+
-		"named 'foo', '-foo' disables the %s named 'foo'.\nAll: %s\nDisabled-by-default: %s",
-		m.name, m.name, m.name, m.name, strings.Join(all, ", "), strings.Join(disabled, ", ")))
+
+	usage := fmt.Sprintf(""+
+		"A list of %s to enable.\n"+
+		"'*' enables all on-by-default %s.\n"+
+		"'foo' enables the %s named 'foo'.\n"+
+		"'-foo' disables the %s named 'foo'.\n"+
+		"All: '%s'\n"+
+		"Disabled-by-default: '%s'\n",
+		m.name, m.name, m.name, m.name, strings.Join(all, ", "), strings.Join(disabled, ", "))
+
+	flag := fs.VarPF(m, m.name, "", usage)
+	flag.DefValue = "*"
 }
 
 // Knowns implements Controllerinitializer.
