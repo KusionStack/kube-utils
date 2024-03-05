@@ -57,13 +57,6 @@ func WithDisableByDefault() InitOption {
 	})
 }
 
-// WithHidden hidden the controller name and it will always be enabled.
-func WithHidden() InitOption {
-	return optionFunc(func(o *options) {
-		o.hidden = true
-	})
-}
-
 // WithOverride allows overriding initializer.
 func WithOverride() InitOption {
 	return optionFunc(func(o *options) {
@@ -103,7 +96,6 @@ func NewNamed(name string) Interface {
 		all:              sets.NewString(),
 		enabled:          sets.NewString(),
 		disableByDefault: sets.NewString(),
-		hidden:           sets.NewString(),
 	}
 }
 
@@ -117,14 +109,12 @@ type managerInitializer struct {
 	all              sets.String
 	enabled          sets.String
 	disableByDefault sets.String
-	hidden           sets.String
 }
 
 func (m *managerInitializer) deleteUnlocked(name string) {
 	if m.all.Has(name) {
 		m.all.Delete(name)
 		m.enabled.Delete(name)
-		m.hidden.Delete(name)
 		m.disableByDefault.Delete()
 		delete(m.initializers, name)
 	}
@@ -150,10 +140,6 @@ func (m *managerInitializer) Add(name string, setup InitFunc, opts ...InitOption
 
 	m.all.Insert(name)
 
-	if opt.hidden {
-		m.hidden.Insert(name)
-	}
-
 	if opt.disableByDefault && !opt.hidden {
 		m.disableByDefault.Insert(name)
 	} else {
@@ -165,7 +151,7 @@ func (m *managerInitializer) Add(name string, setup InitFunc, opts ...InitOption
 }
 
 func (m *managerInitializer) BindFlag(fs *pflag.FlagSet) {
-	all := m.all.Difference(m.hidden).List()
+	all := m.all.List()
 	disabled := m.disableByDefault.List()
 	fs.Var(m, m.name, fmt.Sprintf(""+
 		"A list of %s to enable. '*' enables all on-by-default %s, 'foo' enables the %s "+
@@ -201,9 +187,6 @@ func (m *managerInitializer) Enabled(name string) bool {
 }
 
 func (m *managerInitializer) enabledUnlocked(name string, flagValue []string) bool {
-	if m.hidden.Has(name) {
-		return true
-	}
 	hasStar := false
 	for _, ctrl := range flagValue {
 		if ctrl == name {
@@ -254,10 +237,6 @@ func (m *managerInitializer) String() string {
 
 	pairs := []string{}
 	for _, name := range m.all.List() {
-		if m.hidden.Has(name) {
-			// ignore hidden initializer
-			continue
-		}
 		if m.enabled.Has(name) {
 			pairs = append(pairs, name)
 		} else {
