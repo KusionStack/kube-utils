@@ -24,73 +24,109 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-func Test_Initializer(t *testing.T) {
+func testInitFunc(manager.Manager) (enabled bool, err error) {
+	return true, nil
+}
+
+func newTestInitializer() *managerInitializer {
 	initializer := New()
-	err := initializer.Add("test1", testInitFunc)
-	assert.NoError(t, err)
-	err = initializer.Add("test2", testInitFunc)
-	assert.NoError(t, err)
-	err = initializer.Add("test3", testInitFunc)
-	assert.NoError(t, err)
-	err = initializer.Add("__internal", testInitFunc, WithHidden(), WithDisableByDefault())
-	assert.NoError(t, err)
+	initializer.Add("test1", testInitFunc)
+	initializer.Add("test2", testInitFunc)
+	initializer.Add("test3", testInitFunc, WithDisableByDefault())
+
+	return initializer.(*managerInitializer)
+}
+
+func Test_Initializer(t *testing.T) {
+	initializer := newTestInitializer()
 
 	// disable override
-	err = initializer.Add("test3", testInitFunc)
+	err := initializer.Add("test3", testInitFunc)
 	assert.Error(t, err)
 	// allow override
 	err = initializer.Add("test3", testInitFunc, WithOverride(), WithDisableByDefault())
 	assert.NoError(t, err)
 
 	names := initializer.Knowns()
-	assert.EqualValues(t, []string{"__internal", "test1", "test2", "test3"}, names)
+	assert.EqualValues(t, []string{"test1", "test2", "test3"}, names)
 	assert.True(t, initializer.Enabled("test1"))
 	assert.True(t, initializer.Enabled("test2"))
 	assert.False(t, initializer.Enabled("test3"))
-	assert.True(t, initializer.Enabled("__internal"))
-
-	// test bind flag
-	fs := pflag.NewFlagSet("test-*", pflag.PanicOnError)
-	initializer.BindFlag(fs)
-	fs.Set(defaultName, "*")
-	err = fs.Parse(nil)
-	assert.NoError(t, err)
-	assert.True(t, initializer.Enabled("test1"))
-	assert.True(t, initializer.Enabled("test2"))
-	assert.False(t, initializer.Enabled("test3"))
-	assert.True(t, initializer.Enabled("__internal"))
-
-	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
-	initializer.BindFlag(fs)
-	fs.Set(defaultName, "test1,test2")
-	err = fs.Parse(nil)
-	assert.NoError(t, err)
-	assert.True(t, initializer.Enabled("test1"))
-	assert.True(t, initializer.Enabled("test2"))
-	assert.False(t, initializer.Enabled("test3"))
-	assert.True(t, initializer.Enabled("__internal"))
-
-	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
-	initializer.BindFlag(fs)
-	fs.Set(defaultName, "-test1,test3")
-	err = fs.Parse(nil)
-	assert.NoError(t, err)
-	assert.False(t, initializer.Enabled("test1"))
-	assert.False(t, initializer.Enabled("test2"))
-	assert.True(t, initializer.Enabled("test3"))
-	assert.True(t, initializer.Enabled("__internal"))
-
-	fs = pflag.NewFlagSet("test", pflag.PanicOnError)
-	initializer.BindFlag(fs)
-	fs.Set(defaultName, "-test1,-__internal")
-	err = fs.Parse(nil)
-	assert.NoError(t, err)
-	assert.False(t, initializer.Enabled("test1"))
-	assert.False(t, initializer.Enabled("test2"))
-	assert.False(t, initializer.Enabled("test3"))
-	assert.True(t, initializer.Enabled("__internal"))
 }
 
-func testInitFunc(manager.Manager) (enabled bool, err error) {
-	return true, nil
+func Test_Flag(t *testing.T) {
+	tests := []struct {
+		name        string
+		checkResult func(*assert.Assertions, *managerInitializer)
+	}{
+		{
+			name: "*",
+			checkResult: func(assert *assert.Assertions, initializer *managerInitializer) {
+				assert.True(initializer.Enabled("test1"))
+				assert.True(initializer.Enabled("test2"))
+				assert.False(initializer.Enabled("test3"))
+				assert.Equal("test1,test2,-test3", initializer.String())
+			},
+		},
+
+		{
+			name: "test1,test2",
+			checkResult: func(assert *assert.Assertions, initializer *managerInitializer) {
+				assert.True(initializer.Enabled("test1"))
+				assert.True(initializer.Enabled("test2"))
+				assert.False(initializer.Enabled("test3"))
+				assert.Equal("test1,test2,-test3", initializer.String())
+			},
+		},
+		{
+			name: "test3",
+			checkResult: func(assert *assert.Assertions, initializer *managerInitializer) {
+				assert.False(initializer.Enabled("test1"))
+				assert.False(initializer.Enabled("test2"))
+				assert.True(initializer.Enabled("test3"))
+				assert.Equal("-test1,-test2,test3", initializer.String())
+			},
+		},
+		{
+			name: "-test1",
+			checkResult: func(assert *assert.Assertions, initializer *managerInitializer) {
+				assert.False(initializer.Enabled("test1"))
+				assert.False(initializer.Enabled("test2"))
+				assert.False(initializer.Enabled("test3"))
+				assert.Equal("-test1,-test2,-test3", initializer.String())
+			},
+		},
+		{
+			name: "*,test3",
+			checkResult: func(assert *assert.Assertions, initializer *managerInitializer) {
+				assert.True(initializer.Enabled("test1"))
+				assert.True(initializer.Enabled("test2"))
+				assert.True(initializer.Enabled("test3"))
+				assert.Equal("test1,test2,test3", initializer.String())
+			},
+		},
+		{
+			name: "*,-test1",
+			checkResult: func(assert *assert.Assertions, initializer *managerInitializer) {
+				assert.False(initializer.Enabled("test1"))
+				assert.True(initializer.Enabled("test2"))
+				assert.False(initializer.Enabled("test3"))
+				assert.Equal("-test1,test2,-test3", initializer.String())
+			},
+		},
+	}
+
+	for i := range tests {
+		tt := tests[i]
+		t.Run(tt.name, func(t *testing.T) {
+			initializer := newTestInitializer()
+			// test bind flag
+			fs := pflag.NewFlagSet("test", pflag.PanicOnError)
+			initializer.BindFlag(fs)
+			fs.Set(defaultName, tt.name)
+			err := fs.Parse(nil)
+			assert.NoError(t, err)
+			tt.checkResult(assert.New(t), initializer)
+		})
+	}
 }
