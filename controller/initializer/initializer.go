@@ -177,7 +177,10 @@ func (m *managerInitializer) SetupWithManager(mgr manager.Manager) error {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
+	logger := mgr.GetLogger().WithName("init").WithValues("category", m.name)
+
 	for _, name := range m.enabled.List() {
+		logger.Info("initializer enabled", "name", name)
 		_, err := m.initializers[name](mgr)
 		if err != nil {
 			return fmt.Errorf("failed to initialize %q: %v", name, err)
