@@ -1,4 +1,4 @@
-module kusionstack.io/kube-utils/tools/cert-generator
+module github.com/KusionStack/kube-utils/tools/cert-generator
 
 go 1.19
 
