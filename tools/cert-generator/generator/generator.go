@@ -33,19 +33,21 @@ import (
 
 const kubeConfigTemplate = `apiVersion: v1
 clusters:
-  karbour:
+- cluster:
     insecure-skip-tls-verify: true
     server: https://karbour-server.karbour.svc:7443
+  name: karbour
 contexts:
-  default:
+- context:
     cluster: karbour
     user: karbour
+  name: karbour
 current-context: default
 kind: Config
-preferences: {}
 users:
-  karbour:
-    client-certificate-data: %s}
+- name: karbour
+  user:
+    client-certificate-data: %s
     client-key-data: %s`
 
 type Generator struct {
