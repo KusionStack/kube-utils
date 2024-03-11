@@ -67,6 +67,7 @@ require (
 )
 
 replace (
+	github.com/KusionStack/kube-utils/tools/cert-generator => ./tools/cert-generator
 	github.com/go-logr/logr => github.com/go-logr/logr v0.4.0
 	github.com/go-logr/zapr => github.com/go-logr/zapr v0.4.0
 	github.com/golang/mock => github.com/golang/mock v1.6.0
