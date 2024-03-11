@@ -15,17 +15,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cmd
+package main
 
 import (
-	"context"
-	"os"
-
-	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	"kusionstack.io/kube-utils/tools/cert-generator/generator"
 )
 
 const (
@@ -53,57 +46,4 @@ func (o *CertOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.Namespace, "namespace", o.Namespace, "The namespace to store the CA and kubeconfig")
 	fs.StringVar(&o.CertName, "ca-name", o.CertName, "The name of the secret used to store the CA certificate.")
 	fs.StringVar(&o.KubeConfigName, "kubeconfig-name", o.KubeConfigName, "The name of the configmap used to store the kubeconfig.")
-}
-
-func NewCertGeneratorCommand(ctx context.Context) *cobra.Command {
-	options := NewCertOptions()
-	cmd := &cobra.Command{
-		Use:   "gen-cert",
-		Short: "Generate CA and kubeconfig",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGertGenerator(ctx, options)
-		},
-	}
-	options.AddFlags(cmd.Flags())
-	return cmd
-}
-
-func runGertGenerator(ctx context.Context, options *CertOptions) error {
-	var cfg *rest.Config
-	var ns string
-	var err error
-
-	if options.KubeConfig == "" {
-		cfg, err = rest.InClusterConfig()
-		if err != nil {
-			return err
-		}
-	} else {
-		cfg, err = clientcmd.BuildConfigFromFlags("", options.KubeConfig)
-		if err != nil {
-			return err
-		}
-	}
-
-	if options.Namespace == "" {
-		var b []byte
-		b, err = os.ReadFile(inClusterNamespace)
-		if err != nil {
-			return err
-		}
-		ns = string(b)
-	} else {
-		ns = options.Namespace
-	}
-
-	generator, err := generator.NewGenerator(cfg, ns, options.CertName, options.KubeConfigName)
-	if err != nil {
-		return err
-	}
-
-	err = generator.Generate(ctx)
-	if err != nil {
-		return err
-	}
-	return nil
 }

@@ -18,16 +18,73 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"os"
 
+	"github.com/spf13/cobra"
 	"k8s.io/apiserver/pkg/server"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/component-base/cli"
-	"kusionstack.io/kube-utils/tools/cert-generator/cmd"
+	"kusionstack.io/kube-utils/tools/cert-generator/generator"
 )
 
 func main() {
 	ctx := server.SetupSignalContext()
-	command := cmd.NewCertGeneratorCommand(ctx)
+	command := NewCertGeneratorCommand(ctx)
 	code := cli.Run(command)
 	os.Exit(code)
+}
+
+func NewCertGeneratorCommand(ctx context.Context) *cobra.Command {
+	options := NewCertOptions()
+	cmd := &cobra.Command{
+		Use:   "gen-cert",
+		Short: "Generate CA and kubeconfig",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCertGenerator(ctx, options)
+		},
+	}
+	options.AddFlags(cmd.Flags())
+	return cmd
+}
+
+func runCertGenerator(ctx context.Context, options *CertOptions) error {
+	var cfg *rest.Config
+	var ns string
+	var err error
+
+	if options.KubeConfig == "" {
+		cfg, err = rest.InClusterConfig()
+		if err != nil {
+			return err
+		}
+	} else {
+		cfg, err = clientcmd.BuildConfigFromFlags("", options.KubeConfig)
+		if err != nil {
+			return err
+		}
+	}
+
+	if options.Namespace == "" {
+		var b []byte
+		b, err = os.ReadFile(inClusterNamespace)
+		if err != nil {
+			return err
+		}
+		ns = string(b)
+	} else {
+		ns = options.Namespace
+	}
+
+	generator, err := generator.NewGenerator(cfg, ns, options.CertName, options.KubeConfigName)
+	if err != nil {
+		return err
+	}
+
+	err = generator.Generate(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
 }
