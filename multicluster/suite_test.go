@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2/klogr"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -125,10 +126,9 @@ var _ = BeforeSuite(func() {
 		newClientFunc cluster.NewClientFunc
 	)
 	os.Setenv(clusterinfo.EnvClusterAllowList, "cluster1,cluster2")
-	manager, newCacheFunc, newClientFunc, err = NewManager(&ManagerConfig{
-		FedConfig:     fedConfig,
-		ClusterScheme: clusterScheme,
-		ResyncPeriod:  10 * time.Minute,
+
+	clusterController, err := controller.NewController(&controller.ControllerConfig{
+		Config: fedConfig,
 
 		ClusterProvider: &controller.TestClusterProvider{
 			GroupVersionResource: schema.GroupVersionResource{ // Use deployment as cluster management resource
@@ -142,6 +142,15 @@ var _ = BeforeSuite(func() {
 				clusterinfo.Fed: fedConfig,
 			},
 		},
+		Log: klogr.New(),
+	})
+	Expect(err).NotTo(HaveOccurred())
+
+	manager, newCacheFunc, newClientFunc, err = NewManager(&ManagerConfig{
+		FedConfig:         fedConfig,
+		ClusterScheme:     clusterScheme,
+		ResyncPeriod:      10 * time.Minute,
+		ClusterController: clusterController,
 	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())
@@ -167,7 +176,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(clusterClient).NotTo(BeNil())
 
-	go manager.Run(2, ctx)
+	go manager.Run(ctx)
 })
 
 var _ = AfterSuite(func() {
