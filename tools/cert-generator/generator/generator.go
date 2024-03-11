@@ -41,7 +41,7 @@ contexts:
 - context:
     cluster: karbour
     user: karbour
-  name: karbour
+  name: default
 current-context: default
 kind: Config
 users:
