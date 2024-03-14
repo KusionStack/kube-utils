@@ -24,6 +24,7 @@ import (
 
 var _ ClusterProvider = &TestClusterProvider{}
 
+// TestClusterProvider is a test implementation of ClusterProvider
 type TestClusterProvider struct {
 	schema.GroupVersionResource
 	ClusterNameToConfig map[string]*rest.Config // Map from cluster name to kubeconfig

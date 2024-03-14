@@ -38,6 +38,7 @@ import (
 	"kusionstack.io/kube-utils/multicluster/metrics"
 )
 
+// ClusterProvider is used to provide cluster management resource and cluster kubeconfig
 type ClusterProvider interface {
 	Init(config *rest.Config)                                     // Init is used to initialize the cluster provider, config is the kubeconfig for the fed cluster
 	GetClusterMangementGVR() schema.GroupVersionResource          // The GVR will be used to watch cluster management resource
@@ -45,6 +46,7 @@ type ClusterProvider interface {
 	GetClusterConfig(obj *unstructured.Unstructured) *rest.Config // Get kubeconfig from cluster management resource
 }
 
+// Controller is used to manage clusters
 type Controller struct {
 	config          *rest.Config
 	clusterProvider ClusterProvider
