@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package controller
+package clusterprovider
 
 import (
 	"fmt"
@@ -26,28 +26,28 @@ import (
 	clusterv1beta1 "kusionstack.io/kube-api/cluster/v1beta1"
 )
 
-var _ ClusterProvider = &KarbourClusterProvider{}
+var _ ClusterManager = &KarbourClusterManager{}
 
-type KarbourClusterProvider struct {
+type KarbourClusterManager struct {
 	config *rest.Config
 }
 
-func (p *KarbourClusterProvider) Init(config *rest.Config) {
+func (p *KarbourClusterManager) Init(config *rest.Config) {
 	p.config = config
 }
 
-func (p *KarbourClusterProvider) GetClusterMangementGVR() schema.GroupVersionResource {
+func (p *KarbourClusterManager) GetClusterMangementGVR() schema.GroupVersionResource {
 	return clusterv1beta1.SchemeGroupVersion.WithResource("clusters")
 }
 
-func (p *KarbourClusterProvider) GetClusterName(obj *unstructured.Unstructured) string {
+func (p *KarbourClusterManager) GetClusterName(obj *unstructured.Unstructured) string {
 	if obj == nil {
 		return ""
 	}
 	return obj.GetName()
 }
 
-func (p *KarbourClusterProvider) GetClusterConfig(obj *unstructured.Unstructured) *rest.Config {
+func (p *KarbourClusterManager) GetClusterConfig(obj *unstructured.Unstructured) *rest.Config {
 	clusterName := p.GetClusterName(obj)
 	if clusterName == "" || p.config == nil {
 		return nil

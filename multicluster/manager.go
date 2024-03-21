@@ -58,8 +58,8 @@ func setOptionsDefaults(opts Options) Options {
 	return opts
 }
 
-type ClusterController interface {
-	Run(stopCh <-chan struct{}) error                                                              // Run the controller
+type ClusterProvider interface {
+	Run(stopCh <-chan struct{}) error                                                              // Run the ClusterProvider
 	AddEventHandler(addUpdateHandler func(string, *rest.Config) error, deleteHandler func(string)) // Add event handler for cluster events
 	WaitForSynced(ctx context.Context) bool                                                        // Wait for all clusters to be synced
 }
@@ -67,7 +67,7 @@ type ClusterController interface {
 type ManagerConfig struct {
 	FedConfig     *rest.Config
 	ClusterScheme *runtime.Scheme
-	ClusterController
+	ClusterProvider
 
 	ResyncPeriod  time.Duration
 	ClusterFilter func(string) bool // select cluster
@@ -78,7 +78,7 @@ type Manager struct {
 	newCache      cache.NewCacheFunc // Function to create cache for cluster
 	clusterScheme *runtime.Scheme    // Scheme which is used to create cache for cluster
 
-	controller ClusterController // Controller for cluster management
+	clusterProvider ClusterProvider
 
 	clusterCacheManager  ClusterCacheManager
 	clusterClientManager ClusterClientManager
@@ -92,8 +92,8 @@ type Manager struct {
 }
 
 func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFunc cache.NewCacheFunc, newClientFunc cluster.NewClientFunc, err error) {
-	if cfg.ClusterController == nil {
-		return nil, nil, nil, errors.New("ClusterController is required")
+	if cfg.ClusterProvider == nil {
+		return nil, nil, nil, errors.New("ClusterProvider is required")
 	}
 
 	var log logr.Logger
@@ -122,7 +122,7 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 
 		clusterCacheManager:  clusterCacheManager,
 		clusterClientManager: clusterClientManager,
-		controller:           cfg.ClusterController,
+		clusterProvider:      cfg.ClusterProvider,
 
 		resyncPeriod:              cfg.ResyncPeriod,
 		hasCluster:                make(map[string]struct{}),
@@ -140,13 +140,13 @@ func (m *Manager) Run(ctx context.Context) error {
 		close(stopCh)
 	}()
 
-	m.controller.AddEventHandler(m.addUpdateHandler, m.deleteHandler)
-	return m.controller.Run(stopCh)
+	m.clusterProvider.AddEventHandler(m.addUpdateHandler, m.deleteHandler)
+	return m.clusterProvider.Run(stopCh)
 }
 
 func (m *Manager) WaitForSynced(ctx context.Context) bool {
-	m.log.Info("wait for controller synced")
-	return m.controller.WaitForSynced(ctx)
+	m.log.Info("wait for ClusterProvider synced")
+	return m.clusterProvider.WaitForSynced(ctx)
 }
 
 func (m *Manager) addUpdateHandler(cluster string, cfg *rest.Config) (err error) {

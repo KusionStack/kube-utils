@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package controller
+package clusterprovider
 
 import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -22,30 +22,30 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-var _ ClusterProvider = &TestClusterProvider{}
+var _ ClusterManager = &TestClusterManager{}
 
-// TestClusterProvider is a test implementation of ClusterProvider
-type TestClusterProvider struct {
+// TestClusterManager is a test implementation of ClusterProviderInfo
+type TestClusterManager struct {
 	schema.GroupVersionResource
 	ClusterNameToConfig map[string]*rest.Config // Map from cluster name to kubeconfig
 }
 
-func (p *TestClusterProvider) Init(config *rest.Config) {
+func (p *TestClusterManager) Init(config *rest.Config) {
 	// Do nothing
 }
 
-func (p *TestClusterProvider) GetClusterMangementGVR() schema.GroupVersionResource {
+func (p *TestClusterManager) GetClusterMangementGVR() schema.GroupVersionResource {
 	return p.GroupVersionResource
 }
 
-func (p *TestClusterProvider) GetClusterName(obj *unstructured.Unstructured) string {
+func (p *TestClusterManager) GetClusterName(obj *unstructured.Unstructured) string {
 	if obj == nil {
 		return ""
 	}
 	return obj.GetName() // Use resource name as cluster name
 }
 
-func (p *TestClusterProvider) GetClusterConfig(obj *unstructured.Unstructured) *rest.Config {
+func (p *TestClusterManager) GetClusterConfig(obj *unstructured.Unstructured) *rest.Config {
 	if obj == nil || p.ClusterNameToConfig == nil {
 		return nil
 	}

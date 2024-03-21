@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package controller
+package clusterprovider
 
 import (
 	"context"
@@ -22,19 +22,19 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// StaticController is a controller that manages a static set of clusters.
-type StaticController struct {
+// StaticClusterProvider is a controller that manages a static set of clusters.
+type StaticClusterProvider struct {
 	clusterToConfig  map[string]*rest.Config
 	addUpdateHandler func(string, *rest.Config) error
 }
 
-func NewStaticController(clusterToConfig map[string]*rest.Config) *StaticController {
-	return &StaticController{
+func NewStaticClusterProvider(clusterToConfig map[string]*rest.Config) *StaticClusterProvider {
+	return &StaticClusterProvider{
 		clusterToConfig: clusterToConfig,
 	}
 }
 
-func (c *StaticController) Run(stopCh <-chan struct{}) error {
+func (c *StaticClusterProvider) Run(stopCh <-chan struct{}) error {
 	if c.addUpdateHandler == nil {
 		return nil
 	}
@@ -48,10 +48,10 @@ func (c *StaticController) Run(stopCh <-chan struct{}) error {
 	return nil
 }
 
-func (c *StaticController) AddEventHandler(addUpdateHandler func(string, *rest.Config) error, deleteHandler func(string)) {
+func (c *StaticClusterProvider) AddEventHandler(addUpdateHandler func(string, *rest.Config) error, deleteHandler func(string)) {
 	c.addUpdateHandler = addUpdateHandler
 }
 
-func (c *StaticController) WaitForSynced(ctx context.Context) bool {
+func (c *StaticClusterProvider) WaitForSynced(ctx context.Context) bool {
 	return true
 }

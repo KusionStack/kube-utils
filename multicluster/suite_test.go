@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
-	"kusionstack.io/kube-utils/multicluster/controller"
+	"kusionstack.io/kube-utils/multicluster/clusterprovider"
 )
 
 var (
@@ -127,10 +127,10 @@ var _ = BeforeSuite(func() {
 	)
 	os.Setenv(clusterinfo.EnvClusterAllowList, "cluster1,cluster2")
 
-	clusterController, err := controller.NewController(&controller.ControllerConfig{
+	clusterProvider, err := clusterprovider.NewDynamicClusterProvider(&clusterprovider.DynamicClusterProviderConfig{
 		Config: fedConfig,
 
-		ClusterProvider: &controller.TestClusterProvider{
+		ClusterManager: &clusterprovider.TestClusterManager{
 			GroupVersionResource: schema.GroupVersionResource{ // Use deployment as cluster management resource
 				Group:    "apps",
 				Version:  "v1",
@@ -147,10 +147,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	manager, newCacheFunc, newClientFunc, err = NewManager(&ManagerConfig{
-		FedConfig:         fedConfig,
-		ClusterScheme:     clusterScheme,
-		ResyncPeriod:      10 * time.Minute,
-		ClusterController: clusterController,
+		FedConfig:       fedConfig,
+		ClusterScheme:   clusterScheme,
+		ResyncPeriod:    10 * time.Minute,
+		ClusterProvider: clusterProvider,
 	}, Options{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(manager).NotTo(BeNil())
