@@ -38,18 +38,18 @@ import (
 	"kusionstack.io/kube-utils/multicluster/metrics"
 )
 
-// ClusterManager is used to provide cluster management resource and cluster kubeconfig
-type ClusterManager interface {
+// ClusterConfigProvider is used to provide cluster management resource and cluster kubeconfig
+type ClusterConfigProvider interface {
 	Init(config *rest.Config)                                     // Init is used to initialize the cluster provider, config is the kubeconfig for the fed cluster
-	GetClusterMangementGVR() schema.GroupVersionResource          // The GVR will be used to watch cluster management resource
+	GetGVR() schema.GroupVersionResource                          // The GVR will be used to watch cluster management resource
 	GetClusterName(obj *unstructured.Unstructured) string         // Get cluster name from cluster management resource, cluster name is used to identify the cluster
 	GetClusterConfig(obj *unstructured.Unstructured) *rest.Config // Get kubeconfig from cluster management resource
 }
 
-// DynamicClusterProvider is used to manage clusters
-type DynamicClusterProvider struct {
-	config         *rest.Config
-	ClusterManager ClusterManager
+// Controller is used to manage clusters
+type Controller struct {
+	config                *rest.Config
+	ClusterConfigProvider ClusterConfigProvider
 
 	client          dynamic.Interface // Client to get cluster info
 	informerFactory dynamicinformer.DynamicSharedInformerFactory
@@ -68,34 +68,34 @@ type DynamicClusterProvider struct {
 	log                        logr.Logger
 }
 
-type DynamicClusterProviderConfig struct {
-	Config         *rest.Config // Kubeconfig for the fed cluster
-	ClusterManager ClusterManager
-	ResyncPeriod   time.Duration // Resync period for cluster management
-	Log            logr.Logger
+type ControllerConfig struct {
+	Config                *rest.Config // Kubeconfig for the fed cluster
+	ClusterConfigProvider ClusterConfigProvider
+	ResyncPeriod          time.Duration // Resync period for cluster management
+	Log                   logr.Logger
 }
 
-// NewDynamicClusterProvider creates a new DynamicClusterProvider which will process events about cluster.
-func NewDynamicClusterProvider(cfg *DynamicClusterProviderConfig) (*DynamicClusterProvider, error) {
+// NewController creates a new Controller which will process events about cluster.
+func NewController(cfg *ControllerConfig) (*Controller, error) {
 	client, err := dynamic.NewForConfig(cfg.Config)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.ClusterManager == nil {
-		return nil, fmt.Errorf("ClusterManager is required")
+	if cfg.ClusterConfigProvider == nil {
+		return nil, fmt.Errorf("ClusterConfigProvider is required")
 	}
 
 	informerFactory := dynamicinformer.NewDynamicSharedInformerFactory(client, cfg.ResyncPeriod)
-	informer := informerFactory.ForResource(cfg.ClusterManager.GetClusterMangementGVR()).Informer()
+	informer := informerFactory.ForResource(cfg.ClusterConfigProvider.GetGVR()).Informer()
 
-	return &DynamicClusterProvider{
-		config:         cfg.Config,
-		ClusterManager: cfg.ClusterManager,
+	return &Controller{
+		config:                cfg.Config,
+		ClusterConfigProvider: cfg.ClusterConfigProvider,
 
 		client:          client,
 		informerFactory: informerFactory,
 		informer:        informer,
-		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), cfg.ClusterManager.GetClusterMangementGVR().Resource),
+		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), cfg.ClusterConfigProvider.GetGVR().Resource),
 		syncedCh:        make(chan struct{}),
 
 		clusterNameToNamespacedKey: make(map[string]string),                     // Get namespaced key by cluster name
@@ -107,7 +107,7 @@ func NewDynamicClusterProvider(cfg *DynamicClusterProviderConfig) (*DynamicClust
 // AddEventHandler adds handlers which will be invoked.
 // When cluster is added or updated, addUpdateHandler will be invoked.
 // When cluster is deleted, deleteHandler will be invoked.
-func (c *DynamicClusterProvider) AddEventHandler(addUpdateHandler func(string, *rest.Config) error, deleteHandler func(string)) {
+func (c *Controller) AddEventHandler(addUpdateHandler func(string, *rest.Config) error, deleteHandler func(string)) {
 	c.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: c.enqueueClusterEvent,
 		UpdateFunc: func(old, new interface{}) {
@@ -120,11 +120,11 @@ func (c *DynamicClusterProvider) AddEventHandler(addUpdateHandler func(string, *
 	c.deleteHandler = deleteHandler
 }
 
-func (c *DynamicClusterProvider) Run(stopCh <-chan struct{}) error {
+func (c *Controller) Run(stopCh <-chan struct{}) error {
 	defer runtime.HandleCrash()
 	defer c.workqueue.ShutDown()
 
-	c.ClusterManager.Init(c.config)
+	c.ClusterConfigProvider.Init(c.config)
 
 	c.informerFactory.Start(stopCh)
 
@@ -146,7 +146,7 @@ func (c *DynamicClusterProvider) Run(stopCh <-chan struct{}) error {
 	return nil
 }
 
-func (c *DynamicClusterProvider) WaitForSynced(ctx context.Context) bool {
+func (c *Controller) WaitForSynced(ctx context.Context) bool {
 	select {
 	case <-c.syncedCh: // Wait for all cluster has been processed
 		return true
@@ -155,7 +155,7 @@ func (c *DynamicClusterProvider) WaitForSynced(ctx context.Context) bool {
 	}
 }
 
-func (c *DynamicClusterProvider) enqueueClusterEvent(obj interface{}) {
+func (c *Controller) enqueueClusterEvent(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		c.log.Error(err, "failed to get enqueue key")
@@ -164,7 +164,7 @@ func (c *DynamicClusterProvider) enqueueClusterEvent(obj interface{}) {
 	c.workqueue.Add(key)
 }
 
-func (c *DynamicClusterProvider) runWorker() {
+func (c *Controller) runWorker() {
 	for c.processNextWorkItem() {
 		c.mutex.Lock()
 		if c.syncedNum > 0 {
@@ -177,7 +177,7 @@ func (c *DynamicClusterProvider) runWorker() {
 	}
 }
 
-func (c *DynamicClusterProvider) processNextWorkItem() bool {
+func (c *Controller) processNextWorkItem() bool {
 	obj, shutdown := c.workqueue.Get()
 	if shutdown {
 		return false
@@ -209,14 +209,14 @@ func (c *DynamicClusterProvider) processNextWorkItem() bool {
 }
 
 // eventHandler is called when an event about cluster is received.
-func (c *DynamicClusterProvider) eventHandler(key string) error {
+func (c *Controller) eventHandler(key string) error {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		c.log.Error(err, "failed to split namespaced key", "key", key)
 		return nil
 	}
 
-	obj, err := c.client.Resource(c.ClusterManager.GetClusterMangementGVR()).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	obj, err := c.client.Resource(c.ClusterConfigProvider.GetGVR()).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
 			c.mutex.Lock()
@@ -228,7 +228,7 @@ func (c *DynamicClusterProvider) eventHandler(key string) error {
 			}
 			delete(c.namespacedKeyToObj, key)
 
-			clusterName := c.ClusterManager.GetClusterName(oldObj)
+			clusterName := c.ClusterConfigProvider.GetClusterName(oldObj)
 			delete(c.clusterNameToNamespacedKey, clusterName)
 
 			metrics.NewClusterEventCountMetrics(key, "delete", "true").Inc()
@@ -242,11 +242,11 @@ func (c *DynamicClusterProvider) eventHandler(key string) error {
 
 	c.mutex.Lock()
 	c.namespacedKeyToObj[key] = obj
-	clusterName := c.ClusterManager.GetClusterName(obj)
+	clusterName := c.ClusterConfigProvider.GetClusterName(obj)
 	c.clusterNameToNamespacedKey[clusterName] = key
 	c.mutex.Unlock()
 
-	err = c.addUpdateHandler(clusterName, c.ClusterManager.GetClusterConfig(obj))
+	err = c.addUpdateHandler(clusterName, c.ClusterConfigProvider.GetClusterConfig(obj))
 	if err != nil {
 		metrics.NewClusterEventCountMetrics(key, "add-update", "false").Inc()
 		c.log.Error(err, "failed to add or update cluster", "key", key)

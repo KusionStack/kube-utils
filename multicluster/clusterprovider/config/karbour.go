@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package clusterprovider
+package config
 
 import (
 	"fmt"
@@ -26,34 +26,33 @@ import (
 	clusterv1beta1 "kusionstack.io/kube-api/cluster/v1beta1"
 )
 
-var _ ClusterManager = &KarbourClusterManager{}
-
-type KarbourClusterManager struct {
+// Karbour is a implementation of ClusterConfigProvider
+type Karbour struct {
 	config *rest.Config
 }
 
-func (p *KarbourClusterManager) Init(config *rest.Config) {
+func (p *Karbour) Init(config *rest.Config) {
 	p.config = config
 }
 
-func (p *KarbourClusterManager) GetClusterMangementGVR() schema.GroupVersionResource {
+func (p *Karbour) GetGVR() schema.GroupVersionResource {
 	return clusterv1beta1.SchemeGroupVersion.WithResource("clusters")
 }
 
-func (p *KarbourClusterManager) GetClusterName(obj *unstructured.Unstructured) string {
+func (p *Karbour) GetClusterName(obj *unstructured.Unstructured) string {
 	if obj == nil {
 		return ""
 	}
 	return obj.GetName()
 }
 
-func (p *KarbourClusterManager) GetClusterConfig(obj *unstructured.Unstructured) *rest.Config {
+func (p *Karbour) GetClusterConfig(obj *unstructured.Unstructured) *rest.Config {
 	clusterName := p.GetClusterName(obj)
 	if clusterName == "" || p.config == nil {
 		return nil
 	}
 
-	gvr := p.GetClusterMangementGVR()
+	gvr := p.GetGVR()
 
 	clusterConfig := *p.config
 	clusterConfig.Host = fmt.Sprintf("%s/apis/%s/%s/%s/%s/proxy", clusterConfig.Host, gvr.Group, gvr.Version, gvr.Resource, clusterName)

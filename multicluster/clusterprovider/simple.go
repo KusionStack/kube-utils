@@ -22,19 +22,19 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// StaticClusterProvider is a controller that manages a static set of clusters.
-type StaticClusterProvider struct {
+// SimpleClusterProvider is a controller that manages a static set of clusters.
+type SimpleClusterProvider struct {
 	clusterToConfig  map[string]*rest.Config
 	addUpdateHandler func(string, *rest.Config) error
 }
 
-func NewStaticClusterProvider(clusterToConfig map[string]*rest.Config) *StaticClusterProvider {
-	return &StaticClusterProvider{
+func NewSimpleClusterProvider(clusterToConfig map[string]*rest.Config) *SimpleClusterProvider {
+	return &SimpleClusterProvider{
 		clusterToConfig: clusterToConfig,
 	}
 }
 
-func (c *StaticClusterProvider) Run(stopCh <-chan struct{}) error {
+func (c *SimpleClusterProvider) Run(stopCh <-chan struct{}) error {
 	if c.addUpdateHandler == nil {
 		return nil
 	}
@@ -48,10 +48,10 @@ func (c *StaticClusterProvider) Run(stopCh <-chan struct{}) error {
 	return nil
 }
 
-func (c *StaticClusterProvider) AddEventHandler(addUpdateHandler func(string, *rest.Config) error, deleteHandler func(string)) {
+func (c *SimpleClusterProvider) AddEventHandler(addUpdateHandler func(string, *rest.Config) error, deleteHandler func(string)) {
 	c.addUpdateHandler = addUpdateHandler
 }
 
-func (c *StaticClusterProvider) WaitForSynced(ctx context.Context) bool {
+func (c *SimpleClusterProvider) WaitForSynced(ctx context.Context) bool {
 	return true
 }

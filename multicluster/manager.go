@@ -65,9 +65,9 @@ type ClusterProvider interface {
 }
 
 type ManagerConfig struct {
-	FedConfig     *rest.Config
-	ClusterScheme *runtime.Scheme
-	ClusterProvider
+	FedConfig       *rest.Config
+	ClusterScheme   *runtime.Scheme
+	ClusterProvider ClusterProvider
 
 	ResyncPeriod  time.Duration
 	ClusterFilter func(string) bool // select cluster

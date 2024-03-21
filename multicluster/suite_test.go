@@ -41,6 +41,7 @@ import (
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 	"kusionstack.io/kube-utils/multicluster/clusterprovider"
+	"kusionstack.io/kube-utils/multicluster/clusterprovider/config"
 )
 
 var (
@@ -127,11 +128,11 @@ var _ = BeforeSuite(func() {
 	)
 	os.Setenv(clusterinfo.EnvClusterAllowList, "cluster1,cluster2")
 
-	clusterProvider, err := clusterprovider.NewDynamicClusterProvider(&clusterprovider.DynamicClusterProviderConfig{
+	clusterProvider, err := clusterprovider.NewController(&clusterprovider.ControllerConfig{
 		Config: fedConfig,
 
-		ClusterManager: &clusterprovider.TestClusterManager{
-			GroupVersionResource: schema.GroupVersionResource{ // Use deployment as cluster management resource
+		ClusterConfigProvider: &config.Simple{
+			GVR: schema.GroupVersionResource{ // Use deployment as cluster management resource
 				Group:    "apps",
 				Version:  "v1",
 				Resource: "deployments",
