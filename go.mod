@@ -14,7 +14,7 @@ require (
 	k8s.io/client-go v0.28.4
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/kubectl v0.28.4
-	kusionstack.io/kube-api v0.0.0-00010101000000-000000000000
+	kusionstack.io/kube-api v0.2.0
 	sigs.k8s.io/controller-runtime v0.15.1
 )
 
