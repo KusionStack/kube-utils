@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
-	"kusionstack.io/kube-utils/multicluster/controller"
 )
 
 const (
@@ -59,10 +58,16 @@ func setOptionsDefaults(opts Options) Options {
 	return opts
 }
 
+type ClusterProvider interface {
+	Run(stopCh <-chan struct{}) error                                                              // Run the ClusterProvider
+	AddEventHandler(addUpdateHandler func(string, *rest.Config) error, deleteHandler func(string)) // Add event handler for cluster events
+	WaitForSynced(ctx context.Context) bool                                                        // Wait for all clusters to be synced
+}
+
 type ManagerConfig struct {
-	FedConfig     *rest.Config
-	ClusterScheme *runtime.Scheme
-	controller.ClusterProvider
+	FedConfig       *rest.Config
+	ClusterScheme   *runtime.Scheme
+	ClusterProvider ClusterProvider
 
 	ResyncPeriod  time.Duration
 	ClusterFilter func(string) bool // select cluster
@@ -73,9 +78,10 @@ type Manager struct {
 	newCache      cache.NewCacheFunc // Function to create cache for cluster
 	clusterScheme *runtime.Scheme    // Scheme which is used to create cache for cluster
 
+	clusterProvider ClusterProvider
+
 	clusterCacheManager  ClusterCacheManager
 	clusterClientManager ClusterClientManager
-	controller           *controller.Controller // Controller for cluster management
 
 	resyncPeriod              time.Duration
 	hasCluster                map[string]struct{} // Whether cluster has been added
@@ -86,6 +92,10 @@ type Manager struct {
 }
 
 func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFunc cache.NewCacheFunc, newClientFunc cluster.NewClientFunc, err error) {
+	if cfg.ClusterProvider == nil {
+		return nil, nil, nil, errors.New("ClusterProvider is required")
+	}
+
 	var log logr.Logger
 	if cfg.Log != nil {
 		log = cfg.Log
@@ -95,16 +105,6 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 
 	if cfg.ClusterScheme == nil {
 		cfg.ClusterScheme = scheme.Scheme
-	}
-
-	controller, err := controller.NewController(&controller.ControllerConfig{
-		Config:          cfg.FedConfig,
-		ClusterProvider: cfg.ClusterProvider,
-		ResyncPeriod:    cfg.ResyncPeriod,
-		Log:             log,
-	})
-	if err != nil {
-		return nil, nil, nil, err
 	}
 
 	opts = setOptionsDefaults(opts)
@@ -122,7 +122,7 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 
 		clusterCacheManager:  clusterCacheManager,
 		clusterClientManager: clusterClientManager,
-		controller:           controller,
+		clusterProvider:      cfg.ClusterProvider,
 
 		resyncPeriod:              cfg.ResyncPeriod,
 		hasCluster:                make(map[string]struct{}),
@@ -133,23 +133,23 @@ func NewManager(cfg *ManagerConfig, opts Options) (manager *Manager, newCacheFun
 	return manager, newCacheFunc, newClientFunc, nil
 }
 
-func (m *Manager) Run(threadiness int, ctx context.Context) error {
+func (m *Manager) Run(ctx context.Context) error {
 	stopCh := make(chan struct{})
 	go func() {
 		<-ctx.Done()
 		close(stopCh)
 	}()
 
-	m.controller.AddEventHandler(m.addUpdateHandler, m.deleteHandler)
-	return m.controller.Run(threadiness, stopCh)
+	m.clusterProvider.AddEventHandler(m.addUpdateHandler, m.deleteHandler)
+	return m.clusterProvider.Run(stopCh)
 }
 
 func (m *Manager) WaitForSynced(ctx context.Context) bool {
-	m.log.Info("wait for controller synced")
-	return m.controller.WaitForSynced(ctx)
+	m.log.Info("wait for ClusterProvider synced")
+	return m.clusterProvider.WaitForSynced(ctx)
 }
 
-func (m *Manager) addUpdateHandler(cluster string) (err error) {
+func (m *Manager) addUpdateHandler(cluster string, cfg *rest.Config) (err error) {
 	if m.clusterFilter != nil && !m.clusterFilter(cluster) {
 		return nil
 	}
@@ -161,12 +161,6 @@ func (m *Manager) addUpdateHandler(cluster string) (err error) {
 		return nil
 	}
 	m.mutex.RUnlock()
-
-	// Get rest.Config for the cluster
-	cfg := m.controller.RestConfigForCluster(cluster)
-	if cfg == nil {
-		return fmt.Errorf("failed to get rest.Config for cluster %s", cluster)
-	}
 
 	// Get MemCacheClient for the cluster
 	clientset, err := kubernetes.NewForConfig(cfg)
