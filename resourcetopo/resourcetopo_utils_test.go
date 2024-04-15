@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 )
 
@@ -45,7 +44,7 @@ var (
 	ServiceAccountMeta     = metav1.TypeMeta{Kind: "ServiceAccount", APIVersion: "core/v1"}
 )
 
-func GetInformer(meta metav1.TypeMeta, k8sInformerFactory informers.SharedInformerFactory) cache.SharedIndexInformer {
+func GetInformer(meta metav1.TypeMeta, k8sInformerFactory informers.SharedInformerFactory) Informer {
 	gvk := meta.String()
 	switch gvk {
 	case PodMeta.String():
@@ -78,7 +77,7 @@ func buildManagerConfig(config *TopologyConfig) *ManagerConfig {
 
 func buildInspectTopoConfig(k8sInformerFactory informers.SharedInformerFactory) *TopologyConfig {
 	return &TopologyConfig{
-		GetInformer: func(meta metav1.TypeMeta) cache.SharedInformer {
+		GetInformer: func(meta metav1.TypeMeta) Informer {
 			return GetInformer(meta, k8sInformerFactory)
 		},
 		Resolvers: []RelationResolver{
@@ -121,7 +120,7 @@ func buildInspectTopoConfig(k8sInformerFactory informers.SharedInformerFactory) 
 
 func buildClusterTest(k8sInformerFactory informers.SharedInformerFactory) *TopologyConfig {
 	return &TopologyConfig{
-		GetInformer: func(meta metav1.TypeMeta) cache.SharedInformer {
+		GetInformer: func(meta metav1.TypeMeta) Informer {
 			return GetInformer(meta, k8sInformerFactory)
 		},
 		Resolvers: []RelationResolver{
@@ -163,12 +162,11 @@ func buildClusterTest(k8sInformerFactory informers.SharedInformerFactory) *Topol
 
 func buildSvcPodTest(k8sInformerFactory informers.SharedInformerFactory) *TopologyConfig {
 	return &TopologyConfig{
-		GetInformer: func(meta metav1.TypeMeta) cache.SharedInformer {
+		GetInformer: func(meta metav1.TypeMeta) Informer {
 			return GetInformer(meta, k8sInformerFactory)
 		},
 		Resolvers: []RelationResolver{
 			{
-
 				PreMeta:       ServiceMeta,
 				PostMetas:     []metav1.TypeMeta{PodMeta},
 				ReverseNotice: []metav1.TypeMeta{PodMeta},
@@ -194,7 +192,7 @@ func buildSvcPodTest(k8sInformerFactory informers.SharedInformerFactory) *Topolo
 
 func buildDeployTopoConfig(k8sInformerFactory informers.SharedInformerFactory) *TopologyConfig {
 	return &TopologyConfig{
-		GetInformer: func(meta metav1.TypeMeta) cache.SharedInformer {
+		GetInformer: func(meta metav1.TypeMeta) Informer {
 			return GetInformer(meta, k8sInformerFactory)
 		},
 		Resolvers: []RelationResolver{

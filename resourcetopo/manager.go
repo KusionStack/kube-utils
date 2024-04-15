@@ -22,8 +22,8 @@ import (
 	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 )
 
@@ -151,7 +151,7 @@ func (m *manager) GetNode(meta metav1.TypeMeta, name types.NamespacedName) (Node
 	return s.GetNode(name)
 }
 
-func (m *manager) getOrCreateStorage(typeMeta metav1.TypeMeta, getInformer func(meta metav1.TypeMeta) cache.SharedInformer) (*nodeStorage, error) {
+func (m *manager) getOrCreateStorage(typeMeta metav1.TypeMeta, getInformer func(meta metav1.TypeMeta) Informer) (*nodeStorage, error) {
 	if getInformer == nil {
 		return nil, fmt.Errorf("unexpected nil getInformer func")
 	}
