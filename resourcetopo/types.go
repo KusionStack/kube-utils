@@ -19,13 +19,18 @@ package resourcetopo
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/cache"
+	toolscache "k8s.io/client-go/tools/cache"
 )
+
+type Informer interface {
+	// AddEventHandler adds an event handler which will process related resource toppologies
+	AddEventHandler(handler toolscache.ResourceEventHandler)
+}
 
 // TopologyConfig offers a way to describe the relation among kubernetes or kubernetes-likely resource.
 type TopologyConfig struct {
 	// GetInformer return a working SharedInformer for objects of meta type
-	GetInformer func(meta metav1.TypeMeta) cache.SharedInformer
+	GetInformer func(meta metav1.TypeMeta) Informer
 	Resolvers   []RelationResolver
 	Discoverers []VirtualResourceDiscoverer
 }

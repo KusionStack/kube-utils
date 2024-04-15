@@ -23,7 +23,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 )
 
@@ -53,7 +52,7 @@ type nodeStorage struct {
 	namespacedInfo map[string]map[string]*nodeInfo // namespace => name => object info
 }
 
-func newNodeStorage(manager *manager, informer cache.SharedInformer, meta metav1.TypeMeta) *nodeStorage {
+func newNodeStorage(manager *manager, informer Informer, meta metav1.TypeMeta) *nodeStorage {
 	s := &nodeStorage{
 		manager:            manager,
 		meta:               meta,
