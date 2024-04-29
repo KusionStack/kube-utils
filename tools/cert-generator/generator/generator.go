@@ -35,17 +35,17 @@ const kubeConfigTemplate = `apiVersion: v1
 clusters:
 - cluster:
     insecure-skip-tls-verify: true
-    server: https://karbour-server.karbour.svc:7443
-  name: karbour
+    server: https://karpor-server.karpor.svc:7443
+  name: karpor
 contexts:
 - context:
-    cluster: karbour
-    user: karbour
+    cluster: karpor
+    user: karpor
   name: default
 current-context: default
 kind: Config
 users:
-- name: karbour
+- name: karpor
   user:
     client-certificate-data: %s
     client-key-data: %s`
@@ -84,7 +84,7 @@ func NewGenerator(cfg *rest.Config, namespace string, certName string, kubeConfi
 	}, nil
 }
 
-// Generate is a function that orchestrates the creation and application of certificates and kubeconfig necessary for a karbour sever.
+// Generate is a function that orchestrates the creation and application of certificates and kubeconfig necessary for a karpor sever.
 func (g *Generator) Generate(ctx context.Context) error {
 	caCert, caKey, kubeConfig, err := generateConfig()
 	if err != nil {

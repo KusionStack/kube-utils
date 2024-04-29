@@ -26,27 +26,27 @@ import (
 	clusterv1beta1 "kusionstack.io/kube-api/cluster/v1beta1"
 )
 
-// Karbour is a implementation of ClusterConfigProvider
-type Karbour struct {
+// Karpor is a implementation of ClusterConfigProvider
+type Karpor struct {
 	config *rest.Config
 }
 
-func (p *Karbour) Init(config *rest.Config) {
+func (p *Karpor) Init(config *rest.Config) {
 	p.config = config
 }
 
-func (p *Karbour) GetGVR() schema.GroupVersionResource {
+func (p *Karpor) GetGVR() schema.GroupVersionResource {
 	return clusterv1beta1.SchemeGroupVersion.WithResource("clusters")
 }
 
-func (p *Karbour) GetClusterName(obj *unstructured.Unstructured) string {
+func (p *Karpor) GetClusterName(obj *unstructured.Unstructured) string {
 	if obj == nil {
 		return ""
 	}
 	return obj.GetName()
 }
 
-func (p *Karbour) GetClusterConfig(obj *unstructured.Unstructured) *rest.Config {
+func (p *Karpor) GetClusterConfig(obj *unstructured.Unstructured) *rest.Config {
 	clusterName := p.GetClusterName(obj)
 	if clusterName == "" || p.config == nil {
 		return nil

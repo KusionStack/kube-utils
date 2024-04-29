@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	defaultCertName       = "karbour-certification"
-	defaultKubeConfigName = "karbour-kubeconfig"
+	defaultCertName       = "karpor-certification"
+	defaultKubeConfigName = "karpor-kubeconfig"
 	inClusterNamespace    = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 )
 
