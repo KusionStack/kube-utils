@@ -67,7 +67,7 @@ func main() {
 	err = topoManager.AddRelationHandler(virtualSymptomMeta, podMeta, &symptomPodRelationEventHandler{})
 }
 
-// podEventHandler is an impl of preDefined NodeHandler, included function to handler add/update/delete Event.
+// podEventHandler is an implementation of the interface NodeHandler, which is designed to handle add/update/delete events of resources.
 // Specially, we define the OnRelatedUpdate function, to handle event when the related node has been modified.
 // For example, if a new pod has been added, except for a pod add event, a deployment related update event will
 // also be generated and call the registered handler.
