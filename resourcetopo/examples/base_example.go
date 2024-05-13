@@ -58,14 +58,14 @@ func main() {
 	}
 
 	// AddTopologyConfig could be called multiple times for different relations
-	if err = topoManager.AddTopologyConfig(*buildVirtualSymptomTopology()); err != nil {
+	if err = topoManager.AddTopologyConfig(*buildVirtualAppTopology()); err != nil {
 		klog.Fatal(err.Error())
 	}
 
 	if err = topoManager.AddNodeHandler(podMeta, &podEventhandler{}); err != nil {
 		klog.Fatal(err.Error())
 	}
-	if err = topoManager.AddRelationHandler(virtualSymptomMeta, podMeta, &symptomPodRelationEventHandler{}); err != nil {
+	if err = topoManager.AddRelationHandler(virtualAppMeta, podMeta, &appPodRelationEventHandler{}); err != nil {
 		klog.Fatal(err.Error())
 	}
 
@@ -92,9 +92,9 @@ var (
 		Kind:       "Service",
 		APIVersion: "core/v1",
 	}
-	virtualSymptomMeta = metav1.TypeMeta{
-		Kind:       "Symptom",
-		APIVersion: "inspect.kusionstack.io/v1alpha1",
+	virtualAppMeta = metav1.TypeMeta{
+		Kind:       "App",
+		APIVersion: "virtual.kubernetes.io/v1",
 	}
 )
 
@@ -167,37 +167,31 @@ func buildExampleTopologyConfig() *resourcetopo.TopologyConfig {
 	}
 }
 
-func buildVirtualSymptomTopology() *resourcetopo.TopologyConfig {
+func buildVirtualAppTopology() *resourcetopo.TopologyConfig {
 	return &resourcetopo.TopologyConfig{
 		GetInformer: getInformer,
 		Discoverers: []resourcetopo.VirtualResourceDiscoverer{
 			{
-				// assume we want to know the relations among pods and symptoms
-				// and symptoms will be added to pod's annotation separated by ','.
-				PreMeta:  virtualSymptomMeta,
+				// assume we want to know the relations among pods and apps
+				// and app name will be added to pod's labels.
+				PreMeta:  virtualAppMeta,
 				PostMeta: podMeta,
 				Discover: func(preObject resourcetopo.Object) []types.NamespacedName {
 					podObj, ok := preObject.(*corev1.Pod)
 					if !ok {
 						return nil
 					}
-					podAnno := podObj.ObjectMeta.Annotations
-					if len(podAnno) == 0 {
+					podLabels := podObj.ObjectMeta.Labels
+					if len(podLabels) == 0 {
 						return nil
 					}
-					symptoms := strings.Split(podAnno["symptom.diagnose.kusionstack.io"], ",")
-					symptomNames := make([]types.NamespacedName, 0, len(symptoms))
-					for _, symptom := range symptoms {
-						if len(symptom) == 0 {
-							continue
-						}
-						symptomNames = append(symptomNames, types.NamespacedName{
-							Namespace: podObj.Namespace,
-							Name:      symptom,
-						})
+					if app := podLabels["app.kubernetes.io/name"]; len(app) > 0 {
+						return []types.NamespacedName{{
+							Name: app,
+						}}
+					} else {
+						return nil
 					}
-
-					return symptomNames
 				},
 			},
 		},
@@ -249,15 +243,15 @@ func (p *podEventhandler) OnRelatedUpdate(info resourcetopo.NodeInfo) {
 	klog.Infof("related post nodes are %s", nodes2Str(info.GetPostOrders()))
 }
 
-var _ resourcetopo.RelationHandler = &symptomPodRelationEventHandler{}
+var _ resourcetopo.RelationHandler = &appPodRelationEventHandler{}
 
-type symptomPodRelationEventHandler struct{}
+type appPodRelationEventHandler struct{}
 
-func (s *symptomPodRelationEventHandler) OnAdd(preOrder resourcetopo.NodeInfo, postOrder resourcetopo.NodeInfo) {
+func (s *appPodRelationEventHandler) OnAdd(preOrder resourcetopo.NodeInfo, postOrder resourcetopo.NodeInfo) {
 	klog.Infof("received relation add event for %s -> %s", preOrder.NodeInfo().String(), postOrder.NodeInfo().String())
 }
 
-func (s *symptomPodRelationEventHandler) OnDelete(preOrder resourcetopo.NodeInfo, postOrder resourcetopo.NodeInfo) {
+func (s *appPodRelationEventHandler) OnDelete(preOrder resourcetopo.NodeInfo, postOrder resourcetopo.NodeInfo) {
 	klog.Infof("received relation delete event for %s -> %s", preOrder.NodeInfo().String(), postOrder.NodeInfo().String())
 }
 
