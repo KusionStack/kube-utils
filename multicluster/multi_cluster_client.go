@@ -135,6 +135,7 @@ func (mcc *multiClusterClient) RemoveClusterClient(cluster string) {
 func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) (err error) {
 	var cluster string
 	defer func() {
+		attachClusterToObjects(cluster, obj)
 		metrics.NewClientCountMetrics(cluster, "Create", err)
 	}()
 
@@ -162,6 +163,7 @@ func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, op
 func (mcc *multiClusterClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) (err error) {
 	var cluster string
 	defer func() {
+		attachClusterToObjects(cluster, obj)
 		metrics.NewClientCountMetrics(cluster, "Delete", err).Inc()
 	}()
 
@@ -305,9 +307,7 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) (err error) {
 	var cluster string
 	defer func() {
-		if err == nil {
-			attachClusterToObjects(cluster, obj)
-		}
+		attachClusterToObjects(cluster, obj)
 		metrics.NewClientCountMetrics(cluster, "Patch", err).Inc()
 	}()
 
@@ -335,9 +335,7 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 func (mcc *multiClusterClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) (err error) {
 	var cluster string
 	defer func() {
-		if err == nil {
-			attachClusterToObjects(cluster, obj)
-		}
+		attachClusterToObjects(cluster, obj)
 		metrics.NewClientCountMetrics(cluster, "Update", err).Inc()
 	}()
 
@@ -388,9 +386,7 @@ type statusWriter struct {
 func (sw *statusWriter) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) (err error) {
 	var cluster string
 	defer func() {
-		if err == nil {
-			attachClusterToObjects(cluster, obj)
-		}
+		attachClusterToObjects(cluster, obj)
 		metrics.NewClientCountMetrics(cluster, "StatusUpdate", err).Inc()
 	}()
 
@@ -415,9 +411,7 @@ func (sw *statusWriter) Update(ctx context.Context, obj client.Object, opts ...c
 func (sw *statusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) (err error) {
 	var cluster string
 	defer func() {
-		if err == nil {
-			attachClusterToObjects(cluster, obj)
-		}
+		attachClusterToObjects(cluster, obj)
 		metrics.NewClientCountMetrics(cluster, "StatusPatch", err).Inc()
 	}()
 

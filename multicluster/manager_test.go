@@ -327,6 +327,20 @@ var _ = Describe("multicluster", func() {
 		err = clusterClient.Delete(clusterCtx, &configmap)
 		Expect(err).NotTo(HaveOccurred())
 
+		// Label should be preserved after deleting
+		val, ok := configmap.GetLabels()[clusterinfo.ClusterLabelKey]
+		Expect(ok).To(Equal(true))
+		Expect(val).To(Equal("cluster2"))
+
+		configmap.SetLabels(map[string]string{"foo": "bar"})
+		err = clusterClient.Update(clusterCtx, &configmap)
+		Expect(err).To(HaveOccurred())
+
+		// Label should be preserved after updating
+		val, ok = configmap.GetLabels()[clusterinfo.ClusterLabelKey]
+		Expect(ok).To(Equal(true))
+		Expect(val).To(Equal("cluster2"))
+
 		time.Sleep(300 * time.Millisecond)
 
 		err = clusterClient.Get(clusterCtx, client.ObjectKey{
