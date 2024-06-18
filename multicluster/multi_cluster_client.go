@@ -19,6 +19,7 @@ package multicluster
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -142,6 +143,7 @@ func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, op
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
 	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("Create", cluster)
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -155,6 +157,7 @@ func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, op
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("Create", cluster)
 		return fmt.Errorf("unable to create: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
 	return clusterClient.Create(ctx, obj, opts...)
@@ -169,6 +172,7 @@ func (mcc *multiClusterClient) Delete(ctx context.Context, obj client.Object, op
 
 	cluster, err = getCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("Delete", cluster)
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -182,6 +186,7 @@ func (mcc *multiClusterClient) Delete(ctx context.Context, obj client.Object, op
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("Delete", cluster)
 		return fmt.Errorf("unable to delete: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
 	return clusterClient.Delete(ctx, obj, opts...)
@@ -195,6 +200,7 @@ func (mcc *multiClusterClient) DeleteAllOf(ctx context.Context, obj client.Objec
 
 	cluster, err = getCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("DeleteAllOf", cluster)
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -208,6 +214,7 @@ func (mcc *multiClusterClient) DeleteAllOf(ctx context.Context, obj client.Objec
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("DeleteAllOf", cluster)
 		err = fmt.Errorf("unable to deleteAllOf: %v because of unknown cluster: %s for the client", obj, cluster)
 		return
 	}
@@ -226,6 +233,7 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 
 	cluster, err = getCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("Get", cluster)
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -239,6 +247,7 @@ func (mcc *multiClusterClient) Get(ctx context.Context, key types.NamespacedName
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("Get", cluster)
 		return fmt.Errorf("unable to get: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
 	return clusterClient.Get(ctx, key, obj)
@@ -251,6 +260,7 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 
 	clusters, err := mcc.getClusterNames(ctx)
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("List", strings.Join(clusters, ","))
 		mcc.log.Error(err, "failed to get clusters")
 		return err
 	}
@@ -273,6 +283,7 @@ func (mcc *multiClusterClient) List(ctx context.Context, list client.ObjectList,
 			var ok bool
 			c, ok = mcc.clusterToClient[cluster]
 			if !ok {
+				metrics.NewInvalidClusterCounterMetrics("List", cluster)
 				return fmt.Errorf("unable to list because of unknown cluster: %s for the client", cluster)
 			}
 		}
@@ -314,6 +325,7 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
 	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("Patch", cluster)
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -327,6 +339,7 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("Patch", cluster)
 		return fmt.Errorf("unable to patch: %v because of unknown cluster: %v for the client", obj, cluster)
 	}
 	return clusterClient.Patch(ctx, obj, patch, opts...)
@@ -342,6 +355,7 @@ func (mcc *multiClusterClient) Update(ctx context.Context, obj client.Object, op
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
 	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("Update", cluster)
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -355,6 +369,7 @@ func (mcc *multiClusterClient) Update(ctx context.Context, obj client.Object, op
 
 	clusterClient, ok := mcc.clusterToClient[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("Update", cluster)
 		err = fmt.Errorf("unable to update: %v because of unknown cluster: %s for the client", obj, cluster)
 		return
 	}
@@ -393,6 +408,7 @@ func (sw *statusWriter) Update(ctx context.Context, obj client.Object, opts ...c
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
 	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("StatusUpdate", cluster)
 		sw.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -403,6 +419,7 @@ func (sw *statusWriter) Update(ctx context.Context, obj client.Object, opts ...c
 
 	clusterClient, ok := sw.clusterToClient[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("StatusUpdate", cluster)
 		return fmt.Errorf("unable to update: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
 	return clusterClient.Status().Update(ctx, obj, opts...)
@@ -418,6 +435,7 @@ func (sw *statusWriter) Patch(ctx context.Context, obj client.Object, patch clie
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
 	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("StatusPatch", cluster)
 		sw.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -428,6 +446,7 @@ func (sw *statusWriter) Patch(ctx context.Context, obj client.Object, patch clie
 
 	clusterClient, ok := sw.clusterToClient[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("StatusPatch", cluster)
 		return fmt.Errorf("unable to update: %v because of unknown cluster: %s for the client", obj, cluster)
 	}
 	return clusterClient.Status().Patch(ctx, obj, patch, opts...)
