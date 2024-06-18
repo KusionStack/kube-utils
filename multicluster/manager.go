@@ -19,7 +19,6 @@ package multicluster
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -253,8 +252,6 @@ func getClusterFilter(cfg *ManagerConfig) (func(string) bool, error) {
 	if blockList != "" {
 		blockSet = sets.NewString(strings.Split(blockList, ",")...)
 	}
-
-	fmt.Printf("allowList: %v, blockList: %v, allowSet: %v, blockSet: %v\n", allowList, blockList, allowSet, blockSet)
 
 	if allowSet != nil && blockSet != nil {
 		return nil, errors.New("both cluster allow and block lists are set")

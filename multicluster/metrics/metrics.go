@@ -29,32 +29,40 @@ const (
 	CacheCount            = "cache_count"
 	ClientCount           = "client_count"
 	ClusterEventCount     = "cluster_event_count"
+	InvalidClusterCount   = "invalid_cluster_count"
 )
 
 var (
 	cacheCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Subsystem: MultiClusterSubSystem,
 		Name:      CacheCount,
-		Help:      "count the number of cache call",
+		Help:      "Number of Cache methods involked",
 	}, []string{"cluster", "method", "code"})
 
 	clientCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Subsystem: MultiClusterSubSystem,
 		Name:      ClientCount,
-		Help:      "count the number of client call",
+		Help:      "Number of Client methods involked",
 	}, []string{"cluster", "method", "code"})
 
 	clusterEventCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Subsystem: MultiClusterSubSystem,
 		Name:      ClusterEventCount,
-		Help:      "count the number of cluster event",
+		Help:      "Number of cluster events",
 	}, []string{"cluster", "event", "success"})
+
+	invalidClusterCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Subsystem: MultiClusterSubSystem,
+		Name:      InvalidClusterCount,
+		Help:      "Number of invalid clusters for Client and Cache",
+	}, []string{"method", "cluster"})
 )
 
 func init() {
 	metrics.Registry.MustRegister(cacheCounter)
 	metrics.Registry.MustRegister(clientCounter)
 	metrics.Registry.MustRegister(clusterEventCounter)
+	metrics.Registry.MustRegister(invalidClusterCounter)
 }
 
 func NewCacheCountMetrics(cluster, method string, err error) prometheus.Counter {
@@ -67,6 +75,10 @@ func NewClientCountMetrics(cluster, method string, err error) prometheus.Counter
 
 func NewClusterEventCountMetrics(cluster, event, success string) prometheus.Counter {
 	return clusterEventCounter.WithLabelValues(cluster, event, success)
+}
+
+func NewInvalidClusterCounterMetrics(method, cluster string) prometheus.Counter {
+	return invalidClusterCounter.WithLabelValues(method, cluster)
 }
 
 func CodeForError(err error) string {

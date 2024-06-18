@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -299,6 +300,7 @@ func (mcc *multiClusterCache) WaitForCacheSync(ctx context.Context) bool {
 	if len(clusters) == 0 {
 		clusters = []string{clusterinfo.Fed}
 	} else if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("WaitForCacheSync", strings.Join(clusters, ","))
 		mcc.log.Error(err, "failed to get clusters")
 		return false
 	}
@@ -319,6 +321,7 @@ func (mcc *multiClusterCache) WaitForCacheSync(ctx context.Context) bool {
 		} else {
 			c, ok := clusterToCache[cluster]
 			if !ok {
+				metrics.NewInvalidClusterCounterMetrics("WaitForCacheSync", cluster)
 				mcc.log.Info("invalid cluster", "cluster", cluster)
 				continue
 			}
@@ -379,6 +382,7 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 
 	cluster, err = getCluster(ctx, obj.GetLabels())
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("Get", cluster)
 		mcc.log.Error(err, "failed to get cluster")
 		return err
 	}
@@ -394,6 +398,7 @@ func (mcc *multiClusterCache) Get(ctx context.Context, key types.NamespacedName,
 
 	clusterCache, ok := clusterToCache[cluster]
 	if !ok {
+		metrics.NewInvalidClusterCounterMetrics("Get", cluster)
 		return fmt.Errorf("unable to get: %v because of unknown cluster: %s for the cache", key, cluster)
 	}
 	return clusterCache.Get(ctx, key, obj)
@@ -406,6 +411,7 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 
 	clusters, _, err := mcc.getClusters(ctx)
 	if err != nil {
+		metrics.NewInvalidClusterCounterMetrics("Get", strings.Join(clusters, ","))
 		mcc.log.Error(err, "failed to get clusters")
 		return err
 	}
@@ -427,13 +433,14 @@ func (mcc *multiClusterCache) List(ctx context.Context, list client.ObjectList, 
 			var ok bool
 			c, ok = clusterToCache[cluster]
 			if !ok {
+				metrics.NewInvalidClusterCounterMetrics("List", cluster)
 				return fmt.Errorf("unable to list because of unknown cluster: %s for the cache", cluster)
 			}
 		}
 
 		listObj := list.DeepCopyObject().(client.ObjectList)
 		err = c.List(ctx, listObj, opts...)
-		metrics.NewClientCountMetrics(cluster, "List", err).Inc()
+		metrics.NewCacheCountMetrics(cluster, "List", err).Inc()
 		if err != nil {
 			return err
 		}
