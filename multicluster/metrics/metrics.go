@@ -36,13 +36,13 @@ var (
 	cacheCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Subsystem: MultiClusterSubSystem,
 		Name:      CacheCount,
-		Help:      "Number of Cache methods involked",
+		Help:      "Number of Cache methods invoked",
 	}, []string{"cluster", "method", "code"})
 
 	clientCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Subsystem: MultiClusterSubSystem,
 		Name:      ClientCount,
-		Help:      "Number of Client methods involked",
+		Help:      "Number of Client methods invoked",
 	}, []string{"cluster", "method", "code"})
 
 	clusterEventCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
