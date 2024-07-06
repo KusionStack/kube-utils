@@ -8,8 +8,10 @@ require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.30.0
 	github.com/prometheus/client_golang v1.16.0
+	github.com/spf13/afero v1.5.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.8.4
+	github.com/zoumo/golib v0.2.0
 	golang.org/x/exp v0.0.0-20200224162631-6cc2880d07d6
 	k8s.io/api v0.28.4
 	k8s.io/apimachinery v0.28.4
