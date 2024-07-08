@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"kusionstack.io/kube-utils/controller/mixin"
-	"kusionstack.io/kube-utils/multicluster"
 )
 
 type WebhookCertSelfSigner struct {
@@ -114,7 +113,7 @@ func (s *WebhookCertSelfSigner) SetupWithManager(mgr manager.Manager) error {
 	for i := range types {
 		t := types[i]
 		err = ctrl.Watch(
-			multicluster.FedKind(&source.Kind{Type: t}),
+			&source.Kind{Type: t},
 			s.enqueueSecret(),
 			s.predictFunc(),
 		)

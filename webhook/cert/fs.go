@@ -164,7 +164,7 @@ func (p *FSProvider) Overwrite(certs *ServingCerts) (bool, error) {
 		return false, err
 	}
 	if os.IsNotExist(err) {
-		err = os.MkdirAll(p.path, 0o755)
+		err = p.FS.MkdirAll(p.path, 0o755)
 		if err != nil {
 			return false, err
 		}
