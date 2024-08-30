@@ -29,8 +29,8 @@ type jsonPathTest struct {
 	expectError bool
 }
 
-func (t *jsonPathTest) Prepare(allowMissingKeys bool) (*JSONPath, error) {
-	jp := New(t.name)
+func (t *jsonPathTest) Prepare(allowMissingKeys bool) (*JSONPathExtracter, error) {
+	jp := NewJSONPathExtracter(t.name)
 	jp.AllowMissingKeys(allowMissingKeys)
 	return jp, jp.Parse(t.template)
 }
@@ -146,7 +146,7 @@ func TestJSONPath(t *testing.T) {
 		{"empty", ``, podData, `null`, false},
 		{"containers name", `{.kind}`, podData, `{"kind":"Pod"}`, false},
 		{"containers name", `{.spec.containers[*].name}`, podData, `{"spec":{"containers":[{"name":"pause1"},{"name":"pause2"}]}}`, false},
-		{"containers name (range)", `{range .spec.containers[*]}{.name}{end}`, podData, `{"spec":{"containers":[{"name":"pause1"},{"name":"pause2"}]}}`, false},
+		{"containers name (range)", `{range .spec.containers[*]}{.name}{end}`, podData, `null`, true},
 		{"containers name and image", `{.spec.containers[*]['name', 'image']}`, podData, `{"spec":{"containers":[{"image":"registry.k8s.io/pause:3.8","name":"pause1"},{"image":"registry.k8s.io/pause:3.8","name":"pause2"}]}}`, false},
 		{"containers name and cpu", `{.spec.containers[*]['name', 'resources.requests.cpu']}`, podData, `{"spec":{"containers":[{"name":"pause1","resources":{"requests":{"cpu":"100m"}}},{"name":"pause2","resources":{"requests":{"cpu":"10m"}}}]}}`, false},
 		{"container pause1 name and image", `{.spec.containers[?(@.name=="pause1")]['name', 'image']}`, podData, `{"spec":{"containers":[{"image":"registry.k8s.io/pause:3.8","name":"pause1"}]}}`, false},

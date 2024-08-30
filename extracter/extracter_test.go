@@ -17,13 +17,14 @@
 package extracter
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
 
-func TestBuildExtracter(t *testing.T) {
+func TestNew(t *testing.T) {
 	type args struct {
-		path             string
+		paths            []string
 		allowMissingKeys bool
 	}
 	tests := []struct {
@@ -32,25 +33,72 @@ func TestBuildExtracter(t *testing.T) {
 		want    Extracter
 		wantErr bool
 	}{
-		{name: "invalid path", args: args{path: `{`, allowMissingKeys: false}, want: nil, wantErr: true},
-		{name: "fieldPath extracter", args: args{path: `{}`, allowMissingKeys: false}, want: &NestedFieldPath{}, wantErr: false},
-		{name: "fieldPath extracter", args: args{path: ``, allowMissingKeys: false}, want: &NestedFieldPath{}, wantErr: false},
-		{name: "fieldPath extracter", args: args{path: `{.metadata.labels.name}`, allowMissingKeys: false}, want: &NestedFieldPath{}, wantErr: false},
-		{name: "fieldPath extracter", args: args{path: `{.metadata.labels['name']}`, allowMissingKeys: false}, want: &NestedFieldPath{}, wantErr: false},
-		{name: "jsonPath extracter", args: args{path: `{.metadata.labels.name}{.metadata.labels.app}`, allowMissingKeys: false}, want: &JSONPath{}, wantErr: false},
-		{name: "jsonPath extracter", args: args{path: `{.metadata.labels['name', 'app']}`, allowMissingKeys: false}, want: &JSONPath{}, wantErr: false},
-		{name: "jsonPath extracter", args: args{path: `{.spec.containers[*].name}`, allowMissingKeys: false}, want: &JSONPath{}, wantErr: false},
+		{name: "invalid path", args: args{paths: []string{`{`}, allowMissingKeys: false}, want: nil, wantErr: true},
+		{name: "fieldPath extracter", args: args{paths: []string{`{}`}, allowMissingKeys: false}, want: &NestedFieldPathExtracter{}, wantErr: false},
+		{name: "fieldPath extracter", args: args{paths: []string{``}, allowMissingKeys: false}, want: &NestedFieldPathExtracter{}, wantErr: false},
+		{name: "fieldPath extracter", args: args{paths: []string{`{.metadata.labels.name}`}, allowMissingKeys: false}, want: &NestedFieldPathExtracter{}, wantErr: false},
+		{name: "fieldPath extracter", args: args{paths: []string{`{.metadata.labels['name']}`}, allowMissingKeys: false}, want: &NestedFieldPathExtracter{}, wantErr: false},
+		{name: "jsonPath extracter", args: args{paths: []string{`{.metadata.labels.name}{.metadata.labels.app}`}, allowMissingKeys: false}, want: nil, wantErr: true},
+		{name: "jsonPath extracter", args: args{paths: []string{`{.metadata.labels['name', 'app']}`}, allowMissingKeys: false}, want: &JSONPathExtracter{}, wantErr: false},
+		{name: "jsonPath extracter", args: args{paths: []string{`{.spec.containers[*].name}`}, allowMissingKeys: false}, want: &JSONPathExtracter{}, wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := BuildExtracter(tt.args.path, tt.args.allowMissingKeys)
+			got, err := New(tt.args.paths, tt.args.allowMissingKeys)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("BuildExtracter() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if reflect.TypeOf(tt.want) != reflect.TypeOf(got) {
-				t.Errorf("BuildExtracter() = %T, want %T", got, tt.want)
+				t.Errorf("New() = %T, want %T", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtracters_Extract(t *testing.T) {
+	containerNamePath := `{.spec.containers[*].name}`
+	containerImagePath := `{.spec.containers[*].image}`
+	kindPath := "{.kind}"
+	apiVersionPath := "{.apiVersion}"
+
+	type args struct {
+		paths []string
+		input map[string]interface{}
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "merge name and image", args: args{paths: []string{containerImagePath, containerNamePath}, input: podData},
+			want: `{"spec":{"containers":[{"name":"pause1"},{"name":"pause2"}]}}`, wantErr: false,
+		},
+		{
+			name: "name kind apiVersion", args: args{paths: []string{containerNamePath, kindPath, apiVersionPath}, input: podData},
+			want: `{"apiVersion":"v1","kind":"Pod","spec":{"containers":[{"name":"pause1"},{"name":"pause2"}]}}`, wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ex, err := New(tt.args.paths, true)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Extracters_Extract() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			got, err := ex.Extract(tt.args.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Extracters_Extract() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			data, _ := json.Marshal(got)
+			if string(data) != tt.want {
+				t.Errorf("Extracters_Extract() = %v, want %v", string(data), tt.want)
 			}
 		})
 	}

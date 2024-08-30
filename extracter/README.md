@@ -57,18 +57,19 @@ func main() {
 	json.Unmarshal(pod, &podData)
 
 	kindPath := "{.kind}"
-	kindExtracter, _ := extracter.BuildExtracter(kindPath, false)
+	kindExtracter, _ := extracter.New([]string{kindPath}, false)
 
 	kind, _ := kindExtracter.Extract(podData)
 	printJSON(kind)
 
 	nameImagePath := "{.spec.containers[*]['name', 'image']}"
-	nameImageExtracter, _ := extracter.BuildExtracter(nameImagePath, false)
+	nameImageExtracter, _ := extracter.New([]string{nameImagePath}, false)
 
 	nameImage, _ := nameImageExtracter.Extract(podData)
 	printJSON(nameImage)
 
-	merged, _ := extracter.Merge([]extracter.Extracter{kindExtracter, nameImageExtracter}, podData)
+	mergeExtracter, _ := extracter.New([]string{kindPath, nameImagePath}, false)
+	merged, _ := mergeExtracter.Extract(podData)
 	printJSON(merged)
 }
 ```
@@ -83,19 +84,17 @@ Output:
 
 ## Note
 
-The merge behavior of the `extracter.Merge` on the list is replacing. Therefore, if you retrieve the container name and image separately and merge them, the resulting output will not contain the image.
+The merge behavior on the list is replacing. Therefore, if you retrieve the container name and image separately and merge them, the resulting output will not contain the image.
 
 Code:
 
 ```go
     ...
 	namePath := "{.spec.containers[*].name}"
-	nameExtracter, _ := extracter.BuildExtracter(namePath, false)
-
 	imagePath := "{.spec.containers[*].image}"
-	imageExtracter, _ := extracter.BuildExtracter(imagePath, false)
 
-	merged, _ = extracter.Merge([]extracter.Extracter{imageExtracter, nameExtracter}, podData)
+	mergeExtracter, _ = extracter.New([]string{imagePath, namePath}, false)
+	merged, _ = mergeExtracter.Extract(podData)
 	printJSON(merged)
     ...
 ```

@@ -36,5 +36,3 @@ type (
 	UnionNode      = jsonpath.UnionNode
 	IdentifierNode = jsonpath.IdentifierNode
 )
-
-var Parse = jsonpath.Parse

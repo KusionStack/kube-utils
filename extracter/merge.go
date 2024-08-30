@@ -20,27 +20,6 @@ import (
 	"reflect"
 )
 
-// Merge is a helper function that calls all extracters and merges their
-// outputs by calling MergeFields.
-func Merge(extracters []Extracter, input map[string]interface{}) (map[string]interface{}, error) {
-	var merged map[string]interface{}
-
-	for _, ex := range extracters {
-		field, err := ex.Extract(input)
-		if err != nil {
-			return nil, err
-		}
-
-		if merged == nil {
-			merged = field
-		} else {
-			merged = MergeFields(merged, field)
-		}
-	}
-
-	return merged, nil
-}
-
 // MergeFields merges src into dst.
 //
 // Note: the merge operation on two nested list is replacing.

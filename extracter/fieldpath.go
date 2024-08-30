@@ -20,20 +20,20 @@ import (
 	"fmt"
 )
 
-// NewNestedFieldPath constructs a FieldPathExtracter.
-func NewNestedFieldPath(nestedField []string, allowMissingKeys bool) *NestedFieldPath {
-	return &NestedFieldPath{nestedField: nestedField, allowMissingKeys: allowMissingKeys}
+// NewNestedFieldPathExtracter constructs a FieldPathExtracter.
+func NewNestedFieldPathExtracter(nestedField []string, allowMissingKeys bool) *NestedFieldPathExtracter {
+	return &NestedFieldPathExtracter{nestedField: nestedField, allowMissingKeys: allowMissingKeys}
 }
 
-// NestedFieldPath is used to wrap NestedFieldNoCopy function as an Extracter.
-type NestedFieldPath struct {
+// NestedFieldPathExtracter is used to wrap NestedFieldNoCopy function as an Extracter.
+type NestedFieldPathExtracter struct {
 	nestedField      []string
 	allowMissingKeys bool
 }
 
 // Extract outputs the nestedField's value and its upstream structure.
-func (f *NestedFieldPath) Extract(data map[string]interface{}) (map[string]interface{}, error) {
-	return NestedFieldNoCopy(data, f.allowMissingKeys, f.nestedField...)
+func (n *NestedFieldPathExtracter) Extract(data map[string]interface{}) (map[string]interface{}, error) {
+	return NestedFieldNoCopy(data, n.allowMissingKeys, n.nestedField...)
 }
 
 // NestedFieldNoCopy is similar to JSONPath.Extract. The difference is that it
