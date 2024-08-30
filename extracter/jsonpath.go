@@ -17,7 +17,7 @@
 
 // Copied and adapted from https://github.com/kubernetes/client-go/blob/master/util/jsonpath/jsonpath.go
 
-package jsonextracter
+package extracter
 
 import (
 	"fmt"

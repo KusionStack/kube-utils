@@ -1,6 +1,6 @@
-# JSON Extracter
+# Extracter
 
-Extract specific field from JSON and **output not only the field value but also its upstream structure**.
+Extract specific field from JSON-like data and **output not only the field value but also its upstream structure**.
 
 A typical use case is to trim k8s objects in `TransformingInformer` to save informer memory.
 
@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"kusionstack.io/kube-utils/jsonextracter"
+	"kusionstack.io/kube-utils/extracter"
 )
 
 var pod = []byte(`{
@@ -57,18 +57,18 @@ func main() {
 	json.Unmarshal(pod, &podData)
 
 	kindPath := "{.kind}"
-	kindExtracter, _ := jsonextracter.BuildExtracter(kindPath, false)
+	kindExtracter, _ := extracter.BuildExtracter(kindPath, false)
 
 	kind, _ := kindExtracter.Extract(podData)
 	printJSON(kind)
 
 	nameImagePath := "{.spec.containers[*]['name', 'image']}"
-	nameImageExtracter, _ := jsonextracter.BuildExtracter(nameImagePath, false)
+	nameImageExtracter, _ := extracter.BuildExtracter(nameImagePath, false)
 
 	nameImage, _ := nameImageExtracter.Extract(podData)
 	printJSON(nameImage)
 
-	merged, _ := jsonextracter.Merge([]jsonextracter.Extracter{kindExtracter, nameImageExtracter}, podData)
+	merged, _ := extracter.Merge([]extracter.Extracter{kindExtracter, nameImageExtracter}, podData)
 	printJSON(merged)
 }
 ```
@@ -83,19 +83,19 @@ Output:
 
 ## Note
 
-The merge behavior of the `jsonextracter.Merge` on the list is replacing. Therefore, if you retrieve the container name and image separately and merge them, the resulting output will not contain the image.
+The merge behavior of the `extracter.Merge` on the list is replacing. Therefore, if you retrieve the container name and image separately and merge them, the resulting output will not contain the image.
 
 Code:
 
 ```go
     ...
 	namePath := "{.spec.containers[*].name}"
-	nameExtracter, _ := jsonextracter.BuildExtracter(namePath, false)
+	nameExtracter, _ := extracter.BuildExtracter(namePath, false)
 
 	imagePath := "{.spec.containers[*].image}"
-	imageExtracter, _ := jsonextracter.BuildExtracter(imagePath, false)
+	imageExtracter, _ := extracter.BuildExtracter(imagePath, false)
 
-	merged, _ = jsonextracter.Merge([]jsonextracter.Extracter{imageExtracter, nameExtracter}, podData)
+	merged, _ = extracter.Merge([]extracter.Extracter{imageExtracter, nameExtracter}, podData)
 	printJSON(merged)
     ...
 ```

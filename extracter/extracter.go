@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package jsonextracter
+package extracter
 
 import (
 	"fmt"
