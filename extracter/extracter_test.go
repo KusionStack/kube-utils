@@ -34,13 +34,13 @@ func TestNew(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "invalid path", args: args{paths: []string{`{`}, allowMissingKeys: false}, want: nil, wantErr: true},
-		{name: "fieldPath extracter", args: args{paths: []string{`{}`}, allowMissingKeys: false}, want: &NestedFieldPathExtracter{}, wantErr: false},
-		{name: "fieldPath extracter", args: args{paths: []string{``}, allowMissingKeys: false}, want: &NestedFieldPathExtracter{}, wantErr: false},
-		{name: "fieldPath extracter", args: args{paths: []string{`{.metadata.labels.name}`}, allowMissingKeys: false}, want: &NestedFieldPathExtracter{}, wantErr: false},
-		{name: "fieldPath extracter", args: args{paths: []string{`{.metadata.labels['name']}`}, allowMissingKeys: false}, want: &NestedFieldPathExtracter{}, wantErr: false},
+		{name: "fieldPath extracter", args: args{paths: []string{`{}`}, allowMissingKeys: false}, want: &nestedFieldPathExtracter{}, wantErr: false},
+		{name: "fieldPath extracter", args: args{paths: []string{``}, allowMissingKeys: false}, want: &nestedFieldPathExtracter{}, wantErr: false},
+		{name: "fieldPath extracter", args: args{paths: []string{`{.metadata.labels.name}`}, allowMissingKeys: false}, want: &nestedFieldPathExtracter{}, wantErr: false},
+		{name: "fieldPath extracter", args: args{paths: []string{`{.metadata.labels['name']}`}, allowMissingKeys: false}, want: &nestedFieldPathExtracter{}, wantErr: false},
 		{name: "jsonPath extracter", args: args{paths: []string{`{.metadata.labels.name}{.metadata.labels.app}`}, allowMissingKeys: false}, want: nil, wantErr: true},
-		{name: "jsonPath extracter", args: args{paths: []string{`{.metadata.labels['name', 'app']}`}, allowMissingKeys: false}, want: &JSONPathExtracter{}, wantErr: false},
-		{name: "jsonPath extracter", args: args{paths: []string{`{.spec.containers[*].name}`}, allowMissingKeys: false}, want: &JSONPathExtracter{}, wantErr: false},
+		{name: "jsonPath extracter", args: args{paths: []string{`{.metadata.labels['name', 'app']}`}, allowMissingKeys: false}, want: &jsonPathExtracter{}, wantErr: false},
+		{name: "jsonPath extracter", args: args{paths: []string{`{.spec.containers[*].name}`}, allowMissingKeys: false}, want: &jsonPathExtracter{}, wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

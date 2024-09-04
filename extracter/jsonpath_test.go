@@ -29,10 +29,14 @@ type jsonPathTest struct {
 	expectError bool
 }
 
-func (t *jsonPathTest) Prepare(allowMissingKeys bool) (*JSONPathExtracter, error) {
-	jp := NewJSONPathExtracter(t.name)
-	jp.AllowMissingKeys(allowMissingKeys)
-	return jp, jp.Parse(t.template)
+func (t *jsonPathTest) Prepare(allowMissingKeys bool) (Extracter, error) {
+	parser, err := Parse(t.template, t.template)
+	if err != nil {
+		return nil, err
+	}
+
+	jp := NewJSONPathExtracter(parser, allowMissingKeys)
+	return jp, nil
 }
 
 func benchmarkJSONPath(test jsonPathTest, allowMissingKeys bool, b *testing.B) {
@@ -58,6 +62,7 @@ func testJSONPath(tests []jsonPathTest, allowMissingKeys bool, t *testing.T) {
 				t.Errorf("in %s, parse %s error %v", test.name, test.template, err)
 				continue
 			}
+			return
 		}
 
 		got, err := jp.Extract(test.input)

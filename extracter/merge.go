@@ -20,10 +20,10 @@ import (
 	"reflect"
 )
 
-// MergeFields merges src into dst.
+// mergeFields merges src into dst.
 //
 // Note: the merge operation on two nested list is replacing.
-func MergeFields(dst, src map[string]interface{}) map[string]interface{} {
+func mergeFields(dst, src map[string]interface{}) map[string]interface{} {
 	for key, val := range src {
 		if cur, ok := dst[key]; ok {
 			if reflect.TypeOf(val) != reflect.TypeOf(cur) {
@@ -34,7 +34,7 @@ func MergeFields(dst, src map[string]interface{}) map[string]interface{} {
 			case []interface{}:
 				dst[key] = val.([]interface{})
 			case map[string]interface{}:
-				dst[key] = MergeFields(cur, val.(map[string]interface{}))
+				dst[key] = mergeFields(cur, val.(map[string]interface{}))
 			default:
 				dst[key] = val
 			}

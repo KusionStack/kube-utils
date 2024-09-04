@@ -17,22 +17,27 @@
 package extracter
 
 import (
+	"errors"
+
 	"k8s.io/client-go/util/jsonpath"
 )
 
-type (
-	Parser         = jsonpath.Parser
-	Node           = jsonpath.Node
-	ListNode       = jsonpath.ListNode
-	TextNode       = jsonpath.TextNode
-	FieldNode      = jsonpath.FieldNode
-	ArrayNode      = jsonpath.ArrayNode
-	FilterNode     = jsonpath.FilterNode
-	IntNode        = jsonpath.IntNode
-	BoolNode       = jsonpath.BoolNode
-	FloatNode      = jsonpath.FloatNode
-	WildcardNode   = jsonpath.WildcardNode
-	RecursiveNode  = jsonpath.RecursiveNode
-	UnionNode      = jsonpath.UnionNode
-	IdentifierNode = jsonpath.IdentifierNode
-)
+// Parse is unlike the jsonpath.Parse, which supports multi-paths input.
+// The input like `{.kind} {.apiVersion}` or
+// `{range .spec.containers[*]}{.name}{end}` will result in an error.
+func Parse(name, text string) (*parser, error) {
+	p, err := jsonpath.Parse(name, text)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(p.Root.Nodes) > 1 {
+		return nil, errors.New("not support multi-paths input")
+	}
+
+	return &parser{p}, nil
+}
+
+type parser struct {
+	*jsonpath.Parser
+}

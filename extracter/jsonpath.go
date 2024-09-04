@@ -25,42 +25,32 @@ import (
 	"strings"
 
 	"k8s.io/client-go/third_party/forked/golang/template"
+	"k8s.io/client-go/util/jsonpath"
 )
 
-type JSONPathExtracter struct {
+type jsonPathExtracter struct {
 	name       string
-	parser     *Parser
+	parser     *parser
 	beginRange int
 	inRange    int
 	endRange   int
 
-	lastEndNode *Node
+	lastEndNode *jsonpath.Node
 
 	allowMissingKeys bool
 }
 
-// NewJSONPathExtracter creates a new JSONPath with the given name.
-func NewJSONPathExtracter(name string) *JSONPathExtracter {
-	return &JSONPathExtracter{
-		name:       name,
+// NewJSONPathExtracter creates a new JSONPathExtracter with the given parser.
+func NewJSONPathExtracter(parser *parser, allowMissingKeys bool) Extracter {
+	return &jsonPathExtracter{
+		name:       parser.Name,
 		beginRange: 0,
 		inRange:    0,
 		endRange:   0,
+
+		parser:           parser,
+		allowMissingKeys: allowMissingKeys,
 	}
-}
-
-// AllowMissingKeys allows a caller to specify whether they want an error if a field or map key
-// cannot be located, or simply an empty result. The receiver is returned for chaining.
-func (j *JSONPathExtracter) AllowMissingKeys(allow bool) *JSONPathExtracter {
-	j.allowMissingKeys = allow
-	return j
-}
-
-// Parse parses the given template and returns an error.
-func (j *JSONPathExtracter) Parse(text string) error {
-	var err error
-	j.parser, err = parse(j.name, text)
-	return err
 }
 
 type setFieldFunc func(val reflect.Value) error
@@ -80,14 +70,14 @@ func makeNopSetFieldFuncSlice(n int) []setFieldFunc {
 //
 // The data structure of the extracted field must be of type `map[string]interface{}`,
 // and `struct` is not supported (an error will be returned).
-func (j *JSONPathExtracter) Extract(data map[string]interface{}) (map[string]interface{}, error) {
+func (j *jsonPathExtracter) Extract(data map[string]interface{}) (map[string]interface{}, error) {
 	container := struct{ Root reflect.Value }{}
 	setFn := func(val reflect.Value) error {
 		container.Root = val
 		return nil
 	}
 
-	_, err := j.FindResults(data, setFn)
+	_, err := j.findResults(data, setFn)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +89,7 @@ func (j *JSONPathExtracter) Extract(data map[string]interface{}) (map[string]int
 	return container.Root.Interface().(map[string]interface{}), nil
 }
 
-func (j *JSONPathExtracter) FindResults(data interface{}, setFn setFieldFunc) ([][]reflect.Value, error) {
+func (j *jsonPathExtracter) findResults(data interface{}, setFn setFieldFunc) ([][]reflect.Value, error) {
 	if j.parser == nil {
 		return nil, fmt.Errorf("%s is an incomplete jsonpath template", j.name)
 	}
@@ -128,7 +118,7 @@ func (j *JSONPathExtracter) FindResults(data interface{}, setFn setFieldFunc) ([
 			if len(results) > 0 {
 				for ri, value := range results {
 					j.parser.Root.Nodes = nodes[i+1:]
-					nextResults, err := j.FindResults(value.Interface(), fn[ri])
+					nextResults, err := j.findResults(value.Interface(), fn[ri])
 					if err != nil {
 						return nil, err
 					}
@@ -138,7 +128,7 @@ func (j *JSONPathExtracter) FindResults(data interface{}, setFn setFieldFunc) ([
 				// If the range has no results, we still need to process the nodes within the range
 				// so the position will advance to the end node
 				j.parser.Root.Nodes = nodes[i+1:]
-				_, err := j.FindResults(nil, nopSetFieldFunc)
+				_, err := j.findResults(nil, nopSetFieldFunc)
 				if err != nil {
 					return nil, err
 				}
@@ -159,19 +149,19 @@ func (j *JSONPathExtracter) FindResults(data interface{}, setFn setFieldFunc) ([
 	return fullResult, nil
 }
 
-func (j *JSONPathExtracter) _walk(value []reflect.Value, node Node, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
+func (j *jsonPathExtracter) _walk(value []reflect.Value, node jsonpath.Node, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
 	switch node := node.(type) {
-	case *ListNode:
+	case *jsonpath.ListNode:
 		return j._evalList(value, node, setFn)
-	case *FieldNode:
+	case *jsonpath.FieldNode:
 		return j.evalField(value, node, setFn)
-	case *ArrayNode:
+	case *jsonpath.ArrayNode:
 		return j.evalArray(value, node, setFn)
-	case *IdentifierNode:
+	case *jsonpath.IdentifierNode:
 		return j.evalIdentifier(value, node, setFn)
-	case *UnionNode:
+	case *jsonpath.UnionNode:
 		return j._evalUnion(value, node, setFn)
-	case *FilterNode:
+	case *jsonpath.FilterNode:
 		return j.evalFilter(value, node, setFn)
 	default:
 		return nil, nil, fmt.Errorf("Extract does not support node %v", node)
@@ -179,34 +169,34 @@ func (j *JSONPathExtracter) _walk(value []reflect.Value, node Node, setFn []setF
 }
 
 // walk visits tree rooted at the given node in DFS order
-func (j *JSONPathExtracter) walk(value []reflect.Value, node Node) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) walk(value []reflect.Value, node jsonpath.Node) ([]reflect.Value, error) {
 	switch node := node.(type) {
-	case *ListNode:
+	case *jsonpath.ListNode:
 		return j.evalList(value, node)
-	case *TextNode:
+	case *jsonpath.TextNode:
 		return []reflect.Value{reflect.ValueOf(node.Text)}, nil
-	case *FieldNode:
+	case *jsonpath.FieldNode:
 		value, _, err := j.evalField(value, node, makeNopSetFieldFuncSlice(len(value)))
 		return value, err
-	case *ArrayNode:
+	case *jsonpath.ArrayNode:
 		value, _, err := j.evalArray(value, node, makeNopSetFieldFuncSlice(len(value)))
 		return value, err
-	case *FilterNode:
+	case *jsonpath.FilterNode:
 		value, _, err := j.evalFilter(value, node, makeNopSetFieldFuncSlice(len(value)))
 		return value, err
-	case *IntNode:
+	case *jsonpath.IntNode:
 		return j.evalInt(value, node)
-	case *BoolNode:
+	case *jsonpath.BoolNode:
 		return j.evalBool(value, node)
-	case *FloatNode:
+	case *jsonpath.FloatNode:
 		return j.evalFloat(value, node)
-	case *WildcardNode:
+	case *jsonpath.WildcardNode:
 		return j.evalWildcard(value, node)
-	case *RecursiveNode:
+	case *jsonpath.RecursiveNode:
 		return j.evalRecursive(value, node)
-	case *UnionNode:
+	case *jsonpath.UnionNode:
 		return j.evalUnion(value, node)
-	case *IdentifierNode:
+	case *jsonpath.IdentifierNode:
 		value, _, err := j.evalIdentifier(value, node, makeNopSetFieldFuncSlice(len(value)))
 		return value, err
 	default:
@@ -215,7 +205,7 @@ func (j *JSONPathExtracter) walk(value []reflect.Value, node Node) ([]reflect.Va
 }
 
 // evalInt evaluates IntNode
-func (j *JSONPathExtracter) evalInt(input []reflect.Value, node *IntNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalInt(input []reflect.Value, node *jsonpath.IntNode) ([]reflect.Value, error) {
 	result := make([]reflect.Value, len(input))
 	for i := range input {
 		result[i] = reflect.ValueOf(node.Value)
@@ -224,7 +214,7 @@ func (j *JSONPathExtracter) evalInt(input []reflect.Value, node *IntNode) ([]ref
 }
 
 // evalFloat evaluates FloatNode
-func (j *JSONPathExtracter) evalFloat(input []reflect.Value, node *FloatNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalFloat(input []reflect.Value, node *jsonpath.FloatNode) ([]reflect.Value, error) {
 	result := make([]reflect.Value, len(input))
 	for i := range input {
 		result[i] = reflect.ValueOf(node.Value)
@@ -233,7 +223,7 @@ func (j *JSONPathExtracter) evalFloat(input []reflect.Value, node *FloatNode) ([
 }
 
 // evalBool evaluates BoolNode
-func (j *JSONPathExtracter) evalBool(input []reflect.Value, node *BoolNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalBool(input []reflect.Value, node *jsonpath.BoolNode) ([]reflect.Value, error) {
 	result := make([]reflect.Value, len(input))
 	for i := range input {
 		result[i] = reflect.ValueOf(node.Value)
@@ -241,7 +231,7 @@ func (j *JSONPathExtracter) evalBool(input []reflect.Value, node *BoolNode) ([]r
 	return result, nil
 }
 
-func (j *JSONPathExtracter) _evalList(value []reflect.Value, node *ListNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
+func (j *jsonPathExtracter) _evalList(value []reflect.Value, node *jsonpath.ListNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
 	var err error
 	curValue := value
 	curFns := setFn
@@ -256,7 +246,7 @@ func (j *JSONPathExtracter) _evalList(value []reflect.Value, node *ListNode, set
 }
 
 // evalList evaluates ListNode
-func (j *JSONPathExtracter) evalList(value []reflect.Value, node *ListNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalList(value []reflect.Value, node *jsonpath.ListNode) ([]reflect.Value, error) {
 	var err error
 	curValue := value
 	for _, node := range node.Nodes {
@@ -269,7 +259,7 @@ func (j *JSONPathExtracter) evalList(value []reflect.Value, node *ListNode) ([]r
 }
 
 // evalIdentifier evaluates IdentifierNode
-func (j *JSONPathExtracter) evalIdentifier(input []reflect.Value, node *IdentifierNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
+func (j *jsonPathExtracter) evalIdentifier(input []reflect.Value, node *jsonpath.IdentifierNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
 	results := []reflect.Value{}
 	switch node.Name {
 	case "range":
@@ -288,7 +278,7 @@ func (j *JSONPathExtracter) evalIdentifier(input []reflect.Value, node *Identifi
 }
 
 // evalArray evaluates ArrayNode
-func (j *JSONPathExtracter) evalArray(input []reflect.Value, node *ArrayNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
+func (j *jsonPathExtracter) evalArray(input []reflect.Value, node *jsonpath.ArrayNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
 	result := []reflect.Value{}
 	nextFns := []setFieldFunc{}
 	for k, value := range input {
@@ -360,7 +350,7 @@ func (j *JSONPathExtracter) evalArray(input []reflect.Value, node *ArrayNode, se
 	return result, nextFns, nil
 }
 
-func (j *JSONPathExtracter) _evalUnion(input []reflect.Value, node *UnionNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
+func (j *jsonPathExtracter) _evalUnion(input []reflect.Value, node *jsonpath.UnionNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
 	result := []reflect.Value{}
 	fns := []setFieldFunc{}
 
@@ -403,7 +393,7 @@ func (j *JSONPathExtracter) _evalUnion(input []reflect.Value, node *UnionNode, s
 }
 
 // evalUnion evaluates UnionNode
-func (j *JSONPathExtracter) evalUnion(input []reflect.Value, node *UnionNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalUnion(input []reflect.Value, node *jsonpath.UnionNode) ([]reflect.Value, error) {
 	result := []reflect.Value{}
 	for _, listNode := range node.Nodes {
 		temp, err := j.evalList(input, listNode)
@@ -416,7 +406,7 @@ func (j *JSONPathExtracter) evalUnion(input []reflect.Value, node *UnionNode) ([
 }
 
 //lint:ignore U1000 ignore unused function
-func (j *JSONPathExtracter) findFieldInValue(value *reflect.Value, node *FieldNode) (reflect.Value, error) {
+func (j *jsonPathExtracter) findFieldInValue(value *reflect.Value, node *jsonpath.FieldNode) (reflect.Value, error) {
 	t := value.Type()
 	var inlineValue *reflect.Value
 	for ix := 0; ix < t.NumField(); ix++ {
@@ -450,7 +440,7 @@ func (j *JSONPathExtracter) findFieldInValue(value *reflect.Value, node *FieldNo
 }
 
 // evalField evaluates field of struct or key of map.
-func (j *JSONPathExtracter) evalField(input []reflect.Value, node *FieldNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
+func (j *jsonPathExtracter) evalField(input []reflect.Value, node *jsonpath.FieldNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
 	results := []reflect.Value{}
 	nextFns := []setFieldFunc{}
 	// If there's no input, there's no output
@@ -502,7 +492,7 @@ func (j *JSONPathExtracter) evalField(input []reflect.Value, node *FieldNode, se
 }
 
 // evalWildcard extracts all contents of the given value
-func (j *JSONPathExtracter) evalWildcard(input []reflect.Value, _ *WildcardNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalWildcard(input []reflect.Value, _ *jsonpath.WildcardNode) ([]reflect.Value, error) {
 	results := []reflect.Value{}
 	for _, value := range input {
 		value, isNil := template.Indirect(value)
@@ -529,7 +519,7 @@ func (j *JSONPathExtracter) evalWildcard(input []reflect.Value, _ *WildcardNode)
 }
 
 // evalRecursive visits the given value recursively and pushes all of them to result
-func (j *JSONPathExtracter) evalRecursive(input []reflect.Value, node *RecursiveNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalRecursive(input []reflect.Value, node *jsonpath.RecursiveNode) ([]reflect.Value, error) {
 	result := []reflect.Value{}
 	for _, value := range input {
 		results := []reflect.Value{}
@@ -565,7 +555,7 @@ func (j *JSONPathExtracter) evalRecursive(input []reflect.Value, node *Recursive
 }
 
 // evalFilter filters array according to FilterNode
-func (j *JSONPathExtracter) evalFilter(input []reflect.Value, node *FilterNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
+func (j *jsonPathExtracter) evalFilter(input []reflect.Value, node *jsonpath.FilterNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
 	results := []reflect.Value{}
 	fns := []setFieldFunc{}
 	for k, value := range input {

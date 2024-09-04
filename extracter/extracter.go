@@ -17,7 +17,6 @@
 package extracter
 
 import (
-	"errors"
 	"fmt"
 
 	"k8s.io/client-go/util/jsonpath"
@@ -27,29 +26,13 @@ type Extracter interface {
 	Extract(data map[string]interface{}) (map[string]interface{}, error)
 }
 
-// parse is unlike the jsonpath.Parse, which supports multi-paths input.
-// The input like `{.kind} {.apiVersion}` or
-// `{range .spec.containers[*]}{.name}{end}` will result in an error.
-func parse(name, text string) (*Parser, error) {
-	p, err := jsonpath.Parse(name, text)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(p.Root.Nodes) > 1 {
-		return nil, errors.New("not support multi-paths input")
-	}
-
-	return p, nil
-}
-
 // New creates an Extracter. For each jsonPaths, FieldPathExtracter will
 // be parsed whenever possible, as it has better performance
 func New(jsonPaths []string, allowMissingKeys bool) (Extracter, error) {
 	var extracters []Extracter
 
 	for _, p := range jsonPaths {
-		parser, err := parse(p, p)
+		parser, err := Parse(p, p)
 		if err != nil {
 			return nil, fmt.Errorf("error in parsing path %q: %w", p, err)
 		}
@@ -76,7 +59,7 @@ func New(jsonPaths []string, allowMissingKeys bool) (Extracter, error) {
 			}
 		}
 
-		jp := &JSONPathExtracter{name: parser.Name, parser: parser, allowMissingKeys: allowMissingKeys}
+		jp := &jsonPathExtracter{name: parser.Name, parser: parser, allowMissingKeys: allowMissingKeys}
 		extracters = append(extracters, jp)
 	}
 
@@ -92,7 +75,7 @@ type Extracters struct {
 	extracters []Extracter
 }
 
-// Extract calls all extracters in order and merges their outputs by calling MergeFields.
+// Extract calls all extracters in order and merges their outputs by calling mergeFields.
 func (e *Extracters) Extract(data map[string]interface{}) (map[string]interface{}, error) {
 	var merged map[string]interface{}
 
@@ -105,7 +88,7 @@ func (e *Extracters) Extract(data map[string]interface{}) (map[string]interface{
 		if merged == nil {
 			merged = field
 		} else {
-			merged = MergeFields(merged, field)
+			merged = mergeFields(merged, field)
 		}
 	}
 

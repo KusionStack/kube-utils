@@ -21,18 +21,18 @@ import (
 )
 
 // NewNestedFieldPathExtracter constructs a FieldPathExtracter.
-func NewNestedFieldPathExtracter(nestedField []string, allowMissingKeys bool) *NestedFieldPathExtracter {
-	return &NestedFieldPathExtracter{nestedField: nestedField, allowMissingKeys: allowMissingKeys}
+func NewNestedFieldPathExtracter(nestedField []string, allowMissingKeys bool) Extracter {
+	return &nestedFieldPathExtracter{nestedField: nestedField, allowMissingKeys: allowMissingKeys}
 }
 
-// NestedFieldPathExtracter is used to wrap NestedFieldNoCopy function as an Extracter.
-type NestedFieldPathExtracter struct {
+// nestedFieldPathExtracter is used to wrap NestedFieldNoCopy function as an Extracter.
+type nestedFieldPathExtracter struct {
 	nestedField      []string
 	allowMissingKeys bool
 }
 
 // Extract outputs the nestedField's value and its upstream structure.
-func (n *NestedFieldPathExtracter) Extract(data map[string]interface{}) (map[string]interface{}, error) {
+func (n *nestedFieldPathExtracter) Extract(data map[string]interface{}) (map[string]interface{}, error) {
 	return NestedFieldNoCopy(data, n.allowMissingKeys, n.nestedField...)
 }
 
