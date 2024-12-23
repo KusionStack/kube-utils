@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package cert
+package certmanager
 
 import (
 	"context"
@@ -37,16 +37,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	"kusionstack.io/kube-utils/cert"
 	"kusionstack.io/kube-utils/controller/mixin"
 )
-
-type WebhookCertSelfSigner struct {
-	*mixin.ReconcilerMixin
-	CertConfig
-
-	fs     *FSProvider
-	secret *SecretProvider
-}
 
 type CertConfig struct {
 	Host           string
@@ -60,29 +53,36 @@ type CertConfig struct {
 	ContextWrapper func(context.Context) context.Context
 }
 
-func New(mgr manager.Manager, cfg CertConfig) *WebhookCertSelfSigner {
-	return &WebhookCertSelfSigner{
-		ReconcilerMixin: mixin.NewReconcilerMixin("webhook-cert-self-signer", mgr),
+// WebhookServingCertManager is a controller that manages the webhook certs.
+// It will generate and rotate the certs when it is invalid.
+type WebhookServingCertManager struct {
+	*mixin.ReconcilerMixin
+	CertConfig
+
+	fs     *cert.FSCertProvider
+	secret *cert.SecretCertProvider
+}
+
+// New returns a new WebhookServingCertManager.
+func New(mgr manager.Manager, cfg CertConfig) *WebhookServingCertManager {
+	return &WebhookServingCertManager{
+		ReconcilerMixin: mixin.NewReconcilerMixin("webhook-serving-cert-manager", mgr),
 		CertConfig:      cfg,
 	}
 }
 
-func (s *WebhookCertSelfSigner) SetupWithManager(mgr manager.Manager) error {
+func (s *WebhookServingCertManager) SetupWithManager(mgr manager.Manager) error {
 	var err error
 	server := mgr.GetWebhookServer()
-	s.fs, err = NewFSProvider(server.CertDir, FSOptions{
+	s.fs, err = cert.NewFSCertProvider(server.CertDir, cert.FSOptions{
 		CertName: server.CertName,
 		KeyName:  server.KeyName,
 	})
 	if err != nil {
 		return err
 	}
-	s.secret, err = NewSecretProvider(
-		&secretClient{
-			reader: s.APIReader,
-			writer: s.Client,
-			logger: s.Logger,
-		},
+	s.secret, err = cert.NewSecretCertProvider(
+		cert.NewSecretClient(s.APIReader, s.Client),
 		s.Namespace,
 		s.SecretName,
 	)
@@ -125,7 +125,7 @@ func (s *WebhookCertSelfSigner) SetupWithManager(mgr manager.Manager) error {
 	return mgr.Add(&nonLeaderElectionController{Controller: ctrl})
 }
 
-func (s *WebhookCertSelfSigner) predictFunc() predicate.Funcs {
+func (s *WebhookServingCertManager) predictFunc() predicate.Funcs {
 	mutatingWebhookNameSet := sets.NewString(s.MutatingWebhookNames...)
 	validatingWebhookNameSet := sets.NewString(s.ValidatingWebhookNames...)
 	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
@@ -144,7 +144,7 @@ func (s *WebhookCertSelfSigner) predictFunc() predicate.Funcs {
 	})
 }
 
-func (s *WebhookCertSelfSigner) enqueueSecret() handler.EventHandler {
+func (s *WebhookServingCertManager) enqueueSecret() handler.EventHandler {
 	mapFunc := func(obj client.Object) []reconcile.Request {
 		return []reconcile.Request{
 			{
@@ -158,19 +158,20 @@ func (s *WebhookCertSelfSigner) enqueueSecret() handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(mapFunc)
 }
 
-func (s *WebhookCertSelfSigner) Reconcile(ctx context.Context, _ reconcile.Request) (reconcile.Result, error) {
+func (s *WebhookServingCertManager) Reconcile(ctx context.Context, _ reconcile.Request) (reconcile.Result, error) {
+	ctx = logr.NewContext(ctx, s.Logger)
 	if s.ContextWrapper != nil {
 		ctx = s.ContextWrapper(ctx)
 	}
-	cfg := Config{
+	cfg := cert.Config{
 		CommonName: s.Host,
-		AltNames: AltNames{
+		AltNames: cert.AltNames{
 			DNSNames: s.AlternateHosts,
 		},
 	}
 	servingCerts, err := s.secret.Ensure(ctx, cfg)
 	if err != nil {
-		if IsConflict(err) {
+		if cert.IsConflict(err) {
 			// create error on AlreadyExists
 			// update error on Conflict
 			// retry
@@ -202,7 +203,7 @@ func (s *WebhookCertSelfSigner) Reconcile(ctx context.Context, _ reconcile.Reque
 	return reconcile.Result{}, nil
 }
 
-func (s *WebhookCertSelfSigner) ensureWebhookConfiguration(ctx context.Context, caBundle []byte) error {
+func (s *WebhookServingCertManager) ensureWebhookConfiguration(ctx context.Context, caBundle []byte) error {
 	var errList []error
 	mutatingCfg := &admissionregistrationv1.MutatingWebhookConfiguration{}
 	for _, name := range s.MutatingWebhookNames {
@@ -285,40 +286,4 @@ type nonLeaderElectionController struct {
 
 func (c *nonLeaderElectionController) NeedLeaderElection() bool {
 	return false
-}
-
-var _ SecretClient = &secretClient{}
-
-type secretClient struct {
-	reader client.Reader
-	writer client.Writer
-	logger logr.Logger
-}
-
-// Create implements SecretClient.
-func (s *secretClient) Create(ctx context.Context, secret *corev1.Secret) error {
-	err := s.writer.Create(ctx, secret)
-	if err == nil {
-		s.logger.Info("create secret successfully", "namespace", secret.Namespace, "name", secret.Name)
-	}
-	return err
-}
-
-// Get implements SecretClient.
-func (s *secretClient) Get(ctx context.Context, namespace string, name string) (*corev1.Secret, error) {
-	var secret corev1.Secret
-	err := s.reader.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &secret)
-	if err != nil {
-		return nil, err
-	}
-	return &secret, nil
-}
-
-// Update implements SecretClient.
-func (s *secretClient) Update(ctx context.Context, secret *corev1.Secret) error {
-	err := s.writer.Update(ctx, secret)
-	if err == nil {
-		s.logger.Info("update secret successfully", "namespace", secret.Namespace, "name", secret.Name)
-	}
-	return err
 }

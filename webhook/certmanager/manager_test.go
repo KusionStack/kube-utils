@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cert
+package certmanager
 
 import (
 	"context"
@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -55,7 +56,6 @@ var (
 )
 
 var _ = Describe("Self signer", func() {
-
 	It("sign cert for webhooks reconcile", func() {
 		none := admissionregistrationv1.SideEffectClassNone
 		mutatingWebhook := &admissionregistrationv1.MutatingWebhookConfiguration{
@@ -66,7 +66,7 @@ var _ = Describe("Self signer", func() {
 				{
 					Name: "hook-1.test.io",
 					ClientConfig: admissionregistrationv1.WebhookClientConfig{
-						URL: strPointer("https://test.io"),
+						URL: ptr.To("https://test.io"),
 					},
 					SideEffects:             &none,
 					AdmissionReviewVersions: []string{"v1beta1"},
@@ -74,7 +74,7 @@ var _ = Describe("Self signer", func() {
 				{
 					Name: "hook-2.test.io",
 					ClientConfig: admissionregistrationv1.WebhookClientConfig{
-						URL: strPointer("https://test.io"),
+						URL: ptr.To("https://test.io"),
 					},
 					SideEffects:             &none,
 					AdmissionReviewVersions: []string{"v1beta1"},
@@ -90,7 +90,7 @@ var _ = Describe("Self signer", func() {
 				{
 					Name: "hook-1.test.io",
 					ClientConfig: admissionregistrationv1.WebhookClientConfig{
-						URL: strPointer("https://test.io"),
+						URL: ptr.To("https://test.io"),
 					},
 					SideEffects:             &none,
 					AdmissionReviewVersions: []string{"v1beta1"},
@@ -98,7 +98,7 @@ var _ = Describe("Self signer", func() {
 				{
 					Name: "hook-2.test.io",
 					ClientConfig: admissionregistrationv1.WebhookClientConfig{
-						URL: strPointer("https://test.io"),
+						URL: ptr.To("https://test.io"),
 					},
 					SideEffects:             &none,
 					AdmissionReviewVersions: []string{"v1beta1"},
@@ -202,8 +202,4 @@ func createNamespace(c client.Client, namespaceName string) error {
 	}
 
 	return c.Create(context.TODO(), ns)
-}
-
-func strPointer(str string) *string {
-	return &str
 }
