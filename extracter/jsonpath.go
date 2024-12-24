@@ -170,19 +170,20 @@ func (j *jsonPathExtracter) _walk(value []reflect.Value, node jsonpath.Node, set
 
 // walk visits tree rooted at the given node in DFS order
 func (j *jsonPathExtracter) walk(value []reflect.Value, node jsonpath.Node) ([]reflect.Value, error) {
+	var err error
 	switch node := node.(type) {
 	case *jsonpath.ListNode:
 		return j.evalList(value, node)
 	case *jsonpath.TextNode:
 		return []reflect.Value{reflect.ValueOf(node.Text)}, nil
 	case *jsonpath.FieldNode:
-		value, _, err := j.evalField(value, node, makeNopSetFieldFuncSlice(len(value)))
+		value, _, err = j.evalField(value, node, makeNopSetFieldFuncSlice(len(value)))
 		return value, err
 	case *jsonpath.ArrayNode:
-		value, _, err := j.evalArray(value, node, makeNopSetFieldFuncSlice(len(value)))
+		value, _, err = j.evalArray(value, node, makeNopSetFieldFuncSlice(len(value)))
 		return value, err
 	case *jsonpath.FilterNode:
-		value, _, err := j.evalFilter(value, node, makeNopSetFieldFuncSlice(len(value)))
+		value, _, err = j.evalFilter(value, node, makeNopSetFieldFuncSlice(len(value)))
 		return value, err
 	case *jsonpath.IntNode:
 		return j.evalInt(value, node)
@@ -191,13 +192,13 @@ func (j *jsonPathExtracter) walk(value []reflect.Value, node jsonpath.Node) ([]r
 	case *jsonpath.FloatNode:
 		return j.evalFloat(value, node)
 	case *jsonpath.WildcardNode:
-		return j.evalWildcard(value, node)
+		return j.evalWildcard(value)
 	case *jsonpath.RecursiveNode:
-		return j.evalRecursive(value, node)
+		return j.evalRecursive(value)
 	case *jsonpath.UnionNode:
 		return j.evalUnion(value, node)
 	case *jsonpath.IdentifierNode:
-		value, _, err := j.evalIdentifier(value, node, makeNopSetFieldFuncSlice(len(value)))
+		value, _, err = j.evalIdentifier(value, node, makeNopSetFieldFuncSlice(len(value)))
 		return value, err
 	default:
 		return value, fmt.Errorf("unexpected Node %v", node)
@@ -282,7 +283,6 @@ func (j *jsonPathExtracter) evalArray(input []reflect.Value, node *jsonpath.Arra
 	result := []reflect.Value{}
 	nextFns := []setFieldFunc{}
 	for k, value := range input {
-
 		value, isNil := template.Indirect(value)
 		if isNil {
 			continue
@@ -345,7 +345,7 @@ func (j *jsonPathExtracter) evalArray(input []reflect.Value, node *jsonpath.Arra
 			})
 		}
 
-		setFn[k](s)
+		setFn[k](s) // nolint: errcheck
 	}
 	return result, nextFns, nil
 }
@@ -386,7 +386,7 @@ func (j *jsonPathExtracter) _evalUnion(input []reflect.Value, node *jsonpath.Uni
 				m.SetMapIndex(key, val.MapIndex(key))
 			}
 		}
-		fn(m)
+		fn(m) // nolint: errcheck
 	}
 
 	return result, fns, nil
@@ -469,7 +469,7 @@ func (j *jsonPathExtracter) evalField(input []reflect.Value, node *jsonpath.Fiel
 
 			val := reflect.MakeMap(value.Type())
 			val.SetMapIndex(key, result)
-			setFn[k](val)
+			setFn[k](val) // nolint: errcheck
 
 			fn = func(val_ reflect.Value) error {
 				val.SetMapIndex(key, val_)
@@ -492,7 +492,7 @@ func (j *jsonPathExtracter) evalField(input []reflect.Value, node *jsonpath.Fiel
 }
 
 // evalWildcard extracts all contents of the given value
-func (j *jsonPathExtracter) evalWildcard(input []reflect.Value, _ *jsonpath.WildcardNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalWildcard(input []reflect.Value) ([]reflect.Value, error) {
 	results := []reflect.Value{}
 	for _, value := range input {
 		value, isNil := template.Indirect(value)
@@ -519,7 +519,7 @@ func (j *jsonPathExtracter) evalWildcard(input []reflect.Value, _ *jsonpath.Wild
 }
 
 // evalRecursive visits the given value recursively and pushes all of them to result
-func (j *jsonPathExtracter) evalRecursive(input []reflect.Value, node *jsonpath.RecursiveNode) ([]reflect.Value, error) {
+func (j *jsonPathExtracter) evalRecursive(input []reflect.Value) ([]reflect.Value, error) {
 	result := []reflect.Value{}
 	for _, value := range input {
 		results := []reflect.Value{}
@@ -544,7 +544,7 @@ func (j *jsonPathExtracter) evalRecursive(input []reflect.Value, node *jsonpath.
 		}
 		if len(results) != 0 {
 			result = append(result, value)
-			output, err := j.evalRecursive(results, node)
+			output, err := j.evalRecursive(results)
 			if err != nil {
 				return result, err
 			}
@@ -638,7 +638,7 @@ func (j *jsonPathExtracter) evalFilter(input []reflect.Value, node *jsonpath.Fil
 			})
 		}
 
-		setFn[k](s)
+		setFn[k](s) // nolint:errcheck
 		results = append(results, loopResult...)
 	}
 	return results, fns, nil
