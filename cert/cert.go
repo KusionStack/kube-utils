@@ -33,6 +33,7 @@ type (
 	AltNames = cert.AltNames
 )
 
+// ServingCerts is a set of serving certificates.
 type ServingCerts struct {
 	Key    []byte
 	Cert   []byte
@@ -40,6 +41,7 @@ type ServingCerts struct {
 	CACert []byte
 }
 
+// Validate checks if the serving certificates are valid for given host.
 func (c *ServingCerts) Validate(host string) error {
 	if len(c.Key) == 0 {
 		return fmt.Errorf("private key is empty")
@@ -75,6 +77,7 @@ func (c *ServingCerts) Validate(host string) error {
 	return err
 }
 
+// GenerateSelfSignedCerts generates a self-signed certificate and key for the given host.
 func GenerateSelfSignedCerts(cfg Config) (*ServingCerts, error) {
 	caKey, caCert, key, cert, err := generateSelfSignedCertKey(cfg)
 	if err != nil {
@@ -94,15 +97,22 @@ func GenerateSelfSignedCerts(cfg Config) (*ServingCerts, error) {
 	}, nil
 }
 
+// GenerateSelfSignedCertKeyIfNotExist generates a self-signed certificate and
+// write them to the given path if not exist.
 func GenerateSelfSignedCertKeyIfNotExist(path string, cfg cert.Config) error {
-	fscerts, err := NewFSProvider(path, FSOptions{})
+	fscerts, err := NewFSCertProvider(path, FSOptions{})
 	if err != nil {
 		return err
 	}
-	return fscerts.Ensure(context.Background(), cfg)
+	_, err = fscerts.Ensure(context.Background(), cfg)
+	return err
 }
 
 func generateSelfSignedCertKey(cfg Config) (*rsa.PrivateKey, *x509.Certificate, *rsa.PrivateKey, *x509.Certificate, error) {
+	if len(cfg.CommonName) == 0 {
+		return nil, nil, nil, nil, fmt.Errorf("common name is empty")
+	}
+
 	caKey, err := certutil.NewRSAPrivateKey()
 	if err != nil {
 		return nil, nil, nil, nil, err

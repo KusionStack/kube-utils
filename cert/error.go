@@ -29,10 +29,12 @@ func newNotFound(name string, err error) error {
 	return fmt.Errorf("%s %w: %v", name, errNotFound, err)
 }
 
+// IsNotFound returns true if certificate not found.
 func IsNotFound(err error) bool {
 	return apierrors.IsNotFound(err) || errors.Is(err, errNotFound)
 }
 
+// IsConflict returns true if certificate is already exist.
 func IsConflict(err error) bool {
 	return apierrors.IsAlreadyExists(err) || apierrors.IsConflict(err)
 }

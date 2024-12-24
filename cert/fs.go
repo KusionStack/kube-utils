@@ -27,11 +27,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type FSProvider struct {
-	FSOptions
-	path string
-}
-
+// FSOptions is the options for FSCertProvider.
 type FSOptions struct {
 	FS         afero.Fs
 	CertName   string
@@ -58,49 +54,56 @@ func (o *FSOptions) setDefaults() {
 	}
 }
 
-func NewFSProvider(path string, opts FSOptions) (*FSProvider, error) {
+// FSCertProvider is a CertProvider that stores certificates on the local filesystem.
+type FSCertProvider struct {
+	FSOptions
+	path string
+}
+
+// NewFSCertProvider creates a new FSCertProvider.
+func NewFSCertProvider(path string, opts FSOptions) (*FSCertProvider, error) {
 	opts.setDefaults()
 
 	if len(path) == 0 {
 		return nil, fmt.Errorf("cert path is required")
 	}
 
-	return &FSProvider{
+	return &FSCertProvider{
 		path:      path,
 		FSOptions: opts,
 	}, nil
 }
 
-func (p *FSProvider) Ensure(_ context.Context, cfg Config) error {
-	certs, err := p.Load()
+func (p *FSCertProvider) Ensure(ctx context.Context, cfg Config) (*ServingCerts, error) {
+	certs, err := p.Load(ctx)
 	if err != nil && !IsNotFound(err) {
-		return err
+		return nil, err
 	}
 
 	if IsNotFound(err) {
 		certs, err = GenerateSelfSignedCerts(cfg)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		_, err = p.Overwrite(certs)
-		return err
+		return certs, err
 	}
 
 	err = certs.Validate(cfg.CommonName)
 	if err != nil {
 		// re-generate if expired or invalid
 		klog.Info("certificates are invalid, regenerating...")
-		certs, err := GenerateSelfSignedCerts(cfg)
+		certs, err = GenerateSelfSignedCerts(cfg)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		_, err = p.Overwrite(certs)
-		return err
+		return certs, err
 	}
-	return nil
+	return certs, nil
 }
 
-func (p *FSProvider) checkIfExist() error {
+func (p *FSCertProvider) checkIfExist() error {
 	files := []string{
 		path.Join(p.path, p.KeyName),
 		path.Join(p.path, p.CertName),
@@ -121,7 +124,7 @@ func (p *FSProvider) checkIfExist() error {
 	return nil
 }
 
-func (p *FSProvider) Load() (*ServingCerts, error) {
+func (p *FSCertProvider) Load(_ context.Context) (*ServingCerts, error) {
 	err := p.checkIfExist()
 	if err != nil {
 		return nil, err
@@ -154,7 +157,7 @@ func (p *FSProvider) Load() (*ServingCerts, error) {
 	return certs, nil
 }
 
-func (p *FSProvider) Overwrite(certs *ServingCerts) (bool, error) {
+func (p *FSCertProvider) Overwrite(certs *ServingCerts) (bool, error) {
 	if certs == nil {
 		return false, fmt.Errorf("certs are required")
 	}
@@ -206,7 +209,7 @@ func (p *FSProvider) Overwrite(certs *ServingCerts) (bool, error) {
 	return updated, nil
 }
 
-func (p *FSProvider) writeFile(path string, data []byte) (bool, error) {
+func (p *FSCertProvider) writeFile(path string, data []byte) (bool, error) {
 	_, err := p.FS.Stat(path)
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
