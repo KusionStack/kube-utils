@@ -1,4 +1,6 @@
 # kube-utils
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FKusionStack%2Fkube-utils.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FKusionStack%2Fkube-utils?ref=badge_shield)
+
 
 Kubernetes related utility packages used by KusionStack.
 
@@ -15,3 +17,6 @@ Kubernetes related utility packages used by KusionStack.
 We welcome everyone to participate in construction with us. Visit the [Contribution Guide](docs/contributing.md) 
 to understand how to participate in the contribution KusionStack project. 
 If you have any questions, please [Submit the Issue](https://github.com/KusionStack/kube-utils/issues).
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FKusionStack%2Fkube-utils.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FKusionStack%2Fkube-utils?ref=badge_large)
