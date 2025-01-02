@@ -60,9 +60,8 @@ func testJSONPath(tests []jsonPathTest, allowMissingKeys bool, t *testing.T) {
 		if err != nil {
 			if !test.expectError {
 				t.Errorf("in %s, parse %s error %v", test.name, test.template, err)
-				continue
 			}
-			return
+			continue
 		}
 
 		got, err := jp.Extract(test.input)
@@ -153,6 +152,7 @@ func TestJSONPath(t *testing.T) {
 		{"containers name", `{.spec.containers[*].name}`, podData, `{"spec":{"containers":[{"name":"pause1"},{"name":"pause2"}]}}`, false},
 		{"containers name (range)", `{range .spec.containers[*]}{.name}{end}`, podData, `null`, true},
 		{"containers name and image", `{.spec.containers[*]['name', 'image']}`, podData, `{"spec":{"containers":[{"image":"registry.k8s.io/pause:3.8","name":"pause1"},{"image":"registry.k8s.io/pause:3.8","name":"pause2"}]}}`, false},
+		{"containers name and image (depend on relaxing)", `.spec.containers[*]['name', 'image']`, podData, `{"spec":{"containers":[{"image":"registry.k8s.io/pause:3.8","name":"pause1"},{"image":"registry.k8s.io/pause:3.8","name":"pause2"}]}}`, false},
 		{"containers name and cpu", `{.spec.containers[*]['name', 'resources.requests.cpu']}`, podData, `{"spec":{"containers":[{"name":"pause1","resources":{"requests":{"cpu":"100m"}}},{"name":"pause2","resources":{"requests":{"cpu":"10m"}}}]}}`, false},
 		{"container pause1 name and image", `{.spec.containers[?(@.name=="pause1")]['name', 'image']}`, podData, `{"spec":{"containers":[{"image":"registry.k8s.io/pause:3.8","name":"pause1"}]}}`, false},
 		{"pick one label", `{.metadata.labels.name}`, podData, `{"metadata":{"labels":{"name":"pause"}}}`, false},

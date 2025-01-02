@@ -18,6 +18,8 @@ package extracter
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 
 	"k8s.io/client-go/util/jsonpath"
 )
@@ -25,8 +27,16 @@ import (
 // Parse is unlike the jsonpath.Parse, which supports multi-paths input.
 // The input like `{.kind} {.apiVersion}` or
 // `{range .spec.containers[*]}{.name}{end}` will result in an error.
+//
+// It also relaxes the JSONPath expressions internally,
+// so inputs like `.kind` (without curly braces) are acceptable.
 func Parse(name, text string) (*parser, error) {
-	p, err := jsonpath.Parse(name, text)
+	relaxed, err := RelaxedJSONPathExpression(text)
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := jsonpath.Parse(name, relaxed)
 	if err != nil {
 		return nil, err
 	}
@@ -40,4 +50,37 @@ func Parse(name, text string) (*parser, error) {
 
 type parser struct {
 	*jsonpath.Parser
+}
+
+var jsonRegexp = regexp.MustCompile(`^\{\.?([^{}]+)\}$|^\.?([^{}]+)$`)
+
+// RelaxedJSONPathExpression attempts to be flexible with JSONPath expressions, it accepts:
+//   - metadata.name (no leading '.' or curly braces '{...}'
+//   - {metadata.name} (no leading '.')
+//   - .metadata.name (no curly braces '{...}')
+//   - {.metadata.name} (complete expression)
+//
+// And transforms them all into a valid jsonpath expression:
+//
+//	{.metadata.name}
+//
+// Copied from kubectl.
+func RelaxedJSONPathExpression(pathExpression string) (string, error) {
+	if len(pathExpression) == 0 || pathExpression == "{}" {
+		return pathExpression, nil
+	}
+	submatches := jsonRegexp.FindStringSubmatch(pathExpression)
+	if submatches == nil {
+		return "", fmt.Errorf("unexpected path string, expected a 'name1.name2' or '.name1.name2' or '{name1.name2}' or '{.name1.name2}'")
+	}
+	if len(submatches) != 3 {
+		return "", fmt.Errorf("unexpected submatch list: %v", submatches)
+	}
+	var fieldSpec string
+	if len(submatches[1]) != 0 {
+		fieldSpec = submatches[1]
+	} else {
+		fieldSpec = submatches[2]
+	}
+	return fmt.Sprintf("{.%s}", fieldSpec), nil
 }
