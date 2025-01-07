@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package extracter
+package extractor
 
 import (
 	"fmt"
@@ -22,24 +22,36 @@ import (
 	"k8s.io/client-go/util/jsonpath"
 )
 
-type Extracter interface {
+type Extractor interface {
 	Extract(data map[string]interface{}) (map[string]interface{}, error)
 }
 
-// New creates an Extracter. For each jsonPaths, FieldPathExtracter will
+func NewOrDie(jsonPaths []string, opts ...Option) Extractor {
+	extractor, err := New(jsonPaths, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return extractor
+}
+
+// New creates an Extractor. For each jsonPaths, FieldPathExtractor will
 // be parsed whenever possible, as it has better performance
-func New(jsonPaths []string, allowMissingKeys bool) (Extracter, error) {
-	var extracters []Extracter
+func New(jsonPaths []string, opts ...Option) (Extractor, error) {
+	var extractors []Extractor
+
+	options := options{}
+	for _, opt := range opts {
+		opt.ApplyTo(&options)
+	}
 
 	for _, p := range jsonPaths {
-		parser, err := Parse(p, p)
+		parser, err := parseJsonPath(p)
 		if err != nil {
 			return nil, fmt.Errorf("error in parsing path %q: %w", p, err)
 		}
 
 		rootNodes := parser.Root.Nodes
 		if len(rootNodes) == 0 {
-			extracters = append(extracters, NewNestedFieldPathExtracter(nil, allowMissingKeys))
 			continue
 		}
 
@@ -51,35 +63,38 @@ func New(jsonPaths []string, allowMissingKeys bool) (Extracter, error) {
 					fields = append(fields, node.(*jsonpath.FieldNode).Value)
 				}
 			}
-
 			if len(nodes) == len(fields) {
-				fp := NewNestedFieldPathExtracter(fields, allowMissingKeys)
-				extracters = append(extracters, fp)
+				fp := newNestFieldPath(options, fields...)
+				extractors = append(extractors, fp)
 				continue
 			}
 		}
 
-		jp := &jsonPathExtracter{name: parser.Name, parser: parser, allowMissingKeys: allowMissingKeys}
-		extracters = append(extracters, jp)
+		jp := newJSONPathExtractor(options, parser)
+		extractors = append(extractors, jp)
 	}
 
-	if len(extracters) == 1 {
-		return extracters[0], nil
+	if len(extractors) == 1 {
+		return extractors[0], nil
 	}
 
-	return &Extracters{extracters}, nil
+	return NewAggregate(extractors...), nil
 }
 
-// Extracters makes it easy when you want to extract multi fields and merge them.
-type Extracters struct {
-	extracters []Extracter
+// aggregate makes it easy when you want to extract multi fields and merge them.
+type aggregate struct {
+	extractors []Extractor
 }
 
-// Extract calls all extracters in order and merges their outputs by calling mergeFields.
-func (e *Extracters) Extract(data map[string]interface{}) (map[string]interface{}, error) {
+func NewAggregate(extractors ...Extractor) Extractor {
+	return &aggregate{extractors: extractors}
+}
+
+// Extract calls all extractors in order and merges their outputs by calling mergeFields.
+func (e *aggregate) Extract(data map[string]interface{}) (map[string]interface{}, error) {
 	var merged map[string]interface{}
 
-	for _, ex := range e.extracters {
+	for _, ex := range e.extractors {
 		field, err := ex.Extract(data)
 		if err != nil {
 			return nil, err
@@ -93,4 +108,18 @@ func (e *Extracters) Extract(data map[string]interface{}) (map[string]interface{
 	}
 
 	return merged, nil
+}
+
+type Option interface {
+	ApplyTo(o *options)
+}
+
+type options struct {
+	ignoreMissingKey bool
+}
+
+type IgnoreMissingKey bool
+
+func (o IgnoreMissingKey) ApplyTo(opt *options) {
+	opt.ignoreMissingKey = bool(o)
 }

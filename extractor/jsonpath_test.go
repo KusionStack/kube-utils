@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package extracter
+package extractor
 
 import (
 	"encoding/json"
@@ -29,18 +29,21 @@ type jsonPathTest struct {
 	expectError bool
 }
 
-func (t *jsonPathTest) Prepare(allowMissingKeys bool) (Extracter, error) {
-	parser, err := Parse(t.template, t.template)
+func (t *jsonPathTest) Prepare(opts ...Option) (Extractor, error) {
+	parser, err := parseJsonPath(t.template)
 	if err != nil {
 		return nil, err
 	}
-
-	jp := NewJSONPathExtracter(parser, allowMissingKeys)
+	options := options{}
+	for _, opt := range opts {
+		opt.ApplyTo(&options)
+	}
+	jp := newJSONPathExtractor(options, parser)
 	return jp, nil
 }
 
-func benchmarkJSONPath(test jsonPathTest, allowMissingKeys bool, b *testing.B) {
-	jp, err := test.Prepare(allowMissingKeys)
+func benchmarkJSONPath(b *testing.B, test jsonPathTest, opts ...Option) {
+	jp, err := test.Prepare(opts...)
 	if err != nil {
 		if !test.expectError {
 			b.Errorf("in %s, parse %s error %v", test.name, test.template, err)
@@ -54,9 +57,9 @@ func benchmarkJSONPath(test jsonPathTest, allowMissingKeys bool, b *testing.B) {
 	}
 }
 
-func testJSONPath(tests []jsonPathTest, allowMissingKeys bool, t *testing.T) {
+func testJSONPath(t *testing.T, tests []jsonPathTest, opts ...Option) {
 	for _, test := range tests {
-		jp, err := test.Prepare(allowMissingKeys)
+		jp, err := test.Prepare(opts...)
 		if err != nil {
 			if !test.expectError {
 				t.Errorf("in %s, parse %s error %v", test.name, test.template, err)
@@ -159,7 +162,7 @@ func TestJSONPath(t *testing.T) {
 		{"not exist label", `{.metadata.labels.xx.dd}`, podData, `null`, true},
 	}
 
-	testJSONPath(podTests, false, t)
+	testJSONPath(t, podTests, IgnoreMissingKey(false))
 
 	allowMissingTests := []jsonPathTest{
 		{"containers image", `{.spec.containers[*]['xname', 'image']}`, podData, `{"spec":{"containers":[{"image":"registry.k8s.io/pause:3.8"},{"image":"registry.k8s.io/pause:3.8"}]}}`, false},
@@ -167,10 +170,10 @@ func TestJSONPath(t *testing.T) {
 		{"not exist label", `{.metadata.labels.xx.dd}`, podData, `{"metadata":{"labels":{}}}`, false},
 	}
 
-	testJSONPath(allowMissingTests, true, t)
+	testJSONPath(t, allowMissingTests, IgnoreMissingKey(true))
 }
 
 func BenchmarkJSONPath(b *testing.B) {
 	t := jsonPathTest{"range nodes capacity", `{.kind}`, podData, `{"kind":"Pod"}`, false}
-	benchmarkJSONPath(t, true, b)
+	benchmarkJSONPath(b, t, IgnoreMissingKey(true))
 }

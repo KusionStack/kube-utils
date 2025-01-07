@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package extracter
+package extractor
 
 import (
 	"bytes"
@@ -33,19 +33,19 @@ func BenchmarkJSONPathMerge(b *testing.B) {
 		{"metadata", "{.metadata}", podData, "", false},
 	}
 
-	extracters := make([]Extracter, 0)
+	extractors := make([]Extractor, 0)
 	for _, test := range tests {
-		ex, err := test.Prepare(false)
+		ex, err := test.Prepare(IgnoreMissingKey(false))
 		if err != nil {
 			if !test.expectError {
 				b.Errorf("in %s, parse %s error %v", test.name, test.template, err)
 			}
 			return
 		}
-		extracters = append(extracters, ex)
+		extractors = append(extractors, ex)
 	}
 
-	ex := Extracters{extracters: extracters}
+	ex := NewAggregate(extractors...)
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
@@ -56,12 +56,12 @@ func BenchmarkJSONPathMerge(b *testing.B) {
 func BenchmarkFieldPathMerge(b *testing.B) {
 	fields := []string{"kind", "apiVersion", "metadata"}
 
-	extracters := make([]Extracter, 0)
+	extractors := make([]Extractor, 0)
 	for _, f := range fields {
-		extracters = append(extracters, NewNestedFieldPathExtracter([]string{f}, false))
+		extractors = append(extractors, newNestFieldPath(options{}, f))
 	}
 
-	ex := Extracters{extracters: extracters}
+	ex := NewAggregate(extractors...)
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
