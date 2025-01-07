@@ -82,9 +82,3 @@ func TestFieldPath(t *testing.T) {
 		})
 	}
 }
-
-func BenchmarkFieldPath(b *testing.B) {
-	for n := 0; n < b.N; n++ {
-		nestedFieldNoCopy(podData, false, "kind")
-	}
-}

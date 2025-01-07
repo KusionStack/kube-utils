@@ -26,6 +26,17 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+func BenchmarkJSONPath(b *testing.B) {
+	t := jsonPathTest{"range nodes capacity", `{.kind}`, podData, `{"kind":"Pod"}`, false}
+	benchmarkJSONPath(b, t, IgnoreMissingKey(true))
+}
+
+func BenchmarkFieldPath(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		nestedFieldNoCopy(podData, false, "kind")
+	}
+}
+
 func BenchmarkJSONPathMerge(b *testing.B) {
 	tests := []jsonPathTest{
 		{"kind", `{.kind}`, podData, "", false},

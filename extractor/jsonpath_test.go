@@ -18,7 +18,10 @@ package extractor
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type jsonPathTest struct {
@@ -38,7 +41,7 @@ func (t *jsonPathTest) Prepare(opts ...Option) (Extractor, error) {
 	for _, opt := range opts {
 		opt.ApplyTo(&options)
 	}
-	jp := newJSONPathExtractor(options, parser)
+	jp := newJSONPatch(options, parser)
 	return jp, nil
 }
 
@@ -153,7 +156,7 @@ func TestJSONPath(t *testing.T) {
 		{"empty", ``, podData, `null`, false},
 		{"containers name", `{.kind}`, podData, `{"kind":"Pod"}`, false},
 		{"containers name", `{.spec.containers[*].name}`, podData, `{"spec":{"containers":[{"name":"pause1"},{"name":"pause2"}]}}`, false},
-		{"containers name (range)", `{range .spec.containers[*]}{.name}{end}`, podData, `null`, true},
+		{"containers name (range)", `{range .spec.containers[*]}{.name}{.image}{end}`, podData, `null`, true},
 		{"containers name and image", `{.spec.containers[*]['name', 'image']}`, podData, `{"spec":{"containers":[{"image":"registry.k8s.io/pause:3.8","name":"pause1"},{"image":"registry.k8s.io/pause:3.8","name":"pause2"}]}}`, false},
 		{"containers name and image (depend on relaxing)", `.spec.containers[*]['name', 'image']`, podData, `{"spec":{"containers":[{"image":"registry.k8s.io/pause:3.8","name":"pause1"},{"image":"registry.k8s.io/pause:3.8","name":"pause2"}]}}`, false},
 		{"containers name and cpu", `{.spec.containers[*]['name', 'resources.requests.cpu']}`, podData, `{"spec":{"containers":[{"name":"pause1","resources":{"requests":{"cpu":"100m"}}},{"name":"pause2","resources":{"requests":{"cpu":"10m"}}}]}}`, false},
@@ -173,7 +176,22 @@ func TestJSONPath(t *testing.T) {
 	testJSONPath(t, allowMissingTests, IgnoreMissingKey(true))
 }
 
-func BenchmarkJSONPath(b *testing.B) {
-	t := jsonPathTest{"range nodes capacity", `{.kind}`, podData, `{"kind":"Pod"}`, false}
-	benchmarkJSONPath(b, t, IgnoreMissingKey(true))
+func TestJSONPathReuse(t *testing.T) {
+	parser, err := parseJsonPath(`{.spec.containers[*]['name', 'image']}`)
+	assert.NoError(t, err)
+	extractor := newJSONPatch(options{ignoreMissingKey: true}, parser)
+	got, err := extractor.Extract(podData)
+	assert.NoError(t, err)
+
+	goup := sync.WaitGroup{}
+	for i := 0; i < 100; i++ {
+		goup.Add(1)
+		go func() {
+			defer goup.Done()
+			got2, err := extractor.Extract(podData)
+			assert.NoError(t, err)
+			assert.EqualValues(t, got, got2)
+		}()
+	}
+	goup.Wait()
 }

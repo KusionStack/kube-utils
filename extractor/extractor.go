@@ -22,6 +22,10 @@ import (
 	"k8s.io/client-go/util/jsonpath"
 )
 
+// Extractor is an interface that can extract fields from a map[string]interface{}
+// and return a map[string]interface{} with the extracted fields.
+//
+// The returned map is a copy of the input data, and the input data will not be modified.
 type Extractor interface {
 	Extract(data map[string]interface{}) (map[string]interface{}, error)
 }
@@ -36,6 +40,8 @@ func NewOrDie(jsonPaths []string, opts ...Option) Extractor {
 
 // New creates an Extractor. For each jsonPaths, FieldPathExtractor will
 // be parsed whenever possible, as it has better performance
+//
+// The Extractor can not reused multiple times.
 func New(jsonPaths []string, opts ...Option) (Extractor, error) {
 	var extractors []Extractor
 
@@ -70,7 +76,7 @@ func New(jsonPaths []string, opts ...Option) (Extractor, error) {
 			}
 		}
 
-		jp := newJSONPathExtractor(options, parser)
+		jp := newJSONPatch(options, parser)
 		extractors = append(extractors, jp)
 	}
 
