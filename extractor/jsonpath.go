@@ -31,9 +31,8 @@ import (
 type jsonPath struct {
 	options
 
-	name        string
-	parser      *jsonpath.Parser
-	lastEndNode *jsonpath.Node
+	name   string
+	parser *jsonpath.Parser
 }
 
 // NewJSONPathExtractor creates a new JSONPathExtractor with the given parser.

@@ -30,10 +30,11 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	clientutil "kusionstack.io/kube-utils/client"
-	"kusionstack.io/kube-utils/controller/refmanager"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	clientutil "kusionstack.io/kube-utils/client"
+	"kusionstack.io/kube-utils/controller/refmanager"
 )
 
 // RevisionControlInterface provides an interface allowing for management of a Controller's history as realized by recorded
@@ -95,7 +96,7 @@ func (h *realRevisionControl) ListControllerRevisions(ctx context.Context, paren
 		if owner != nil && owner.UID != parent.GetUID() {
 			return nil, false
 		}
-		// return orphan or controled revisions
+		// return orphan or controlled revisions
 		return item.DeepCopy(), true
 	})
 
