@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package extracter
+package extractor
 
 import (
 	"encoding/json"
@@ -65,10 +65,10 @@ func TestFieldPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NestedFieldNoCopy(tt.args.obj, tt.args.allowMissingKeys, tt.args.fields...)
+			got, err := nestedFieldNoCopy(tt.args.obj, tt.args.allowMissingKeys, tt.args.fields...)
 
 			jpt := jsonPathTest{tt.name, fieldPathToJSONPath(tt.args.fields), tt.args.obj, tt.want, tt.wantErr}
-			testJSONPath([]jsonPathTest{jpt}, tt.args.allowMissingKeys, t)
+			testJSONPath(t, []jsonPathTest{jpt}, IgnoreMissingKey(tt.args.allowMissingKeys))
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NestedFieldNoCopy() error = %v, wantErr %v", err, tt.wantErr)
@@ -80,11 +80,5 @@ func TestFieldPath(t *testing.T) {
 				t.Errorf("NestedFieldNoCopy() = %v, want %v", string(data), tt.want)
 			}
 		})
-	}
-}
-
-func BenchmarkFieldPath(b *testing.B) {
-	for n := 0; n < b.N; n++ {
-		NestedFieldNoCopy(podData, false, "kind")
 	}
 }

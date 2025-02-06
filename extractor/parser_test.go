@@ -14,36 +14,34 @@
  * limitations under the License.
  */
 
-package extracter
+package extractor
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name    string
 		text    string
-		want    *parser
 		wantErr bool
 	}{
-		{name: "multi paths", text: "{.kind} {.apiVersion}", want: nil, wantErr: true},
-		{name: "range path", text: "{range .spec.containers[*]}{.name}{end}", want: nil, wantErr: true},
-		{name: "one path", text: "{.kind}", want: &parser{}, wantErr: false},
-		{name: "empty brace", text: "{}", want: &parser{}, wantErr: false},
-		{name: "empty", text: "", want: &parser{}, wantErr: false},
+		{name: "multi paths", text: "{.kind} {.apiVersion}", wantErr: true},
+		{name: "range path", text: "{range .spec.containers[*]}{.name}{end}", wantErr: true},
+		{name: "one path", text: "{.kind}", wantErr: false},
+		{name: "empty brace", text: "{}", wantErr: false},
+		{name: "empty", text: "", wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Parse(tt.text, tt.text)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
-				t.Errorf("Parse() = %v, want %v", got, tt.want)
+			got, err := parseJsonPath(tt.text)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, got)
 			}
 		})
 	}

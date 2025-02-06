@@ -14,31 +14,34 @@
  * limitations under the License.
  */
 
-package extracter
+package extractor
 
 import (
 	"fmt"
 )
 
-// NewNestedFieldPathExtracter constructs a FieldPathExtracter.
-func NewNestedFieldPathExtracter(nestedField []string, allowMissingKeys bool) Extracter {
-	return &nestedFieldPathExtracter{nestedField: nestedField, allowMissingKeys: allowMissingKeys}
+// newNestFieldPath constructs a FieldPathExtractor.
+func newNestFieldPath(opts options, nestedField ...string) Extractor {
+	return &nestedFieldPath{
+		options:     opts,
+		nestedField: nestedField,
+	}
 }
 
-// nestedFieldPathExtracter is used to wrap NestedFieldNoCopy function as an Extracter.
-type nestedFieldPathExtracter struct {
-	nestedField      []string
-	allowMissingKeys bool
+// nestedFieldPath is used to wrap NestedFieldNoCopy function as an Extractor.
+type nestedFieldPath struct {
+	options
+	nestedField []string
 }
 
 // Extract outputs the nestedField's value and its upstream structure.
-func (n *nestedFieldPathExtracter) Extract(data map[string]interface{}) (map[string]interface{}, error) {
-	return NestedFieldNoCopy(data, n.allowMissingKeys, n.nestedField...)
+func (n *nestedFieldPath) Extract(data map[string]interface{}) (map[string]interface{}, error) {
+	return nestedFieldNoCopy(data, n.ignoreMissingKey, n.nestedField...)
 }
 
-// NestedFieldNoCopy is similar to JSONPath.Extract. The difference is that it
+// nestedFieldNoCopy is similar to JSONPath.Extract. The difference is that it
 // can only operate on map and does not support list, but has better performance.
-func NestedFieldNoCopy(data map[string]interface{}, allowMissingKeys bool, fields ...string) (map[string]interface{}, error) {
+func nestedFieldNoCopy(data map[string]interface{}, ignoreMissingKey bool, fields ...string) (map[string]interface{}, error) {
 	if len(fields) == 0 {
 		return nil, nil
 	}
@@ -60,7 +63,7 @@ func NestedFieldNoCopy(data map[string]interface{}, allowMissingKeys bool, field
 				cur[field] = val
 			}
 		} else {
-			if allowMissingKeys {
+			if ignoreMissingKey {
 				return result, nil
 			}
 			return nil, fmt.Errorf("field %q not exist", field)

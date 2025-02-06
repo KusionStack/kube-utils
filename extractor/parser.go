@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package extracter
+package extractor
 
 import (
 	"errors"
@@ -24,19 +24,19 @@ import (
 	"k8s.io/client-go/util/jsonpath"
 )
 
-// Parse is unlike the jsonpath.Parse, which supports multi-paths input.
+// parseJsonPath is unlike the jsonpath.parseJsonPath, which supports multi-paths input.
 // The input like `{.kind} {.apiVersion}` or
 // `{range .spec.containers[*]}{.name}{end}` will result in an error.
 //
 // It also relaxes the JSONPath expressions internally,
 // so inputs like `.kind` (without curly braces) are acceptable.
-func Parse(name, text string) (*parser, error) {
+func parseJsonPath(text string) (*jsonpath.Parser, error) {
 	relaxed, err := RelaxedJSONPathExpression(text)
 	if err != nil {
 		return nil, err
 	}
 
-	p, err := jsonpath.Parse(name, relaxed)
+	p, err := jsonpath.Parse(text, relaxed)
 	if err != nil {
 		return nil, err
 	}
@@ -45,11 +45,7 @@ func Parse(name, text string) (*parser, error) {
 		return nil, errors.New("not support multi-paths input")
 	}
 
-	return &parser{p}, nil
-}
-
-type parser struct {
-	*jsonpath.Parser
+	return p, nil
 }
 
 var jsonRegexp = regexp.MustCompile(`^\{\.?([^{}]+)\}$|^\.?([^{}]+)$`)

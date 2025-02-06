@@ -1,4 +1,4 @@
-# Extracter
+# Extractor
 
 Extract specific field from JSON-like data and **output not only the field value but also its upstream structure**.
 
@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"kusionstack.io/kube-utils/extracter"
+	"kusionstack.io/kube-utils/extractor"
 )
 
 var pod = []byte(`{
@@ -57,19 +57,19 @@ func main() {
 	json.Unmarshal(pod, &podData)
 
 	kindPath := "{.kind}"
-	kindExtracter, _ := extracter.New([]string{kindPath}, false)
+	kindExtractor, _ := extractor.New([]string{kindPath})
 
-	kind, _ := kindExtracter.Extract(podData)
+	kind, _ := kindExtractor.Extract(podData)
 	printJSON(kind)
 
 	nameImagePath := "{.spec.containers[*]['name', 'image']}"
-	nameImageExtracter, _ := extracter.New([]string{nameImagePath}, false)
+	nameImageExtractor, _ := extractor.New([]string{nameImagePath})
 
-	nameImage, _ := nameImageExtracter.Extract(podData)
+	nameImage, _ := nameImageExtractor.Extract(podData)
 	printJSON(nameImage)
 
-	mergeExtracter, _ := extracter.New([]string{kindPath, nameImagePath}, false)
-	merged, _ := mergeExtracter.Extract(podData)
+	mergeExtractor, _ := extractor.New([]string{kindPath, nameImagePath})
+	merged, _ := mergeExtractor.Extract(podData)
 	printJSON(merged)
 }
 ```
@@ -93,8 +93,8 @@ Code:
 	namePath := "{.spec.containers[*].name}"
 	imagePath := "{.spec.containers[*].image}"
 
-	mergeExtracter, _ = extracter.New([]string{imagePath, namePath}, false)
-	merged, _ = mergeExtracter.Extract(podData)
+	mergeExtractor, _ = extractor.New([]string{imagePath, namePath})
+	merged, _ = mergeExtractor.Extract(podData)
 	printJSON(merged)
     ...
 ```
