@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	toolscache "k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 type Informer interface {
@@ -33,6 +34,9 @@ type TopologyConfig struct {
 	GetInformer func(meta metav1.TypeMeta) Informer
 	Resolvers   []RelationResolver
 	Discoverers []VirtualResourceDiscoverer
+
+	// optional
+	GetPredicate func(meta metav1.TypeMeta) predicate.Predicate
 }
 
 type ManagerConfig struct {
@@ -66,7 +70,11 @@ type Manager interface {
 
 type TopoNodeStorage interface {
 	// GetNode return the ref to Node that match the node's name.
+	// will use the default LocalCluster name.
 	GetNode(name types.NamespacedName) (NodeInfo, error)
+
+	// GetClusterNode return the ref to Node that match the node's name and cluster name.
+	GetClusterNode(cluster string, name types.NamespacedName) (NodeInfo, error)
 }
 
 type NodeInfo interface {
@@ -75,6 +83,9 @@ type NodeInfo interface {
 
 	// NodeInfo return the node's namespaced name
 	NodeInfo() types.NamespacedName
+
+	// Cluster return the node's cluster name
+	Cluster() string
 
 	// GetPreOrders return the pre-order node slice for this node
 	GetPreOrders() []NodeInfo
@@ -134,6 +145,10 @@ type RelationResolver struct {
 type ResourceRelation struct {
 	// PostMeta restricted the post object(s) resource type.
 	PostMeta metav1.TypeMeta
+
+	// Cluster is the cluster name of the post object(s), could be empty.
+	// Currently, Cluster only work in DirectRefs mode.
+	Cluster string
 
 	// DirectRefs offers a direct reference way for pod-pvc type relation, could be nil if it's empty.
 	DirectRefs []types.NamespacedName

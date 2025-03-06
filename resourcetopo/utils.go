@@ -24,6 +24,8 @@ import (
 	"golang.org/x/exp/slices"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
 func generateMetaKey(meta metav1.TypeMeta) string {
@@ -179,4 +181,13 @@ func sortedSlicesCompare[S ~[]E, E any](slice1, slice2 S, diffFunc1, diffFunc2 f
 
 func typeEqual(t1, t2 metav1.TypeMeta) bool {
 	return t1.Kind == t2.Kind && t1.APIVersion == t2.APIVersion
+}
+
+func getObjectCluster(obj Object) string {
+	if labels := obj.GetLabels(); labels != nil {
+		if cluster, ok := labels[clusterinfo.ClusterLabelKey]; ok {
+			return cluster
+		}
+	}
+	return ""
 }

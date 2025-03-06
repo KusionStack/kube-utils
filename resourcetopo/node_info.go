@@ -44,6 +44,7 @@ type nodeInfo struct {
 	labelReferredPostOrders  *list.List
 
 	// We cached all the data needed by the relation existence decision.
+	cluster    string
 	namespace  string
 	name       string
 	ownerNodes []ownerInfo
@@ -55,11 +56,12 @@ type nodeInfo struct {
 	objectExisted bool
 }
 
-func newNode(s *nodeStorage, namespace, name string) *nodeInfo {
+func newNode(s *nodeStorage, cluster, namespace, name string) *nodeInfo {
 	return &nodeInfo{
 		storageRef: s,
-		name:       name,
+		cluster:    cluster,
 		namespace:  namespace,
+		name:       name,
 		// For virtual resource, its lifecycle is handled by resourcetopo
 		objectExisted: s.virtualResource,
 	}
@@ -76,6 +78,10 @@ func (n *nodeInfo) NodeInfo() types.NamespacedName {
 		Namespace: n.namespace,
 		Name:      n.name,
 	}
+}
+
+func (n *nodeInfo) Cluster() string {
+	return n.cluster
 }
 
 // GetPreOrders return the pre-order node slice for this node
@@ -200,11 +206,11 @@ func (n *nodeInfo) propagateNodeChange(m *manager) {
 
 	if n.storageRef.virtualResource {
 		if n.directReferredPostOrders == nil || n.directReferredPostOrders.Len() == 0 {
-			n.storageRef.deleteNode(n.namespace, n.name)
+			n.storageRef.deleteNode(n.cluster, n.namespace, n.name)
 			m.newNodeEvent(n, EventTypeDelete)
 		}
 	} else if n.readyToDelete() {
-		n.storageRef.deleteNode(n.namespace, n.name)
+		n.storageRef.deleteNode(n.cluster, n.namespace, n.name)
 	}
 }
 
