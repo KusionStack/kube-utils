@@ -28,6 +28,8 @@ import (
 
 var _ TopoNodeStorage = &nodeStorage{}
 
+const LocalCluster = ""
+
 // nodeStorage is an implementation of TopoNodeStorage.
 // It's the entrance of all nodes of same meta resource type and related config.
 type nodeStorage struct {
@@ -48,8 +50,13 @@ type nodeStorage struct {
 	relationUpdateHandler map[string][]RelationHandler // post-order metaKey => RelationHandler list
 	nodeUpdateHandler     []NodeHandler                // NodeHandler list
 
-	storageLock    sync.RWMutex                    // lock to protect namespacedInfo CRUD operations
-	namespacedInfo map[string]map[string]*nodeInfo // namespace => name => object info
+	storageLock  sync.RWMutex               // lock to protect namespacedInfo CRUD operations
+	clusterNodes map[string]*namespacedInfo // cluster => namespacedInfo
+}
+
+type namespacedInfo struct {
+	// todo add a smaller lock here
+	namespaceNodes map[string]map[string]*nodeInfo // namespace => name => nodeInfo
 }
 
 func newNodeStorage(manager *manager, informer Informer, meta metav1.TypeMeta) *nodeStorage {
@@ -57,7 +64,7 @@ func newNodeStorage(manager *manager, informer Informer, meta metav1.TypeMeta) *
 		manager:            manager,
 		meta:               meta,
 		metaKey:            generateMetaKey(meta),
-		namespacedInfo:     make(map[string]map[string]*nodeInfo),
+		clusterNodes:       make(map[string]*namespacedInfo),
 		postNoticeRelation: make(map[string]interface{}),
 		ownerRelation:      make(map[string]interface{}),
 	}
@@ -72,13 +79,17 @@ func newVirtualStorage(manager *manager, meta metav1.TypeMeta) *nodeStorage {
 		meta:            meta,
 		metaKey:         generateMetaKey(meta),
 		virtualResource: true,
-		namespacedInfo:  make(map[string]map[string]*nodeInfo),
+		clusterNodes:    make(map[string]*namespacedInfo),
 	}
 }
 
 // GetNode return the ref to Node that match the node's name.
 func (s *nodeStorage) GetNode(namespacedName types.NamespacedName) (NodeInfo, error) {
-	node := s.getNode(namespacedName.Namespace, namespacedName.Name)
+	return s.GetClusterNode(LocalCluster, namespacedName)
+}
+
+func (s *nodeStorage) GetClusterNode(cluster string, namespacedName types.NamespacedName) (NodeInfo, error) {
+	node := s.getNode(cluster, namespacedName.Namespace, namespacedName.Name)
 	if node != nil && !node.objectExisted {
 		return nil, nil
 	}
@@ -144,36 +155,51 @@ func (s *nodeStorage) addPreOrder(preOrder metav1.TypeMeta) {
 	}
 }
 
-func (s *nodeStorage) getOrCreateNode(namespace, name string) *nodeInfo {
-	if node := s.getNode(namespace, name); node != nil {
+func (s *nodeStorage) getOrCreateNode(cluster, namespace, name string) *nodeInfo {
+	if node := s.getNode(cluster, namespace, name); node != nil {
 		return node
 	}
-	return s.createNode(namespace, name)
+	return s.createNode(cluster, namespace, name)
 }
 
-func (s *nodeStorage) getNode(namespace, name string) *nodeInfo {
+func (s *nodeStorage) getNode(cluster, namespace, name string) *nodeInfo {
 	namespace = getNamespacedKey(namespace)
 	s.storageLock.RLock()
 	defer s.storageLock.RUnlock()
 
-	namespcedInfo := s.namespacedInfo[namespace]
-	if namespcedInfo != nil {
-		return namespcedInfo[name]
-	} else {
+	clsNodes := s.clusterNodes[cluster]
+	if clsNodes == nil {
 		return nil
 	}
+
+	nsNodes := clsNodes.namespaceNodes[namespace]
+	if nsNodes == nil {
+		return nil
+	}
+
+	return nsNodes[name]
 }
 
-func (s *nodeStorage) createNode(namespace, name string) *nodeInfo {
-	node := newNode(s, namespace, name)
+func (s *nodeStorage) createNode(cluster, namespace, name string) *nodeInfo {
+	node := newNode(s, cluster, namespace, name)
 	namespace = getNamespacedKey(namespace)
 	s.storageLock.Lock()
 	defer s.storageLock.Unlock()
 
-	if s.namespacedInfo[namespace] == nil {
-		s.namespacedInfo[namespace] = make(map[string]*nodeInfo)
+	clsNodes := s.clusterNodes[cluster]
+	if clsNodes == nil {
+		clsNodes = &namespacedInfo{
+			namespaceNodes: make(map[string]map[string]*nodeInfo),
+		}
+		s.clusterNodes[cluster] = clsNodes
 	}
-	s.namespacedInfo[namespace][name] = node
+	nsNodes := clsNodes.namespaceNodes[namespace]
+	if nsNodes == nil {
+		nsNodes = make(map[string]*nodeInfo)
+		clsNodes.namespaceNodes[namespace] = nsNodes
+	}
+
+	nsNodes[name] = node
 
 	if s.virtualResource {
 		s.manager.newNodeEvent(node, EventTypeAdd)
@@ -182,18 +208,27 @@ func (s *nodeStorage) createNode(namespace, name string) *nodeInfo {
 	return node
 }
 
-func (s *nodeStorage) deleteNode(namespace, name string) {
+func (s *nodeStorage) deleteNode(cluster, namespace, name string) {
 	namespace = getNamespacedKey(namespace)
 	s.storageLock.Lock()
 	defer s.storageLock.Unlock()
 
-	namedInfo := s.namespacedInfo[namespace]
-	if namedInfo != nil {
-		delete(namedInfo, name)
+	clsNodes := s.clusterNodes[cluster]
+	if clsNodes == nil {
+		return
+	}
+
+	nsNodes := clsNodes.namespaceNodes[namespace]
+	if nsNodes == nil {
+		return
+	}
+
+	if _, ok := nsNodes[namespace]; ok {
+		delete(nsNodes, name)
 	}
 }
 
-func (s *nodeStorage) getMatchedNodeListWithOwner(namespace string, labelSelector *metav1.LabelSelector, owner *nodeInfo) []*nodeInfo {
+func (s *nodeStorage) getMatchedNodeListWithOwner(cluster, namespace string, labelSelector *metav1.LabelSelector, owner *nodeInfo) []*nodeInfo {
 	selector, err := metav1.LabelSelectorAsSelector(labelSelector)
 	if err != nil {
 		klog.Errorf("Failed to resolve labelSelector %v: %s", labelSelector, err.Error())
@@ -216,12 +251,16 @@ func (s *nodeStorage) getMatchedNodeListWithOwner(namespace string, labelSelecto
 	s.storageLock.RLock()
 	defer s.storageLock.RUnlock()
 
-	getMatchedNodeList(selector, s.namespacedInfo[namespace], appendFunc)
+	clsNodes := s.clusterNodes[cluster]
+	if clsNodes == nil {
+		return nil
+	}
+	getMatchedNodeList(selector, clsNodes.namespaceNodes[namespace], appendFunc)
 
 	return res
 }
 
-func (s *nodeStorage) getMatchedNodeList(namespace string, labelSelector *metav1.LabelSelector) []*nodeInfo {
+func (s *nodeStorage) getMatchedNodeList(cluster, namespace string, labelSelector *metav1.LabelSelector) []*nodeInfo {
 	selector, err := metav1.LabelSelectorAsSelector(labelSelector)
 	if err != nil {
 		klog.Errorf("Failed to resolve labelSelector %v: %s", labelSelector, err.Error())
@@ -236,11 +275,15 @@ func (s *nodeStorage) getMatchedNodeList(namespace string, labelSelector *metav1
 	s.storageLock.RLock()
 	defer s.storageLock.RUnlock()
 
+	clsNodes := s.clusterNodes[cluster]
+	if clsNodes == nil {
+		return nil
+	}
 	if !isClusterNamespace(namespace) {
-		getMatchedNodeList(selector, s.namespacedInfo[namespace], appendFunc)
+		getMatchedNodeList(selector, clsNodes.namespaceNodes[namespace], appendFunc)
 		return res
 	}
-	for _, v := range s.namespacedInfo {
+	for _, v := range clsNodes.namespaceNodes {
 		getMatchedNodeList(selector, v, appendFunc)
 	}
 	return res
@@ -253,7 +296,12 @@ func (s *nodeStorage) checkForLabelUpdate(postNode *nodeInfo) {
 	s.storageLock.RLock()
 	defer s.storageLock.RUnlock()
 
-	nodeList := s.namespacedInfo[ns]
+	cluster := postNode.cluster
+	clsNodes := s.clusterNodes[cluster]
+	if clsNodes == nil {
+		return
+	}
+	nodeList := clsNodes.namespaceNodes[ns]
 	for _, n := range nodeList {
 		if len(n.relations) == 0 {
 			continue
