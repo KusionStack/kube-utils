@@ -39,6 +39,8 @@ import (
 
 	"kusionstack.io/kube-utils/cert"
 	"kusionstack.io/kube-utils/controller/mixin"
+	"kusionstack.io/kube-utils/multicluster"
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
 type CertConfig struct {
@@ -50,7 +52,7 @@ type CertConfig struct {
 	MutatingWebhookNames   []string
 	ValidatingWebhookNames []string
 
-	ContextWrapper func(context.Context) context.Context
+	WithCluster string
 }
 
 // WebhookServingCertManager is a controller that manages the webhook certs.
@@ -110,10 +112,18 @@ func (s *WebhookServingCertManager) SetupWithManager(mgr manager.Manager) error 
 		&admissionregistrationv1.ValidatingWebhookConfiguration{},
 		&admissionregistrationv1.MutatingWebhookConfiguration{},
 	}
+
 	for i := range types {
 		t := types[i]
+		var sc source.Source = &source.Kind{Type: t}
+		if len(s.CertConfig.WithCluster) > 0 {
+			sc = &multicluster.KindWithClusters{
+				Kind:     &source.Kind{Type: t},
+				Clusters: []string{s.CertConfig.WithCluster},
+			}
+		}
 		err = ctrl.Watch(
-			&source.Kind{Type: t},
+			sc,
 			s.enqueueSecret(),
 			s.predictFunc(),
 		)
@@ -160,8 +170,8 @@ func (s *WebhookServingCertManager) enqueueSecret() handler.EventHandler {
 
 func (s *WebhookServingCertManager) Reconcile(ctx context.Context, _ reconcile.Request) (reconcile.Result, error) {
 	ctx = logr.NewContext(ctx, s.Logger)
-	if s.ContextWrapper != nil {
-		ctx = s.ContextWrapper(ctx)
+	if len(s.CertConfig.WithCluster) > 0 {
+		ctx = clusterinfo.WithCluster(ctx, s.CertConfig.WithCluster)
 	}
 	cfg := cert.Config{
 		CommonName: s.Host,
