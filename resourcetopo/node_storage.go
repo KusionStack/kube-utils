@@ -223,7 +223,7 @@ func (s *nodeStorage) deleteNode(cluster, namespace, name string) {
 		return
 	}
 
-	if _, ok := nsNodes[namespace]; ok {
+	if _, ok := nsNodes[name]; ok {
 		delete(nsNodes, name)
 	}
 }

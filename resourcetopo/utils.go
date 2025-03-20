@@ -131,6 +131,10 @@ func compareResourceRelation(a, b ResourceRelation) int {
 		}
 	}
 
+	if res = strings.Compare(a.Cluster, b.Cluster); res != 0 {
+		return res
+	}
+
 	if a.LabelSelector == nil && b.LabelSelector == nil {
 		return 0
 	} else if a.LabelSelector == nil && b.LabelSelector != nil {
@@ -142,6 +146,7 @@ func compareResourceRelation(a, b ResourceRelation) int {
 	} else {
 		return strings.Compare(a.LabelSelector.String(), b.LabelSelector.String())
 	}
+
 }
 
 func compareNodeName(a, b types.NamespacedName) int {
