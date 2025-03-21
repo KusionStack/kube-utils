@@ -133,6 +133,10 @@ func (s *nodeStorage) OnDelete(obj interface{}) {
 
 func (s *nodeStorage) addNode(obj Object, node *nodeInfo) {
 	node.updateNodeMeta(obj)
+	if len(node.relations) != 0 {
+		klog.Warningf("unexpected relations {%v}", node.relations)
+		node.relations = nil
+	}
 	for _, resolver := range s.resolvers {
 		relations := resolver.Resolve(obj)
 		node.relations = append(node.relations, relations...)
