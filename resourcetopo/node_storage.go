@@ -223,9 +223,7 @@ func (s *nodeStorage) deleteNode(cluster, namespace, name string) {
 		return
 	}
 
-	if _, ok := nsNodes[name]; ok {
-		delete(nsNodes, name)
-	}
+	delete(nsNodes, name)
 }
 
 func (s *nodeStorage) getMatchedNodeListWithOwner(cluster, namespace string, labelSelector *metav1.LabelSelector, owner *nodeInfo) []*nodeInfo {
