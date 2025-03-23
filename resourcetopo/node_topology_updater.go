@@ -198,7 +198,7 @@ func (s *nodeStorage) removeResourceRelation(node *nodeInfo, relation *ResourceR
 	}
 	if len(relation.DirectRefs) > 0 {
 		for _, ref := range relation.DirectRefs {
-			postNode := postStorage.getNode(node.cluster, ref.Namespace, ref.Name)
+			postNode := postStorage.getNode(relation.Cluster, ref.Namespace, ref.Name)
 			if deleteDirectRelation(node, postNode) {
 				postNode.preOrderRelationDeleted(node)
 			}

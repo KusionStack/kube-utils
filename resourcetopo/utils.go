@@ -195,3 +195,9 @@ func getObjectCluster(obj Object) string {
 	}
 	return ""
 }
+
+func setObjectCluster(obj Object, cluster string) {
+	if labels := obj.GetLabels(); labels != nil {
+		labels[clusterinfo.ClusterLabelKey] = cluster
+	}
+}

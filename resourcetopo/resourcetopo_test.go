@@ -690,6 +690,47 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 		}).Should(Succeed())
 	})
 
+	It("create all, delete clusterrolebinding and create again, should match", func() {
+		ns := "testclusterresource"
+		crbName := "crbtest"
+		crName := "crName"
+		saName := "saName"
+
+		clusterRoleBindingHandler.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName, []types.NamespacedName{{Name: saName, Namespace: ns}}), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		saHandler.addCallExpected()
+		clusterRoleBindingHandler.relatedCallExpected()
+		saBindingRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleHandler.addCallExpected()
+		clusterRoleBindingHandler.relatedCallExpected()
+		roleBindingRelation.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.deleteCallExpected()
+		roleBindingRelation.deleteCallExpected()
+		saBindingRelation.deleteCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Delete(ctx, crbName, metav1.DeleteOptions{})).NotTo(HaveOccurred())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.addCallExpected()
+		saBindingRelation.addCallExpected()
+		roleBindingRelation.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName, []types.NamespacedName{{Name: saName, Namespace: ns}}), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		Eventually(func(g Gomega) {
+			clusterrolebindingNode, _ := clusterRoleBindingStorage.GetNode(types.NamespacedName{Name: crbName})
+			g.Expect(clusterrolebindingNode).NotTo(BeNil())
+			postNodes := clusterrolebindingNode.GetPostOrders()
+			g.Expect(len(postNodes)).To(Equal(2))
+		}).Should(Succeed())
+	})
 	It("create all and delete all", func() {
 		ns := "testclusterresource"
 		crbName := "crbtest"
@@ -1311,5 +1352,403 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 			Expect(len(rs2.GetPreOrders())).To(Equal(1))
 			Expect(len(rs2.GetPostOrders())).To(Equal(1))
 		}).Should(Succeed())
+	})
+})
+
+var _ = Describe("test suite with relations update", func() {
+	var manager Manager
+	var fakeClient *fake.Clientset
+	var clusterRoleBindingHandler, clusterRoleHandler, saHandler *objecthandler
+	var saBindingRelation, roleBindingRelation *relationHandler
+
+	var clusterRoleBindingStorage, clusterroleStorage, saStorage TopoNodeStorage
+	var ctx context.Context
+	var cancel func()
+
+	checkAll := func() bool {
+		return clusterRoleBindingHandler.matchExpected() &&
+			clusterRoleHandler.matchExpected() &&
+			saHandler.matchExpected() &&
+			saBindingRelation.matchExpected() &&
+			roleBindingRelation.matchExpected()
+	}
+
+	BeforeEach(func() {
+		fakeClient = fake.NewSimpleClientset()
+		k8sInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+		var err error
+		manager, err = NewResourcesTopoManager(*buildManagerConfig(buildClusterTest(k8sInformerFactory)))
+		Expect(err).NotTo(HaveOccurred())
+
+		clusterRoleBindingStorage, _ = manager.GetTopoNodeStorage(ClusterRoleBindingMeta)
+		clusterroleStorage, _ = manager.GetTopoNodeStorage(ClusterRoleMeta)
+		saStorage, _ = manager.GetTopoNodeStorage(ServiceAccountMeta)
+
+		Expect(clusterRoleBindingStorage).NotTo(BeNil())
+		Expect(clusterroleStorage).NotTo(BeNil())
+		Expect(saStorage).NotTo(BeNil())
+
+		ctx, cancel = context.WithCancel((context.Background()))
+		clusterRoleBindingHandler = &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, clusterRoleBindingHandler)).NotTo(HaveOccurred())
+		clusterRoleHandler = &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, clusterRoleHandler)).NotTo(HaveOccurred())
+		saHandler = &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).NotTo(HaveOccurred())
+
+		roleBindingRelation = &relationHandler{}
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ClusterRoleMeta, roleBindingRelation)).To(BeNil())
+		saBindingRelation = &relationHandler{}
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ServiceAccountMeta, saBindingRelation)).To(BeNil())
+
+		manager.Start(ctx.Done())
+		k8sInformerFactory.Start(ctx.Done())
+		k8sInformerFactory.WaitForCacheSync(ctx.Done())
+	})
+	AfterEach(func() {
+		if !checkAll() {
+			klog.Infof("end with object [%s, %s, %s]", clusterRoleBindingHandler.string(), clusterRoleHandler.string(), saHandler.string())
+			klog.Infof("end with relation [%s, %s]", roleBindingRelation.string(), saBindingRelation.string())
+		}
+		cancel()
+	})
+
+	It("create two serviceAccounts, clusterRole and clusterRoleBinding", func() {
+		ns := "testclusterresource"
+		crbName := "crbtest"
+		crName := "crName"
+		saName := "saName"
+		saName2 := "saName2"
+
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})).NotTo(BeNil())
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName2), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleHandler.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.addCallExpected()
+		saBindingRelation.addCallExpected()
+		saBindingRelation.addCallExpected()
+		roleBindingRelation.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}, {Name: saName2, Namespace: ns}}),
+			metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+	})
+
+	It("create all, clear crb spec, and reset", func() {
+		ns := "testclusterresource"
+		crbName := "crbtest"
+		crName := "crName"
+		saName := "saName"
+		saName2 := "saName2"
+
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})).NotTo(BeNil())
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName2), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleHandler.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.addCallExpected()
+		saBindingRelation.addCallExpected()
+		saBindingRelation.addCallExpected()
+		roleBindingRelation.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}, {Name: saName2, Namespace: ns}}),
+			metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		saBindingRelation.deleteCallExpected()
+		saBindingRelation.deleteCallExpected()
+		clusterRoleBindingHandler.updateCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{}),
+			metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		saBindingRelation.addCallExpected()
+		clusterRoleBindingHandler.updateCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}}),
+			metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		saBindingRelation.addCallExpected()
+		saBindingRelation.deleteCallExpected()
+		clusterRoleBindingHandler.updateCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName2, Namespace: ns}}),
+			metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		saBindingRelation.addCallExpected()
+		saBindingRelation.deleteCallExpected()
+		clusterRoleBindingHandler.updateCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}}),
+			metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+	})
+
+	It("create two serviceAccounts with clusters and clusterRoleBinding", func() {
+		ns := "testclusterresource"
+		crbName := "crbtest"
+		crName := "crName"
+		saName := "saName"
+		saName2 := "saName2"
+		cluster1 := "cluster1"
+		cluster2 := "cluster2"
+
+		saHandler.addCallExpected()
+		sa1 := newServiceAccount(ns, saName)
+		setObjectCluster(sa1, cluster1)
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, sa1, metav1.CreateOptions{})).NotTo(BeNil())
+		saHandler.addCallExpected()
+		sa2 := newServiceAccount(ns, saName2)
+		setObjectCluster(sa2, cluster2)
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, sa2, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}, {Name: saName2, Namespace: ns}}),
+			metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+	})
+
+	It("create two serviceAccounts with clusters and clusterRoleBinding", func() {
+		ns := "testclusterresource"
+		crbName := "crbtest"
+		crName := "crName"
+		saName := "saName"
+		saName2 := "saName2"
+		cluster1 := "cluster1"
+		cluster2 := "cluster2"
+
+		saHandler.addCallExpected()
+		sa1 := newServiceAccount(ns, saName)
+		setObjectCluster(sa1, cluster1)
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, sa1, metav1.CreateOptions{})).NotTo(BeNil())
+		saHandler.addCallExpected()
+		sa2 := newServiceAccount(ns, saName2)
+		setObjectCluster(sa2, cluster2)
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, sa2, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.addCallExpected()
+		saBindingRelation.addCallExpected()
+		crb := newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}, {Name: saName2, Namespace: ns}})
+		setObjectCluster(crb, cluster1)
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+	})
+})
+
+var _ = Describe("test suite with mock relation for fed namespaces and local cluster pods", func() {
+	var manager Manager
+	var fakeClient *fake.Clientset
+	var nsHandler *objecthandler
+	var nsPodRelation *relationHandler
+
+	var nsStorage TopoNodeStorage
+	var ctx context.Context
+	var cancel func()
+
+	checkAll := func() bool {
+		return nsHandler.matchExpected() &&
+			nsPodRelation.matchExpected()
+	}
+
+	BeforeEach(func() {
+		fakeClient = fake.NewSimpleClientset()
+		k8sInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+		var err error
+		manager, err = NewResourcesTopoManager(*buildManagerConfig(buildMultiClustertopoConfig(k8sInformerFactory)))
+		Expect(err).NotTo(HaveOccurred())
+
+		nsStorage, _ = manager.GetTopoNodeStorage(NamespaceMeta)
+
+		Expect(nsStorage).NotTo(BeNil())
+
+		ctx, cancel = context.WithCancel((context.Background()))
+		nsHandler = &objecthandler{}
+		Expect(manager.AddNodeHandler(NamespaceMeta, nsHandler)).NotTo(HaveOccurred())
+
+		nsPodRelation = &relationHandler{}
+		Expect(manager.AddRelationHandler(NamespaceMeta, PodMeta, nsPodRelation)).To(BeNil())
+
+		manager.Start(ctx.Done())
+		k8sInformerFactory.Start(ctx.Done())
+		k8sInformerFactory.WaitForCacheSync(ctx.Done())
+	})
+
+	AfterEach(func() {
+		if !checkAll() {
+			klog.Infof("end with object [%s]", nsHandler.string())
+			klog.Infof("end with relation [%s]", nsPodRelation.string())
+		}
+		cancel()
+	})
+
+	It("create fed ns and local pod ", func() {
+		nsName := "ns"
+		podName := "podName"
+		fedCluster := "fed"
+		localCluster := "localCluster"
+
+		ns1 := newNamespaceWithCluster(nsName, fedCluster)
+		pod := newPod(nsName, podName)
+		setObjectCluster(pod, localCluster)
+		setMultiClusterDepend(ns1, []MultiClusterDepend{{
+			Cluster:   localCluster,
+			Namespace: nsName,
+			Name:      podName,
+		}})
+
+		nsHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().Namespaces().Create(ctx, ns1, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Create(ctx, pod, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+	})
+
+	It("create fed ns and local pod in different clusters, test pod recreation", func() {
+		nsName := "ns"
+		podName := "podName"
+		podName2 := "podName2"
+		fedCluster := "fed"
+		localCluster := "localCluster"
+		localCluster2 := "localCluster2"
+
+		ns1 := newNamespaceWithCluster(nsName, fedCluster)
+		pod := newPod(nsName, podName)
+		setObjectCluster(pod, localCluster)
+		pod2 := newPod(nsName, podName2)
+		setObjectCluster(pod2, localCluster2)
+		setMultiClusterDepend(ns1, []MultiClusterDepend{{
+			Cluster:   localCluster,
+			Namespace: nsName,
+			Name:      podName,
+		},
+			{
+				Cluster:   localCluster2,
+				Namespace: nsName,
+				Name:      podName2,
+			},
+		})
+
+		nsHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().Namespaces().Create(ctx, ns1, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Create(ctx, pod, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.deleteCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Delete(ctx, podName, metav1.DeleteOptions{})).To(BeNil())
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Create(ctx, pod2, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Create(ctx, pod, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+	})
+
+	It("create ns and pod in different cluster, test relation config changed", func() {
+		nsName := "ns"
+		podName := "podName"
+		podName2 := "podName2"
+		fedCluster := "fed"
+		localCluster := "localCluster"
+		localCluster2 := "localCluster2"
+
+		ns1 := newNamespaceWithCluster(nsName, fedCluster)
+		pod := newPod(nsName, podName)
+		setObjectCluster(pod, localCluster)
+		pod2 := newPod(nsName, podName2)
+		setObjectCluster(pod2, localCluster2)
+		setMultiClusterDepend(ns1, []MultiClusterDepend{
+			{
+				Cluster:   localCluster,
+				Namespace: nsName,
+				Name:      podName,
+			},
+			{
+				Cluster:   localCluster2,
+				Namespace: nsName,
+				Name:      podName2,
+			},
+		})
+
+		nsHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().Namespaces().Create(ctx, ns1, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Create(ctx, pod, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Create(ctx, pod2, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		setMultiClusterDepend(ns1, []MultiClusterDepend{})
+		nsHandler.updateCallExpected()
+		nsPodRelation.deleteCallExpected()
+		nsPodRelation.deleteCallExpected()
+		Expect(fakeClient.CoreV1().Namespaces().Update(ctx, ns1, metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		setMultiClusterDepend(ns1, []MultiClusterDepend{{
+			Cluster:   localCluster,
+			Namespace: nsName,
+			Name:      podName,
+		}})
+		nsHandler.updateCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Namespaces().Update(ctx, ns1, metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.deleteCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Delete(ctx, pod.Name, metav1.DeleteOptions{})).To(BeNil())
+		syncStatus(checkAll)
+
+		nsHandler.relatedCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Pods(nsName).Create(ctx, pod, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		setMultiClusterDepend(ns1, []MultiClusterDepend{{
+			Cluster:   localCluster2,
+			Namespace: nsName,
+			Name:      podName2,
+		}})
+		nsHandler.updateCallExpected()
+		nsPodRelation.deleteCallExpected()
+		nsPodRelation.addCallExpected()
+		Expect(fakeClient.CoreV1().Namespaces().Update(ctx, ns1, metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
 	})
 })
