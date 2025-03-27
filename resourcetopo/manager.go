@@ -20,6 +20,7 @@ import (
 	"container/list"
 	"fmt"
 	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,7 +32,7 @@ var _ Manager = &manager{}
 
 type manager struct {
 	relationEventQueue chan relationEvent
-	nodeEventQueue     *workqueue.Type
+	nodeEventQueue     workqueue.RateLimitingInterface
 	configLock         sync.Mutex
 	started            bool
 
@@ -40,8 +41,10 @@ type manager struct {
 
 func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {
 	checkManagerConfig(&cfg)
+	ratelimiter := workqueue.NewItemExponentialFailureRateLimiter(1*time.Millisecond, 1*time.Second)
+
 	m := &manager{
-		nodeEventQueue:     workqueue.NewNamed("resourceTopoNodeEventQueue"),
+		nodeEventQueue:     workqueue.NewNamedRateLimitingQueue(ratelimiter, "resourcetopoNodeEventQueue"),
 		relationEventQueue: make(chan relationEvent, cfg.RelationEventQueueSize),
 		storages:           make(map[string]*nodeStorage),
 	}

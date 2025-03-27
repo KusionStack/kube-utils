@@ -308,6 +308,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podHandler.deleteCallExpected()
 		err = fakeClient.CoreV1().Pods(namespaceDefault).Delete(ctx, pod1Name, metav1.DeleteOptions{})
 		Expect(err).To(BeNil())
+		syncStatus(checkAll)
 
 		Eventually(func(g Gomega) {
 			pod, _ := podStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: pod1Name})

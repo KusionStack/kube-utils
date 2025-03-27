@@ -17,8 +17,10 @@
 package resourcetopo
 
 import (
+	"strings"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
@@ -61,33 +63,38 @@ func (m *manager) handleNodeEvent() {
 		if shutdown {
 			return
 		}
-		e, ok := item.(nodeEvent)
+		info, ok := item.(string)
 		if !ok {
 			klog.Errorf("Unexpected node event queue item %v", item)
 			continue
 		}
-		storage := e.node.storageRef
-		if storage == nil {
-			klog.Errorf("Unexpected nil nodeStorage for nodeEvent node %v", e.node)
+		eventType, node := m.decodeString2Event(info)
+		if node == nil {
 			continue
 		}
 
-		switch e.eventType {
+		storage := node.storageRef
+		if storage == nil {
+			klog.Errorf("Unexpected nil nodeStorage for nodeEvent node %v", node)
+			continue
+		}
+
+		switch eventType {
 		case EventTypeAdd:
 			for _, h := range storage.nodeUpdateHandler {
-				h.OnAdd(e.node)
+				h.OnAdd(node)
 			}
 		case EventTypeUpdate:
 			for _, h := range storage.nodeUpdateHandler {
-				h.OnUpdate(e.node)
+				h.OnUpdate(node)
 			}
 		case EventTypeDelete:
 			for _, h := range storage.nodeUpdateHandler {
-				h.OnDelete(e.node)
+				h.OnDelete(node)
 			}
 		case EventTypeRelatedUpdate:
 			for _, h := range storage.nodeUpdateHandler {
-				h.OnRelatedUpdate(e.node)
+				h.OnRelatedUpdate(node)
 			}
 		}
 		m.nodeEventQueue.Done(item)
@@ -125,10 +132,8 @@ func (m *manager) handleRelationEvent() {
 }
 
 func (m *manager) newNodeEvent(info *nodeInfo, eType eventType) {
-	m.nodeEventQueue.Add(nodeEvent{
-		eventType: eType,
-		node:      info,
-	})
+	key := m.encodeEvent2String(eType, info)
+	m.nodeEventQueue.AddRateLimited(key)
 }
 
 func (m *manager) newRelationEvent(preNode, postNode *nodeInfo, eType eventType) {
@@ -137,4 +142,40 @@ func (m *manager) newRelationEvent(preNode, postNode *nodeInfo, eType eventType)
 		preNode:   preNode,
 		postNode:  postNode,
 	}
+}
+
+const keySpliter = "%"
+
+func (m *manager) encodeEvent2String(eType eventType, node *nodeInfo) string {
+	return strings.Join([]string{
+		node.storageRef.meta.APIVersion,
+		node.storageRef.meta.Kind,
+		node.cluster,
+		node.namespace,
+		node.name,
+		string(eType),
+	}, keySpliter)
+}
+
+func (m *manager) decodeString2Event(key string) (eventType, *nodeInfo) {
+	info := strings.Split(key, keySpliter)
+	s := m.getStorage(metav1.TypeMeta{
+		APIVersion: info[0],
+		Kind:       info[1],
+	})
+	if s == nil {
+		klog.Errorf("Unexpected nil nodeStorage for event %v", key)
+		return "", nil
+	}
+	node := s.getNode(info[2], info[3], info[4])
+	if node == nil {
+		// node may be deleted, reconstruct it for event handle
+		node = &nodeInfo{
+			storageRef: s,
+			cluster:    info[2],
+			namespace:  info[3],
+			name:       info[4],
+		}
+	}
+	return eventType(info[5]), node
 }
