@@ -57,35 +57,40 @@ func (m *manager) startHandleEvent(stopCh <-chan struct{}) {
 
 func (m *manager) handleNodeEvent() {
 	for {
-		select {
-		case e := <-m.nodeEventQueue:
-			storage := e.node.storageRef
-			if storage == nil {
-				klog.Errorf("Unexpected nil nodeStorage for nodeEvent node %v", e.node)
-				continue
-			}
-
-			switch e.eventType {
-			case EventTypeAdd:
-				for _, h := range storage.nodeUpdateHandler {
-					h.OnAdd(e.node)
-				}
-			case EventTypeUpdate:
-				for _, h := range storage.nodeUpdateHandler {
-					h.OnUpdate(e.node)
-				}
-			case EventTypeDelete:
-				for _, h := range storage.nodeUpdateHandler {
-					h.OnDelete(e.node)
-				}
-			case EventTypeRelatedUpdate:
-				for _, h := range storage.nodeUpdateHandler {
-					h.OnRelatedUpdate(e.node)
-				}
-			}
-		default:
-			break
+		item, shutdown := m.nodeEventQueue.Get()
+		if shutdown {
+			return
 		}
+		e, ok := item.(nodeEvent)
+		if !ok {
+			klog.Errorf("Unexpected node event queue item %v", item)
+			continue
+		}
+		storage := e.node.storageRef
+		if storage == nil {
+			klog.Errorf("Unexpected nil nodeStorage for nodeEvent node %v", e.node)
+			continue
+		}
+
+		switch e.eventType {
+		case EventTypeAdd:
+			for _, h := range storage.nodeUpdateHandler {
+				h.OnAdd(e.node)
+			}
+		case EventTypeUpdate:
+			for _, h := range storage.nodeUpdateHandler {
+				h.OnUpdate(e.node)
+			}
+		case EventTypeDelete:
+			for _, h := range storage.nodeUpdateHandler {
+				h.OnDelete(e.node)
+			}
+		case EventTypeRelatedUpdate:
+			for _, h := range storage.nodeUpdateHandler {
+				h.OnRelatedUpdate(e.node)
+			}
+		}
+		m.nodeEventQueue.Done(item)
 	}
 }
 
@@ -120,10 +125,10 @@ func (m *manager) handleRelationEvent() {
 }
 
 func (m *manager) newNodeEvent(info *nodeInfo, eType eventType) {
-	m.nodeEventQueue <- nodeEvent{
+	m.nodeEventQueue.Add(nodeEvent{
 		eventType: eType,
 		node:      info,
-	}
+	})
 }
 
 func (m *manager) newRelationEvent(preNode, postNode *nodeInfo, eType eventType) {

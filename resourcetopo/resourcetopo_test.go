@@ -1661,6 +1661,7 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 		nsHandler.relatedCallExpected()
 		nsPodRelation.deleteCallExpected()
 		Expect(fakeClient.CoreV1().Pods(nsName).Delete(ctx, podName, metav1.DeleteOptions{})).To(BeNil())
+		syncStatus(checkAll)
 
 		nsHandler.relatedCallExpected()
 		nsPodRelation.addCallExpected()

@@ -22,8 +22,8 @@ import (
 	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 )
 
@@ -31,7 +31,7 @@ var _ Manager = &manager{}
 
 type manager struct {
 	relationEventQueue chan relationEvent
-	nodeEventQueue     chan nodeEvent
+	nodeEventQueue     *workqueue.Type
 	configLock         sync.Mutex
 	started            bool
 
@@ -41,7 +41,7 @@ type manager struct {
 func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {
 	checkManagerConfig(&cfg)
 	m := &manager{
-		nodeEventQueue:     make(chan nodeEvent, cfg.NodeEventQueueSize),
+		nodeEventQueue:     workqueue.NewNamed("resourceTopoNodeEventQueue"),
 		relationEventQueue: make(chan relationEvent, cfg.RelationEventQueueSize),
 		storages:           make(map[string]*nodeStorage),
 	}
