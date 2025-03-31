@@ -66,6 +66,7 @@ func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
 	}
 
 	slices.SortFunc(resolvedRelations, compareResourceRelation)
+	node.relationsLock.Lock()
 	sortedSlicesCompare(node.relations, resolvedRelations,
 		func(relation ResourceRelation) {
 			s.removeResourceRelation(node, &relation)
@@ -75,6 +76,7 @@ func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
 		},
 		compareResourceRelation)
 	node.relations = resolvedRelations
+	node.relationsLock.Unlock()
 
 	if !node.labelEqualed(newTopoObj.GetLabels()) {
 		node.updateNodeMeta(newTopoObj)
@@ -137,15 +139,16 @@ func (s *nodeStorage) addNode(obj Object, node *nodeInfo) {
 		klog.Warningf("unexpected relations {%v}", node.relations)
 		node.relations = nil
 	}
+	node.relationsLock.Lock()
 	for _, resolver := range s.resolvers {
 		relations := resolver.Resolve(obj)
 		node.relations = append(node.relations, relations...)
-		for _, relation := range relations {
-			s.addResourceRelation(node, &relation)
-		}
 	}
-
 	slices.SortFunc(node.relations, compareResourceRelation)
+	for _, relation := range node.relations {
+		s.addResourceRelation(node, &relation)
+	}
+	node.relationsLock.Unlock()
 
 	for _, discoverer := range s.discoverers {
 		preStorage := s.manager.getStorage(discoverer.PreMeta)

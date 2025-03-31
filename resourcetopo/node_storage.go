@@ -301,27 +301,37 @@ func (s *nodeStorage) checkForLabelUpdate(postNode *nodeInfo) {
 	}
 	nodeList := clsNodes.namespaceNodes[ns]
 	for _, n := range nodeList {
-		if len(n.relations) == 0 {
-			continue
+		s.checkLabelUpdateForNode(n, postNode)
+	}
+}
+
+func (s *nodeStorage) checkLabelUpdateForNode(preNode, postNode *nodeInfo) {
+	if preNode == nil {
+		return
+	}
+
+	preNode.relationsLock.RLock()
+	defer preNode.relationsLock.RUnlock()
+	if len(preNode.relations) == 0 {
+		return
+	}
+	for _, relation := range preNode.relations {
+		if !typeEqual(relation.PostMeta, postNode.storageRef.meta) {
+			return
 		}
-		for _, relation := range n.relations {
-			if !typeEqual(relation.PostMeta, postNode.storageRef.meta) {
-				continue
+		selector, err := metav1.LabelSelectorAsSelector(relation.LabelSelector)
+		if err != nil {
+			klog.Errorf("Failed to resolve selector %v: %s", relation.LabelSelector, err.Error())
+			return
+		}
+		if postNode.matched(selector) {
+			if _, ok := s.ownerRelation[postNode.storageRef.metaKey]; ok && !postNode.ownerMatched(preNode) {
+				return
 			}
-			selector, err := metav1.LabelSelectorAsSelector(relation.LabelSelector)
-			if err != nil {
-				klog.Errorf("Failed to resolve selector %v: %s", relation.LabelSelector, err.Error())
-				continue
-			}
-			if postNode.matched(selector) {
-				if _, ok := s.ownerRelation[postNode.storageRef.metaKey]; ok && !postNode.ownerMatched(n) {
-					continue
-				}
-				rangeAndSetLabelRelation(n, postNode, s.manager)
-			} else {
-				if deleteLabelRelation(n, postNode) {
-					n.postOrderRelationDeleted(postNode)
-				}
+			rangeAndSetLabelRelation(preNode, postNode, s.manager)
+		} else {
+			if deleteLabelRelation(preNode, postNode) {
+				preNode.postOrderRelationDeleted(postNode)
 			}
 		}
 	}
