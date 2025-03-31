@@ -29,6 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/klog/v2"
+
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
 const namespaceDefault = "default"
@@ -441,6 +443,12 @@ func setOwner(object metav1.Object, meta metav1.TypeMeta, ownerName string) {
 		Kind:       meta.Kind,
 		Name:       ownerName,
 	}))
+}
+
+func setObjectCluster(obj Object, cluster string) {
+	if labels := obj.GetLabels(); labels == nil {
+		labels[clusterinfo.ClusterLabelKey] = cluster
+	}
 }
 
 const multiClusterDependKey = "kusionstack.io/depends-on"
