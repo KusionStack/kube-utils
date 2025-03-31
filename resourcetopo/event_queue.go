@@ -41,17 +41,6 @@ const (
 	defaultRelationEventHandlePeriod = time.Second
 )
 
-type nodeEvent struct {
-	eventType eventType
-	node      *nodeInfo
-}
-
-type relationEvent struct {
-	eventType eventType
-	preNode   *nodeInfo
-	postNode  *nodeInfo
-}
-
 func (m *manager) startHandleEvent(stopCh <-chan struct{}) {
 	go wait.Until(m.handleNodeEvent, defaultNodeEventHandlePeriod, stopCh)
 	go wait.Until(m.handleRelationEvent, defaultRelationEventHandlePeriod, stopCh)
@@ -68,7 +57,7 @@ func (m *manager) handleNodeEvent() {
 			klog.Errorf("Unexpected node event queue item %v", item)
 			continue
 		}
-		eventType, node := m.decodeString2Event(info)
+		eventType, node := m.decodeString2NodeEvent(info)
 		if node == nil {
 			continue
 		}
@@ -103,50 +92,58 @@ func (m *manager) handleNodeEvent() {
 
 func (m *manager) handleRelationEvent() {
 	for {
-		select {
-		case e := <-m.relationEventQueue:
-			storage := e.preNode.storageRef
-			if storage == nil {
-				klog.Errorf("Unexpected nil nodeStorage for relaltion event preNode node %v", e.preNode)
-				continue
-			}
-			handlers := storage.relationUpdateHandler[e.postNode.storageRef.metaKey]
-			if handlers == nil {
-				continue
-			}
-
-			switch e.eventType {
-			case EventTypeAdd:
-				for _, handler := range handlers {
-					handler.OnAdd(e.preNode, e.postNode)
-				}
-			case EventTypeDelete:
-				for _, handler := range handlers {
-					handler.OnDelete(e.preNode, e.postNode)
-				}
-			}
-		default:
-			break
+		item, shutdown := m.relationEventQueue.Get()
+		if shutdown {
+			return
 		}
+
+		info, ok := item.(string)
+		if !ok {
+			klog.Errorf("Unexpected relation event queue item %v", item)
+			continue
+		}
+		eventType, preNode, postNode := m.decodeString2RelationEvent(info)
+		if preNode == nil || postNode == nil {
+			continue
+		}
+
+		storage := preNode.storageRef
+		if storage == nil {
+			klog.Errorf("Unexpected nil nodeStorage for relaltion event preNode node %v", preNode)
+			continue
+		}
+		handlers := storage.relationUpdateHandler[postNode.storageRef.metaKey]
+		if handlers == nil {
+			continue
+		}
+
+		switch eventType {
+		case EventTypeAdd:
+			for _, handler := range handlers {
+				handler.OnAdd(preNode, postNode)
+			}
+		case EventTypeDelete:
+			for _, handler := range handlers {
+				handler.OnDelete(preNode, postNode)
+			}
+		}
+		m.relationEventQueue.Done(item)
 	}
 }
 
 func (m *manager) newNodeEvent(info *nodeInfo, eType eventType) {
-	key := m.encodeEvent2String(eType, info)
+	key := m.encodeNodeEvent2String(eType, info)
 	m.nodeEventQueue.AddRateLimited(key)
 }
 
 func (m *manager) newRelationEvent(preNode, postNode *nodeInfo, eType eventType) {
-	m.relationEventQueue <- relationEvent{
-		eventType: eType,
-		preNode:   preNode,
-		postNode:  postNode,
-	}
+	key := m.encodeRelationEvent2String(eType, preNode, postNode)
+	m.relationEventQueue.AddRateLimited(key)
 }
 
 const keySpliter = "%"
 
-func (m *manager) encodeEvent2String(eType eventType, node *nodeInfo) string {
+func (m *manager) encodeNodeEvent2String(eType eventType, node *nodeInfo) string {
 	return strings.Join([]string{
 		node.storageRef.meta.APIVersion,
 		node.storageRef.meta.Kind,
@@ -157,25 +154,59 @@ func (m *manager) encodeEvent2String(eType eventType, node *nodeInfo) string {
 	}, keySpliter)
 }
 
-func (m *manager) decodeString2Event(key string) (eventType, *nodeInfo) {
+func (m *manager) decodeString2NodeEvent(key string) (eventType, *nodeInfo) {
 	info := strings.Split(key, keySpliter)
-	s := m.getStorage(metav1.TypeMeta{
-		APIVersion: info[0],
-		Kind:       info[1],
-	})
-	if s == nil {
-		klog.Errorf("Unexpected nil nodeStorage for event %v", key)
+	if len(info) != 6 {
+		klog.Errorf("Unexpected event key %v", key)
 		return "", nil
 	}
-	node := s.getNode(info[2], info[3], info[4])
+
+	node := m.getOrCreateMockNode(info[0], info[1], info[2], info[3], info[4])
+	return eventType(info[5]), node
+}
+
+func (m *manager) encodeRelationEvent2String(eType eventType, preNode, postNode *nodeInfo) string {
+	return strings.Join([]string{
+		preNode.storageRef.meta.APIVersion,
+		preNode.storageRef.meta.Kind,
+		preNode.cluster, preNode.namespace, preNode.name,
+		postNode.storageRef.meta.APIVersion,
+		postNode.storageRef.meta.Kind,
+		postNode.cluster, postNode.namespace, postNode.name,
+		string(eType),
+	}, keySpliter)
+}
+
+func (m *manager) decodeString2RelationEvent(key string) (eventType, *nodeInfo, *nodeInfo) {
+	info := strings.Split(key, keySpliter)
+	if len(info) != 11 {
+		klog.Errorf("Unexpected relation event key %v", key)
+		return "", nil, nil
+	}
+	preNode := m.getOrCreateMockNode(info[0], info[1], info[2], info[3], info[4])
+	postNode := m.getOrCreateMockNode(info[5], info[6], info[7], info[8], info[9])
+
+	return eventType(info[10]), preNode, postNode
+}
+
+func (m *manager) getOrCreateMockNode(apiVersion, kind, cluster, namespace, name string) *nodeInfo {
+	s := m.getStorage(metav1.TypeMeta{
+		APIVersion: apiVersion,
+		Kind:       kind,
+	})
+	if s == nil {
+		klog.Errorf("Unexpected nil nodeStorage for %s %s", apiVersion, kind)
+		return nil
+	}
+	node := s.getNode(cluster, namespace, name)
 	if node == nil {
 		// node may be deleted, reconstruct it for event handle
 		node = &nodeInfo{
 			storageRef: s,
-			cluster:    info[2],
-			namespace:  info[3],
-			name:       info[4],
+			cluster:    cluster,
+			namespace:  namespace,
+			name:       name,
 		}
 	}
-	return eventType(info[5]), node
+	return node
 }

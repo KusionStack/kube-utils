@@ -48,9 +48,7 @@ func main() {
 
 	topoManager, err := resourcetopo.NewResourcesTopoManager(
 		resourcetopo.ManagerConfig{
-			NodeEventQueueSize:     1024,
-			RelationEventQueueSize: 1024,
-			TopologyConfig:         buildExampleTopologyConfig(), // could also be set later by topoManager.AddTopologyConfig
+			TopologyConfig: buildExampleTopologyConfig(), // could also be set later by topoManager.AddTopologyConfig
 		},
 	)
 	if err != nil {

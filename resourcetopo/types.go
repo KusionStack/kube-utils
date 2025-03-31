@@ -40,9 +40,6 @@ type TopologyConfig struct {
 }
 
 type ManagerConfig struct {
-	NodeEventQueueSize     int // size of NodeEvent cache channel, defaults to defaultNodeEventQueueSize
-	RelationEventQueueSize int // size of RelationEvent cache channel, defaults to defaultRelationEventQueueSize
-
 	TopologyConfig *TopologyConfig
 }
 

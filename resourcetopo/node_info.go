@@ -35,8 +35,9 @@ type ownerInfo struct {
 
 type nodeInfo struct {
 	storageRef *nodeStorage
-	lock       sync.RWMutex
 
+	// lock for PreOrders and PostOrders
+	lock sync.RWMutex
 	// Lists of nodeInfo ref, cached all existed relation for this node.
 	directReferredPreOrders  *list.List
 	labelReferredPreOrders   *list.List
@@ -49,7 +50,9 @@ type nodeInfo struct {
 	name       string
 	ownerNodes []ownerInfo
 	labels     labels.Set // labels is a ref to object.meta.labels, do not edit!
-	relations  []ResourceRelation
+
+	relations     []ResourceRelation
+	relationsLock sync.RWMutex
 
 	// objectExisted is added for directRef relation to cache the relation before post object added,
 	// will be updated to true after the object added to cache or the manager is of virtual type.

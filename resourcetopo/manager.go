@@ -31,7 +31,7 @@ import (
 var _ Manager = &manager{}
 
 type manager struct {
-	relationEventQueue chan relationEvent
+	relationEventQueue workqueue.RateLimitingInterface
 	nodeEventQueue     workqueue.RateLimitingInterface
 	configLock         sync.Mutex
 	started            bool
@@ -41,11 +41,12 @@ type manager struct {
 
 func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {
 	checkManagerConfig(&cfg)
-	ratelimiter := workqueue.NewItemExponentialFailureRateLimiter(1*time.Millisecond, 1*time.Second)
 
+	// ratelimiter used by nodeEventQueue and relationEventQueue, it's ok since keys are of different format
+	ratelimiter := workqueue.NewItemExponentialFailureRateLimiter(1*time.Millisecond, 1*time.Second)
 	m := &manager{
 		nodeEventQueue:     workqueue.NewNamedRateLimitingQueue(ratelimiter, "resourcetopoNodeEventQueue"),
-		relationEventQueue: make(chan relationEvent, cfg.RelationEventQueueSize),
+		relationEventQueue: workqueue.NewNamedRateLimitingQueue(ratelimiter, "resourcetopoRelaltionEventQueue"),
 		storages:           make(map[string]*nodeStorage),
 	}
 
@@ -214,10 +215,4 @@ func (m *manager) dagCheck() error {
 }
 
 func checkManagerConfig(c *ManagerConfig) {
-	if c.NodeEventQueueSize <= 0 {
-		c.NodeEventQueueSize = defaultNodeEventQueueSize
-	}
-	if c.RelationEventQueueSize <= 0 {
-		c.RelationEventQueueSize = defaultRelationEventQueueSize
-	}
 }
