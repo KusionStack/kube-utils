@@ -20,7 +20,6 @@ import (
 	"container/list"
 	"fmt"
 	"sync"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -42,11 +41,11 @@ type manager struct {
 func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {
 	checkManagerConfig(&cfg)
 
-	// ratelimiter used by nodeEventQueue and relationEventQueue, it's ok since keys are of different format
-	ratelimiter := workqueue.NewItemExponentialFailureRateLimiter(1*time.Millisecond, 1*time.Second)
+	nodeRatelimiter := workqueue.NewItemExponentialFailureRateLimiter(cfg.NodeEventHandleRateMinDelay, cfg.NodeEventHandleRateMaxDelay)
+	relationRatelimiter := workqueue.NewItemExponentialFailureRateLimiter(cfg.RelationEventHandleRateMinDelay, cfg.RelationEventHandleRateMaxDelay)
 	m := &manager{
-		nodeEventQueue:     workqueue.NewNamedRateLimitingQueue(ratelimiter, "resourcetopoNodeEventQueue"),
-		relationEventQueue: workqueue.NewNamedRateLimitingQueue(ratelimiter, "resourcetopoRelaltionEventQueue"),
+		nodeEventQueue:     workqueue.NewNamedRateLimitingQueue(nodeRatelimiter, "resourcetopoNodeEventQueue"),
+		relationEventQueue: workqueue.NewNamedRateLimitingQueue(relationRatelimiter, "resourcetopoRelaltionEventQueue"),
 		storages:           make(map[string]*nodeStorage),
 	}
 
@@ -215,4 +214,16 @@ func (m *manager) dagCheck() error {
 }
 
 func checkManagerConfig(c *ManagerConfig) {
+	if c.NodeEventHandleRateMinDelay <= 0 {
+		c.NodeEventHandleRateMinDelay = defaultNodeEventHandleRateMinDelay
+	}
+	if c.NodeEventHandleRateMaxDelay < c.NodeEventHandleRateMinDelay {
+		c.NodeEventHandleRateMaxDelay = defaultNodeEventHandleRateMaxDelay
+	}
+	if c.RelationEventHandleRateMinDelay <= 0 {
+		c.RelationEventHandleRateMinDelay = defaultRelationEventHandleRateMinDelay
+	}
+	if c.RelationEventHandleRateMaxDelay < c.RelationEventHandleRateMinDelay {
+		c.RelationEventHandleRateMaxDelay = defaultRelationEventHandleRateMaxDelay
+	}
 }

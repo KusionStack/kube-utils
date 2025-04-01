@@ -17,6 +17,8 @@
 package resourcetopo
 
 import (
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	toolscache "k8s.io/client-go/tools/cache"
@@ -41,6 +43,12 @@ type TopologyConfig struct {
 
 type ManagerConfig struct {
 	TopologyConfig *TopologyConfig
+
+	// Event handle rate limit config for node events and relation events
+	NodeEventHandleRateMinDelay     time.Duration
+	NodeEventHandleRateMaxDelay     time.Duration
+	RelationEventHandleRateMinDelay time.Duration
+	RelationEventHandleRateMaxDelay time.Duration
 }
 
 type Manager interface {

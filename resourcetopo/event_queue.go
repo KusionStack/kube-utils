@@ -35,10 +35,12 @@ const (
 )
 
 const (
-	defaultNodeEventQueueSize        = 1000
-	defaultRelationEventQueueSize    = 1000
-	defaultNodeEventHandlePeriod     = time.Second
-	defaultRelationEventHandlePeriod = time.Second
+	defaultNodeEventHandleRateMinDelay     = time.Millisecond
+	defaultNodeEventHandleRateMaxDelay     = time.Second
+	defaultRelationEventHandleRateMinDelay = time.Millisecond
+	defaultRelationEventHandleRateMaxDelay = time.Second
+	defaultNodeEventHandlePeriod           = time.Second
+	defaultRelationEventHandlePeriod       = time.Second
 )
 
 func (m *manager) startHandleEvent(stopCh <-chan struct{}) {
