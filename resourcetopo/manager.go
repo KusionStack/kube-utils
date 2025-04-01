@@ -22,16 +22,16 @@ import (
 	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 )
 
 var _ Manager = &manager{}
 
 type manager struct {
-	relationEventQueue chan relationEvent
-	nodeEventQueue     chan nodeEvent
+	relationEventQueue workqueue.RateLimitingInterface
+	nodeEventQueue     workqueue.RateLimitingInterface
 	configLock         sync.Mutex
 	started            bool
 
@@ -40,9 +40,12 @@ type manager struct {
 
 func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {
 	checkManagerConfig(&cfg)
+
+	nodeRatelimiter := workqueue.NewItemExponentialFailureRateLimiter(cfg.NodeEventHandleRateMinDelay, cfg.NodeEventHandleRateMaxDelay)
+	relationRatelimiter := workqueue.NewItemExponentialFailureRateLimiter(cfg.RelationEventHandleRateMinDelay, cfg.RelationEventHandleRateMaxDelay)
 	m := &manager{
-		nodeEventQueue:     make(chan nodeEvent, cfg.NodeEventQueueSize),
-		relationEventQueue: make(chan relationEvent, cfg.RelationEventQueueSize),
+		nodeEventQueue:     workqueue.NewNamedRateLimitingQueue(nodeRatelimiter, "resourcetopoNodeEventQueue"),
+		relationEventQueue: workqueue.NewNamedRateLimitingQueue(relationRatelimiter, "resourcetopoRelaltionEventQueue"),
 		storages:           make(map[string]*nodeStorage),
 	}
 
@@ -211,10 +214,16 @@ func (m *manager) dagCheck() error {
 }
 
 func checkManagerConfig(c *ManagerConfig) {
-	if c.NodeEventQueueSize <= 0 {
-		c.NodeEventQueueSize = defaultNodeEventQueueSize
+	if c.NodeEventHandleRateMinDelay <= 0 {
+		c.NodeEventHandleRateMinDelay = defaultNodeEventHandleRateMinDelay
 	}
-	if c.RelationEventQueueSize <= 0 {
-		c.RelationEventQueueSize = defaultRelationEventQueueSize
+	if c.NodeEventHandleRateMaxDelay < c.NodeEventHandleRateMinDelay {
+		c.NodeEventHandleRateMaxDelay = defaultNodeEventHandleRateMaxDelay
+	}
+	if c.RelationEventHandleRateMinDelay <= 0 {
+		c.RelationEventHandleRateMinDelay = defaultRelationEventHandleRateMinDelay
+	}
+	if c.RelationEventHandleRateMaxDelay < c.RelationEventHandleRateMinDelay {
+		c.RelationEventHandleRateMaxDelay = defaultRelationEventHandleRateMaxDelay
 	}
 }

@@ -17,6 +17,7 @@
 package resourcetopo
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/hashicorp/consul/sdk/testutil/retry"
@@ -28,6 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/klog/v2"
+
+	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
 
 const namespaceDefault = "default"
@@ -42,6 +45,7 @@ var (
 	ClusterRoleBindingMeta = metav1.TypeMeta{Kind: "ClusterRoleBinding", APIVersion: "rbac/v1"}
 	ClusterRoleMeta        = metav1.TypeMeta{Kind: "ClusterRole", APIVersion: "rbac/v1"}
 	ServiceAccountMeta     = metav1.TypeMeta{Kind: "ServiceAccount", APIVersion: "core/v1"}
+	NamespaceMeta          = metav1.TypeMeta{Kind: "Namespace", APIVersion: "core/v1"}
 )
 
 func GetInformer(meta metav1.TypeMeta, k8sInformerFactory informers.SharedInformerFactory) Informer {
@@ -63,6 +67,8 @@ func GetInformer(meta metav1.TypeMeta, k8sInformerFactory informers.SharedInform
 		return k8sInformerFactory.Apps().V1().Deployments().Informer()
 	case ReplicaSetMeta.String():
 		return k8sInformerFactory.Apps().V1().ReplicaSets().Informer()
+	case NamespaceMeta.String():
+		return k8sInformerFactory.Core().V1().Namespaces().Informer()
 
 	default:
 		return nil
@@ -133,6 +139,7 @@ func buildClusterTest(k8sInformerFactory informers.SharedInformerFactory) *Topol
 						return nil
 					}
 					var saRefs []types.NamespacedName
+					cluster := getObjectCluster(crbObject)
 
 					for _, s := range crbObject.Subjects {
 						switch s.Kind {
@@ -143,6 +150,7 @@ func buildClusterTest(k8sInformerFactory informers.SharedInformerFactory) *Topol
 					return []ResourceRelation{
 						{
 							PostMeta: ClusterRoleMeta,
+							Cluster:  cluster,
 							DirectRefs: []types.NamespacedName{
 								{
 									Name: crbObject.RoleRef.Name,
@@ -151,6 +159,7 @@ func buildClusterTest(k8sInformerFactory informers.SharedInformerFactory) *Topol
 						},
 						{
 							PostMeta:   ServiceAccountMeta,
+							Cluster:    cluster,
 							DirectRefs: saRefs,
 						},
 					}
@@ -236,6 +245,39 @@ func buildDeployTopoConfig(k8sInformerFactory informers.SharedInformerFactory) *
 	}
 }
 
+func buildMultiClustertopoConfig(k8sInformerFactory informers.SharedInformerFactory) *TopologyConfig {
+	return &TopologyConfig{
+		GetInformer: func(meta metav1.TypeMeta) Informer {
+			return GetInformer(meta, k8sInformerFactory)
+		},
+		Resolvers: []RelationResolver{
+			{
+				PreMeta:   NamespaceMeta,
+				PostMetas: []metav1.TypeMeta{PodMeta},
+				Resolve: func(preOrder Object) []ResourceRelation {
+					preObj, ok := preOrder.(*corev1.Namespace)
+					if !ok {
+						return nil
+					}
+					depends := getMultiClusterDepend(&preObj.ObjectMeta)
+					var relations []ResourceRelation
+					for _, v := range depends {
+						relations = append(relations, ResourceRelation{
+							PostMeta: PodMeta,
+							Cluster:  v.Cluster,
+							DirectRefs: []types.NamespacedName{{
+								Name:      v.Name,
+								Namespace: v.Namespace,
+							}},
+						})
+					}
+
+					return relations
+				},
+			},
+		},
+	}
+}
 func newPod(namespace, name string, labels ...string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: *newObjectMeta(namespace, name, labels),
@@ -359,6 +401,20 @@ func newServiceAccount(namespace, name string, labels ...string) *corev1.Service
 	}
 }
 
+func newNamespaceWithCluster(name string, cluster string) *corev1.Namespace {
+	ns := &corev1.Namespace{
+		ObjectMeta: *newObjectMeta("", name, nil),
+	}
+	setObjectCluster(ns, cluster)
+	return ns
+}
+
+type MultiClusterDepend struct {
+	Cluster   string `json:"cluster"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
+
 func syncStatus(f func() bool) {
 	retry.RunWith(retry.TwoSeconds(), GinkgoT(), func(r *retry.R) {
 		if !f() {
@@ -385,6 +441,44 @@ func setOwner(object metav1.Object, meta metav1.TypeMeta, ownerName string) {
 		Kind:       meta.Kind,
 		Name:       ownerName,
 	}))
+}
+
+func setObjectCluster(obj Object, cluster string) {
+	if labels := obj.GetLabels(); labels != nil {
+		labels[clusterinfo.ClusterLabelKey] = cluster
+	} else {
+		panic("labels is nil")
+	}
+}
+
+const multiClusterDependKey = "kusionstack.io/depends-on"
+
+func setMultiClusterDepend(object metav1.Object, depends []MultiClusterDepend) {
+	if info, err := json.Marshal(depends); err != nil {
+		panic(err)
+	} else {
+		anno := object.GetAnnotations()
+		if anno == nil {
+			anno = make(map[string]string)
+			object.SetAnnotations(anno)
+		}
+		anno[multiClusterDependKey] = string(info)
+	}
+}
+
+func getMultiClusterDepend(object metav1.Object) []MultiClusterDepend {
+	if len(object.GetAnnotations()) == 0 {
+		return nil
+	}
+	if info, ok := object.GetAnnotations()[multiClusterDependKey]; ok {
+		var depends []MultiClusterDepend
+		if err := json.Unmarshal([]byte(info), &depends); err != nil {
+			panic(err)
+		}
+		return depends
+	} else {
+		return nil
+	}
 }
 
 var _ NodeHandler = &objecthandler{}

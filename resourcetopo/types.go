@@ -17,6 +17,8 @@
 package resourcetopo
 
 import (
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	toolscache "k8s.io/client-go/tools/cache"
@@ -40,10 +42,13 @@ type TopologyConfig struct {
 }
 
 type ManagerConfig struct {
-	NodeEventQueueSize     int // size of NodeEvent cache channel, defaults to defaultNodeEventQueueSize
-	RelationEventQueueSize int // size of RelationEvent cache channel, defaults to defaultRelationEventQueueSize
-
 	TopologyConfig *TopologyConfig
+
+	// Event handle rate limit config for node events and relation events
+	NodeEventHandleRateMinDelay     time.Duration
+	NodeEventHandleRateMaxDelay     time.Duration
+	RelationEventHandleRateMinDelay time.Duration
+	RelationEventHandleRateMaxDelay time.Duration
 }
 
 type Manager interface {
