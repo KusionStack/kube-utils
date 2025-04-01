@@ -31,3 +31,7 @@ func TestControllerExpectationTestSuite(t *testing.T) {
 func TestResourceVersionExpectationTestSuite(t *testing.T) {
 	suite.Run(t, new(resourceVersionExpactationTestSuite))
 }
+
+func TestCacheExpectationTestSuite(t *testing.T) {
+	suite.Run(t, new(cacheExpactationTestSuite))
+}
