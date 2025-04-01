@@ -403,9 +403,7 @@ func newServiceAccount(namespace, name string, labels ...string) *corev1.Service
 
 func newNamespaceWithCluster(name string, cluster string) *corev1.Namespace {
 	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
+		ObjectMeta: *newObjectMeta("", name, nil),
 	}
 	setObjectCluster(ns, cluster)
 	return ns
@@ -446,8 +444,10 @@ func setOwner(object metav1.Object, meta metav1.TypeMeta, ownerName string) {
 }
 
 func setObjectCluster(obj Object, cluster string) {
-	if labels := obj.GetLabels(); labels == nil {
+	if labels := obj.GetLabels(); labels != nil {
 		labels[clusterinfo.ClusterLabelKey] = cluster
+	} else {
+		panic("labels is nil")
 	}
 }
 
