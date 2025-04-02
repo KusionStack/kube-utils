@@ -21,6 +21,7 @@ import (
 
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -42,13 +43,14 @@ func Test_Initializer(t *testing.T) {
 
 	// disable override
 	err := initializer.Add("test3", testInitFunc)
-	assert.Error(t, err)
+	require.Error(t, err)
+
 	// allow override
 	err = initializer.Add("test3", testInitFunc, WithOverride(), WithDisableByDefault())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	names := initializer.Knowns()
-	assert.EqualValues(t, []string{"test1", "test2", "test3"}, names)
+	assert.Equal(t, []string{"test1", "test2", "test3"}, names)
 	assert.True(t, initializer.Enabled("test1"))
 	assert.True(t, initializer.Enabled("test2"))
 	assert.False(t, initializer.Enabled("test3"))
@@ -125,7 +127,7 @@ func Test_Flag(t *testing.T) {
 			initializer.BindFlag(fs)
 			fs.Set(defaultName, tt.name)
 			err := fs.Parse(nil)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			tt.checkResult(assert.New(t), initializer)
 		})
 	}

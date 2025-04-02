@@ -92,27 +92,28 @@ func (s *historyManagerTestSuite) SetupSuite() {
 func (s *historyManagerTestSuite) SetupTest() {
 	s.testObj = newTestStatefulSet()
 	err := s.client.Create(context.TODO(), s.testObj)
-	s.Nil(err)
+	s.NoError(err)
 }
 
 func (s *historyManagerTestSuite) TearDownTest() {
 	err := s.client.Delete(context.TODO(), s.testObj)
-	s.Nil(err)
+	s.NoError(err)
 	err = s.client.DeleteAllOf(context.TODO(), &appsv1.ControllerRevision{}, client.InNamespace(testNamespace))
-	s.Nil(err)
+	s.NoError(err)
 }
 
 func (s *historyManagerTestSuite) TestRevisionConstruction() {
 	// first loop to construct first revision
 	currentRevison, updatedRevision, revisions, collisionCount, created, err := s.manager.ConstructRevisions(context.Background(), s.testObj)
-	s.Nil(err)
-	s.EqualValues(collisionCount, 0, "collision count should be 0")
-	s.True(created, "first loop should create new revision")
-	s.Len(revisions, 1)
-	s.NotEmpty(currentRevison.Name)
-	s.NotEmpty(updatedRevision.Name)
-	s.Equal(currentRevison.Name, updatedRevision.Name, "current revision and updated revision should be the same")
-	s.Len(s.getAllRevisionNames(), 1, "should have only one revision after first loop")
+	if s.NoError(err) {
+		s.EqualValues(0, collisionCount, "collision count should be 0")
+		s.True(created, "first loop should create new revision")
+		s.Len(revisions, 1)
+		s.NotEmpty(currentRevison.Name)
+		s.NotEmpty(updatedRevision.Name)
+		s.Equal(currentRevison.Name, updatedRevision.Name, "current revision and updated revision should be the same")
+		s.Len(s.getAllRevisionNames(), 1, "should have only one revision after first loop")
+	}
 	// update object status
 	s.testObj.Status.CollisionCount = &collisionCount
 	s.testObj.Status.CurrentRevision = currentRevison.Name
@@ -122,15 +123,17 @@ func (s *historyManagerTestSuite) TestRevisionConstruction() {
 	// updating template spec should construct a new updated CcontrollerRevision
 	s.testObj.Spec.Template.Labels["version"] = "v2"
 	currentRevison, updatedRevision, revisions, collisionCount, created, err = s.manager.ConstructRevisions(context.Background(), s.testObj)
-	s.Nil(err)
-	s.NotNil(collisionCount, "collision must not be nil")
-	s.EqualValues(collisionCount, 0, "collision count should be 0")
-	s.True(created, "template changed should create new revision")
-	s.Len(revisions, 2, "should have 2 revisions after updating template spec")
-	s.NotEmpty(currentRevison.Name)
-	s.NotEmpty(updatedRevision.Name)
-	s.NotEqual(currentRevison.Name, updatedRevision.Name, "current revision and updated revision should not be the same")
-	s.Len(s.getAllRevisionNames(), 2, "should have 2 revisions")
+	if s.NoError(err) {
+		s.NotNil(collisionCount, "collision must not be nil")
+		s.EqualValues(0, collisionCount, "collision count should be 0")
+		s.True(created, "template changed should create new revision")
+		s.Len(revisions, 2, "should have 2 revisions after updating template spec")
+		s.NotEmpty(currentRevison.Name)
+		s.NotEmpty(updatedRevision.Name)
+		s.NotEqual(currentRevison.Name, updatedRevision.Name, "current revision and updated revision should not be the same")
+		s.Len(s.getAllRevisionNames(), 2, "should have 2 revisions")
+	}
+
 	// update object status
 	s.testObj.Status.CollisionCount = &collisionCount
 	s.testObj.Status.CurrentRevision = updatedRevision.Name
@@ -138,27 +141,29 @@ func (s *historyManagerTestSuite) TestRevisionConstruction() {
 
 	// sync again
 	currentRevison, updatedRevision, revisions, collisionCount, created, err = s.manager.ConstructRevisions(context.Background(), s.testObj)
-	s.Nil(err)
-	s.EqualValues(collisionCount, 0, "collision count should be 0")
-	s.False(created, "template does not change, should not create new revision")
-	s.Len(revisions, 2, "should have 2 revisions")
-	s.NotEmpty(currentRevison.Name)
-	s.NotEmpty(updatedRevision.Name)
-	s.Equal(currentRevison.Name, updatedRevision.Name, "current revision and updated revision should be the same")
-	s.Len(s.getAllRevisionNames(), 2, "should have 2 revisions")
+	if s.NoError(err) {
+		s.Equal(0, collisionCount, "collision count should be 0")
+		s.False(created, "template does not change, should not create new revision")
+		s.Len(revisions, 2, "should have 2 revisions")
+		s.NotEmpty(currentRevison.Name)
+		s.NotEmpty(updatedRevision.Name)
+		s.Equal(currentRevison.Name, updatedRevision.Name, "current revision and updated revision should be the same")
+		s.Len(s.getAllRevisionNames(), 2, "should have 2 revisions")
+	}
 
 	// revert to v1
 	s.testObj.Spec.Template.Labels["version"] = "v1"
 	currentRevison, updatedRevision, revisions, collisionCount, created, err = s.manager.ConstructRevisions(context.Background(), s.testObj)
-	s.Nil(err)
-	s.EqualValues(collisionCount, 0, "collision count should be 0")
-	s.False(created, "v1 revision is already exist, should not create new revision")
-	s.Len(revisions, 2, "should have 2 revisions")
-	s.NotEmpty(currentRevison.Name)
-	s.NotEmpty(updatedRevision.Name)
-	s.NotEqual(currentRevison.Name, updatedRevision.Name, "current revision and updated revision should not be the same")
-	s.Equal(v1Revision, updatedRevision.Name, "updated revision should be the same with v1 revision %s", v1Revision)
-	s.Len(s.getAllRevisionNames(), 2, "should have 2 revisions")
+	if s.NoError(err) {
+		s.Equal(0, collisionCount, "collision count should be 0")
+		s.False(created, "v1 revision is already exist, should not create new revision")
+		s.Len(revisions, 2, "should have 2 revisions")
+		s.NotEmpty(currentRevison.Name)
+		s.NotEmpty(updatedRevision.Name)
+		s.NotEqual(currentRevison.Name, updatedRevision.Name, "current revision and updated revision should not be the same")
+		s.Equal(v1Revision, updatedRevision.Name, "updated revision should be the same with v1 revision %s", v1Revision)
+		s.Len(s.getAllRevisionNames(), 2, "should have 2 revisions")
+	}
 }
 
 func (s *historyManagerTestSuite) TestRevisionCleanUp() {
@@ -231,7 +236,7 @@ func (s *historyManagerTestSuite) TestRevisionCleanUp() {
 func (s *historyManagerTestSuite) getAllRevisionNames() []string {
 	revisions := &appsv1.ControllerRevisionList{}
 	err := s.client.List(context.TODO(), revisions, client.InNamespace(testNamespace))
-	s.Nil(err)
+	s.Require().NoError(err)
 
 	return lo.Map(revisions.Items, func(item appsv1.ControllerRevision, _ int) string {
 		return item.Name

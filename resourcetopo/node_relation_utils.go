@@ -138,7 +138,7 @@ func deleteAllRelation(node *nodeInfo) {
 		}
 	}
 
-	var virtualNodelist = list.New()
+	virtualNodelist := list.New()
 	node.lock.RLock()
 	rangeNodeList(node.directReferredPreOrders, func(preNode *nodeInfo) {
 		if preNode.storageRef.virtualResource {

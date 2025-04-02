@@ -21,22 +21,23 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestSecretProvider_Ensure(t *testing.T) {
 	provider, err := NewSecretCertProvider(newSecretClient(), "default", "test-serving-cert")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	domains := []string{"one.kusionstack.io", "two.kusionstack.io"}
 	for _, domain := range domains {
 		certs, err := provider.Ensure(context.Background(), Config{CommonName: domain})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		certs.Validate(domain)
 		assert.NotNil(t, certs)
 		certs, err = provider.Load(context.Background())
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		certs.Validate(domain)
 		assert.NotNil(t, certs)
 	}

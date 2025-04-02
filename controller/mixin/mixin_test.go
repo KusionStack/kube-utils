@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -32,7 +33,7 @@ func TestNewReconcilerMixin(t *testing.T) {
 			return apiutil.NewDynamicRESTMapper(c, apiutil.WithLazyDiscovery)
 		},
 	})
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	mixin := NewReconcilerMixin("test-controller", mgr)
 	assert.NotNil(t, mixin.APIReader)

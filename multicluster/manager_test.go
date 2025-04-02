@@ -24,12 +24,12 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -79,11 +79,11 @@ var _ = Describe("multicluster", func() {
 		var deployments appsv1.DeploymentList
 		err := fedClient.List(ctx, &deployments)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(deployments.Items)).To(Equal(4))
+		Expect(deployments.Items).To(HaveLen(4))
 	})
 
 	It("cluster1 creates 2 services", func() {
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			name := fmt.Sprintf("cluster1-%d", i)
 
 			err := clusterClient1.Create(ctx, &corev1.Service{
@@ -112,11 +112,11 @@ var _ = Describe("multicluster", func() {
 			"cluster": "cluster1",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(services.Items)).To(Equal(2))
+		Expect(services.Items).To(HaveLen(2))
 	})
 
 	It("cluster1 creates 2 configmaps", func() {
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			name := fmt.Sprintf("cluster1-%d", i)
 
 			err := clusterClient1.Create(ctx, &corev1.ConfigMap{
@@ -140,11 +140,11 @@ var _ = Describe("multicluster", func() {
 			"cluster": "cluster1",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(configmaps.Items)).To(Equal(2))
+		Expect(configmaps.Items).To(HaveLen(2))
 	})
 
 	It("cluster2 creates 3 configmaps", func() {
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			name := fmt.Sprintf("cluster2-%d", i)
 
 			err := clusterClient2.Create(ctx, &corev1.ConfigMap{
@@ -168,24 +168,24 @@ var _ = Describe("multicluster", func() {
 			"cluster": "cluster2",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(configmaps.Items)).To(Equal(3))
+		Expect(configmaps.Items).To(HaveLen(3))
 	})
 
 	It("fed has synced clusters", func() {
 		manager.WaitForSynced(ctx)
 		clusters := manager.SyncedClusters()
-		Expect(len(clusters)).To(Equal(2))
+		Expect(clusters).To(HaveLen(2))
 		Expect(clusters).To(ContainElements([]string{"cluster1", "cluster2"})) // ignored cluster3 cluster4
 	})
 
 	It("multiClusterCache has synced", func() {
 		synced := clusterCache.WaitForCacheSync(clusterinfo.ContextAll)
-		Expect(synced).To(Equal(true))
+		Expect(synced).To(BeTrue())
 	})
 
 	It("multiClusterClient get server groups and resources", func() {
 		mcdiscovery, ok := clusterClient.(MultiClusterDiscovery)
-		Expect(ok).To(Equal(true))
+		Expect(ok).To(BeTrue())
 		cachedDiscoveryClient := mcdiscovery.MembersCachedDiscoveryInterface()
 		apiGroups, apiResourceLists, err := cachedDiscoveryClient.ServerGroupsAndResources()
 		Expect(err).NotTo(HaveOccurred())
@@ -195,7 +195,7 @@ var _ = Describe("multicluster", func() {
 			groupVersion := apiGroup.PreferredVersion.GroupVersion
 			groupVersionSets.Insert(groupVersion)
 		}
-		Expect(groupVersionSets.HasAll("apps/v1", "v1")).To(Equal(true))
+		Expect(groupVersionSets.HasAll("apps/v1", "v1")).To(BeTrue())
 
 		apiResourceSets := sets.NewString()
 		for _, apiResourceList := range apiResourceLists {
@@ -204,7 +204,7 @@ var _ = Describe("multicluster", func() {
 				apiResourceSets.Insert(groupVersionName)
 			}
 		}
-		Expect(apiResourceSets.HasAll("apps/v1/deployments", "apps/v1/deployments/status", "v1/configmaps")).To(Equal(true))
+		Expect(apiResourceSets.HasAll("apps/v1/deployments", "apps/v1/deployments/status", "v1/configmaps")).To(BeTrue())
 	})
 
 	It("multiClusterClient update the deployment status of cluster1", func() {
@@ -238,11 +238,11 @@ var _ = Describe("multicluster", func() {
 			"cluster": "cluster1",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(services.Items)).To(Equal(2))
+		Expect(services.Items).To(HaveLen(2))
 
 		for _, item := range services.Items {
 			cluster, ok := item.ObjectMeta.Labels[clusterinfo.ClusterLabelKey]
-			Expect(ok).To(Equal(true))
+			Expect(ok).To(BeTrue())
 			Expect(cluster).To(Equal("cluster1"))
 		}
 	})
@@ -255,11 +255,11 @@ var _ = Describe("multicluster", func() {
 			Namespace: "default",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(configmaps.Items)).To(Equal(2))
+		Expect(configmaps.Items).To(HaveLen(2))
 
 		for _, item := range configmaps.Items {
 			cluster, ok := item.ObjectMeta.Labels[clusterinfo.ClusterLabelKey]
-			Expect(ok).To(Equal(true))
+			Expect(ok).To(BeTrue())
 			Expect(cluster).To(Equal("cluster1"))
 		}
 
@@ -269,11 +269,11 @@ var _ = Describe("multicluster", func() {
 			Namespace: "default",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(configmaps.Items)).To(Equal(3))
+		Expect(configmaps.Items).To(HaveLen(3))
 
 		for _, item := range configmaps.Items {
 			cluster, ok := item.ObjectMeta.Labels[clusterinfo.ClusterLabelKey]
-			Expect(ok).To(Equal(true))
+			Expect(ok).To(BeTrue())
 			Expect(cluster).To(Equal("cluster2"))
 		}
 
@@ -283,11 +283,11 @@ var _ = Describe("multicluster", func() {
 			Namespace: "default",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(configmaps.Items)).To(Equal(5))
+		Expect(configmaps.Items).To(HaveLen(5))
 
 		for _, item := range configmaps.Items {
 			cluster, ok := item.ObjectMeta.Labels[clusterinfo.ClusterLabelKey]
-			Expect(ok).To(Equal(true))
+			Expect(ok).To(BeTrue())
 			Expect(cluster).To(HavePrefix("cluster"))
 		}
 
@@ -297,11 +297,11 @@ var _ = Describe("multicluster", func() {
 			Namespace: "default",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(configmaps.Items)).To(Equal(5))
+		Expect(configmaps.Items).To(HaveLen(5))
 
 		for _, item := range configmaps.Items {
 			cluster, ok := item.ObjectMeta.Labels[clusterinfo.ClusterLabelKey]
-			Expect(ok).To(Equal(true))
+			Expect(ok).To(BeTrue())
 			Expect(cluster).To(HavePrefix("cluster"))
 		}
 	})
@@ -321,7 +321,7 @@ var _ = Describe("multicluster", func() {
 		}, &configmap)
 		Expect(err).NotTo(HaveOccurred())
 		cluster, ok := configmap.ObjectMeta.Labels[clusterinfo.ClusterLabelKey]
-		Expect(ok).To(Equal(true))
+		Expect(ok).To(BeTrue())
 		Expect(cluster).To(Equal("cluster2"))
 
 		err = clusterClient.Delete(clusterCtx, &configmap)
@@ -329,7 +329,7 @@ var _ = Describe("multicluster", func() {
 
 		// Label should be preserved after deleting
 		val, ok := configmap.GetLabels()[clusterinfo.ClusterLabelKey]
-		Expect(ok).To(Equal(true))
+		Expect(ok).To(BeTrue())
 		Expect(val).To(Equal("cluster2"))
 
 		configmap.SetLabels(map[string]string{"foo": "bar"})
@@ -338,7 +338,7 @@ var _ = Describe("multicluster", func() {
 
 		// Label should be preserved after updating
 		val, ok = configmap.GetLabels()[clusterinfo.ClusterLabelKey]
-		Expect(ok).To(Equal(true))
+		Expect(ok).To(BeTrue())
 		Expect(val).To(Equal("cluster2"))
 
 		time.Sleep(300 * time.Millisecond)
@@ -358,7 +358,7 @@ var _ = Describe("multicluster", func() {
 			Namespace: "default",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(configmaps.Items)).To(Equal(2))
+		Expect(configmaps.Items).To(HaveLen(2))
 
 		var configmap corev1.ConfigMap
 		err = clusterClient.DeleteAllOf(clusterCtx, &configmap, &client.DeleteAllOfOptions{
@@ -375,7 +375,7 @@ var _ = Describe("multicluster", func() {
 			Namespace: "default",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(configmaps.Items)).To(Equal(0))
+		Expect(configmaps.Items).To(BeEmpty())
 	})
 
 	It("multiClusterClient patch the configmap of cluster1", func() {
@@ -409,13 +409,13 @@ var _ = Describe("multicluster", func() {
 
 		informer, err := clusterCache.GetInformer(clusterCtx, &configmap)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(informer.HasSynced()).To(Equal(true))
+		Expect(informer.HasSynced()).To(BeTrue())
 
 		clusterCtx = clusterinfo.WithClusters(ctx, []string{clusterinfo.Clusters})
 
 		informer, err = clusterCache.GetInformer(clusterCtx, &configmap)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(informer.HasSynced()).To(Equal(true))
+		Expect(informer.HasSynced()).To(BeTrue())
 	})
 
 	It("remove cluster2, then list the services of cluster2", func() {
@@ -432,7 +432,7 @@ var _ = Describe("multicluster", func() {
 		var deployments appsv1.DeploymentList
 		err = fedClient.List(ctx, &deployments)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(deployments.Items)).To(Equal(3)) // cluster1 cluster4 cluster5
+		Expect(len(deployments.Items)).To(HaveLen(3)) // cluster1 cluster4 cluster5
 		Expect(manager.SyncedClusters()).To(Equal([]string{"cluster1"}))
 
 		clusterCtx := clusterinfo.WithClusters(ctx, []string{"cluster2"})
@@ -518,8 +518,8 @@ var _ = Describe("test cluster filter", func() {
 
 		clusterFilter, err := getClusterFilter(&ManagerConfig{})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(clusterFilter("cluster1")).To(Equal(true))
-		Expect(clusterFilter("cluster2")).To(Equal(true))
+		Expect(clusterFilter("cluster1")).To(BeTrue())
+		Expect(clusterFilter("cluster2")).To(BeTrue())
 	})
 
 	It("use block lists", func() {
@@ -528,8 +528,8 @@ var _ = Describe("test cluster filter", func() {
 
 		clusterFilter, err := getClusterFilter(&ManagerConfig{})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(clusterFilter("cluster1")).To(Equal(false))
-		Expect(clusterFilter("cluster2")).To(Equal(false))
+		Expect(clusterFilter("cluster1")).To(BeFalse())
+		Expect(clusterFilter("cluster2")).To(BeFalse())
 	})
 
 	It("use ClusterFilter", func() {
@@ -545,8 +545,8 @@ var _ = Describe("test cluster filter", func() {
 			},
 		})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(clusterFilter("cluster1")).To(Equal(true))
-		Expect(clusterFilter("cluster3")).To(Equal(false))
+		Expect(clusterFilter("cluster1")).To(BeTrue())
+		Expect(clusterFilter("cluster3")).To(BeTrue())
 	})
 })
 

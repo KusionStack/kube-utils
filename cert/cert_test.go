@@ -19,7 +19,7 @@ package cert
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/zoumo/golib/cert"
 )
 
@@ -31,10 +31,10 @@ func TestServingCerts_Validate(t *testing.T) {
 		},
 	}
 	certs, err := GenerateSelfSignedCerts(cfg)
-	assert.Nil(t, err)
-	assert.Nil(t, certs.Validate("foo.example.com"))
-	assert.Nil(t, certs.Validate("bar.example.com"))
-	assert.NotNil(t, certs.Validate("unknown.example.com"))
+	require.NoError(t, err)
+	require.NoError(t, certs.Validate("foo.example.com"))
+	require.NoError(t, certs.Validate("bar.example.com"))
+	require.NoError(t, certs.Validate("unknown.example.com"))
 }
 
 func TestGenerateSelfSignedCerts(t *testing.T) {
@@ -45,11 +45,11 @@ func TestGenerateSelfSignedCerts(t *testing.T) {
 		},
 	}
 	certs, err := GenerateSelfSignedCerts(cfg)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	err = certs.Validate("rollout.rollout-system.svc")
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	err = certs.Validate("foo.example.com")
-	assert.Nil(t, err)
+	require.NoError(t, err)
 }

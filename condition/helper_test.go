@@ -80,15 +80,15 @@ func TestSetCondition(t *testing.T) {
 	newCond = NewCondition("Test1", metav1.ConditionTrue, "", "")
 	got = SetCondition(conditions, *newCond)
 	assert.Len(t, got, 2)
-	assert.Equal(t, got[0].Type, "Test1")
+	assert.Equal(t, "Test1", got[0].Type)
 
 	// update existing condition, this condition will in the tail
 	newCond = NewCondition("Test1", metav1.ConditionFalse, "", "")
 	got = SetCondition(conditions, *newCond)
 	assert.Len(t, got, 2)
-	assert.Equal(t, got[0].Type, "Test2")
-	assert.Equal(t, got[1].Type, "Test1")
-	assert.Equal(t, got[1].Status, metav1.ConditionFalse)
+	assert.Equal(t, "Test2", got[0].Type)
+	assert.Equal(t, "Test1", got[1].Type)
+	assert.Equal(t, metav1.ConditionFalse, got[1].Status)
 }
 
 func TestRejectConditionByType(t *testing.T) {

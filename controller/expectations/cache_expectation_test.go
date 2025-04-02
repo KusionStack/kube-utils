@@ -86,9 +86,9 @@ func (s *cacheExpactationTestSuite) TestCacheExpectation() {
 	e := newCacheExpectation(s.testKey, s.clock, s.client, scheme.Scheme)
 
 	err := e.ExpectCreation(podGVK, corev1.NamespaceDefault, "create-pod")
-	s.NoError(err)
+	s.Require().NoError(err)
 	err = e.ExpectDeletion(podGVK, corev1.NamespaceDefault, "delete-pod")
-	s.NoError(err)
+	s.Require().NoError(err)
 
 	satisfied := e.Fulfilled()
 	s.False(satisfied, "waiting for create-pod")
@@ -96,11 +96,11 @@ func (s *cacheExpactationTestSuite) TestCacheExpectation() {
 
 	// create fake pods
 	err = s.client.Create(context.Background(), newPod("create-pod"))
-	s.NoError(err)
+	s.Require().NoError(err)
 	err = s.client.Create(context.Background(), newPod("update-pod"))
-	s.NoError(err)
+	s.Require().NoError(err)
 	err = e.ExpectUpdation(podGVK, corev1.NamespaceDefault, "update-pod", "2")
-	s.NoError(err)
+	s.Require().NoError(err)
 	satisfied = e.Fulfilled()
 	s.False(satisfied, "Waiting for update-pod")
 	s.Len(e.items.ListKeys(), 1)
@@ -110,7 +110,7 @@ func (s *cacheExpactationTestSuite) TestCacheExpectation() {
 	satisfied = e.Fulfilled()
 	s.True(satisfied, "satisfied")
 
-	s.Len(e.items.ListKeys(), 0, "items should be empty")
+	s.Empty(e.items.ListKeys(), "items should be empty")
 }
 
 func (s *cacheExpactationTestSuite) TestCacheExpectations() {
@@ -133,8 +133,8 @@ func (s *cacheExpactationTestSuite) TestCacheExpectations() {
 func (s *cacheExpactationTestSuite) updatePodRV(name string) {
 	pod := &corev1.Pod{}
 	err := s.client.Get(context.Background(), client.ObjectKey{Name: name, Namespace: corev1.NamespaceDefault}, pod)
-	s.NoError(err)
+	s.Require().NoError(err)
 	pod.Labels = map[string]string{"test": time.Now().String()}
 	err = s.client.Update(context.Background(), pod)
-	s.NoError(err)
+	s.Require().NoError(err)
 }

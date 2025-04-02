@@ -25,6 +25,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,8 +107,8 @@ var _ = Describe("Self signer", func() {
 			},
 		}
 
-		Expect(c.Create(context.TODO(), mutatingWebhook)).Should(BeNil())
-		Expect(c.Create(context.TODO(), validtingWebhook)).Should(BeNil())
+		Expect(c.Create(context.TODO(), mutatingWebhook)).Should(Succeed())
+		Expect(c.Create(context.TODO(), validtingWebhook)).Should(Succeed())
 
 		Eventually(func() error {
 			if err := c.Get(context.TODO(), types.NamespacedName{Namespace: namespace, Name: mutatingWebhookName}, mutatingWebhook); err != nil {
@@ -120,7 +121,7 @@ var _ = Describe("Self signer", func() {
 			}
 
 			return nil
-		}, 1*time.Second).Should(BeNil())
+		}, 1*time.Second).Should(Succeed())
 
 		Eventually(func() error {
 			if err := c.Get(context.TODO(), types.NamespacedName{Namespace: namespace, Name: validatingWebhookName}, validtingWebhook); err != nil {
@@ -133,7 +134,7 @@ var _ = Describe("Self signer", func() {
 			}
 
 			return nil
-		}, 1*time.Second).Should(BeNil())
+		}, 1*time.Second).Should(Succeed())
 	})
 })
 
@@ -155,7 +156,7 @@ var _ = BeforeSuite(func() {
 	Expect(config).NotTo(BeNil())
 
 	certPath, err = os.MkdirTemp(os.TempDir(), "cert-self-sign-test-*")
-	Expect(err).Should(BeNil())
+	Expect(err).ShouldNot(HaveOccurred())
 
 	mgr, err = manager.New(config, manager.Options{
 		MetricsBindAddress: "0",
@@ -165,7 +166,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	c = mgr.GetClient()
-	Expect(createNamespace(c, namespace)).Should(BeNil())
+	Expect(createNamespace(c, namespace)).Should(Succeed())
 
 	signer := New(mgr, CertConfig{
 		Host:                   host,
@@ -175,7 +176,7 @@ var _ = BeforeSuite(func() {
 		MutatingWebhookNames:   []string{mutatingWebhookName},
 		ValidatingWebhookNames: []string{validatingWebhookName},
 	})
-	Expect(signer.SetupWithManager(mgr)).Should(BeNil())
+	Expect(signer.SetupWithManager(mgr)).Should(Succeed())
 	// ignore PodDecoration SharedStrategyController
 	go func() {
 		err = mgr.Start(ctx)
@@ -188,10 +189,10 @@ var _ = AfterSuite(func() {
 
 	cancel()
 	err := os.RemoveAll(certPath)
-	Expect(err).Should(BeNil())
+	Expect(err).ShouldNot(HaveOccurred())
 
 	err = env.Stop()
-	Expect(err).NotTo(HaveOccurred())
+	Expect(err).ShouldNot(HaveOccurred())
 })
 
 func createNamespace(c client.Client, namespaceName string) error {

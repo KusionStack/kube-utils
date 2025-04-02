@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,13 +55,13 @@ func TestUpdateOnConflict(t *testing.T) {
 
 	pod := newTestPod()
 	err := client.Create(context.Background(), pod)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	oldPod := pod.DeepCopy()
 
 	pod.Labels["version"] = "v2"
 	err = client.Update(context.Background(), pod)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	oldPod.Labels["version"] = "v3"
 	err = client.Update(context.Background(), oldPod)
@@ -73,7 +74,7 @@ func TestUpdateOnConflict(t *testing.T) {
 		obj.Labels["version"] = "v3"
 		return nil
 	})
-	assert.NoError(t, err, "update should succeed on conflict")
+	require.NoError(t, err, "update should succeed on conflict")
 	assert.True(t, changed, "pod should be changed")
 	assert.Equal(t, "v3", pod.Labels["version"])
 
@@ -81,7 +82,7 @@ func TestUpdateOnConflict(t *testing.T) {
 		obj.Labels["version"] = "v3"
 		return nil
 	})
-	assert.NoError(t, err, "update should succeed")
+	require.NoError(t, err, "update should succeed")
 	assert.False(t, changed, "pod should not be changed")
 	assert.Equal(t, "v3", pod.Labels["version"])
 }
@@ -94,22 +95,22 @@ func TestCreateOrUpdateOnConflict(t *testing.T) {
 		obj.Labels["version"] = "v2"
 		return nil
 	})
-	assert.NoError(t, err, "create should succeed")
-	assert.EqualValues(t, controllerutil.OperationResultCreated, result, "pod created")
+	require.NoError(t, err, "create should succeed")
+	assert.Equal(t, controllerutil.OperationResultCreated, result, "pod created")
 	assert.Equal(t, "v2", pod.Labels["version"])
 
 	result, err = CreateOrUpdateOnConflict(context.Background(), client, client, pod, func(obj *corev1.Pod) error {
 		obj.Labels["version"] = "v2"
 		return nil
 	})
-	assert.NoError(t, err)
-	assert.EqualValues(t, controllerutil.OperationResultNone, result, "no change")
+	require.NoError(t, err)
+	assert.Equal(t, controllerutil.OperationResultNone, result, "no change")
 
 	result, err = CreateOrUpdateOnConflict(context.Background(), client, client, pod, func(obj *corev1.Pod) error {
 		obj.Labels["version"] = "v3"
 		return nil
 	})
-	assert.NoError(t, err)
-	assert.EqualValues(t, controllerutil.OperationResultUpdated, result)
+	require.NoError(t, err)
+	assert.Equal(t, controllerutil.OperationResultUpdated, result)
 	assert.Equal(t, "v3", pod.Labels["version"])
 }

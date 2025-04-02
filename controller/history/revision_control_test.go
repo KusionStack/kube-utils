@@ -47,13 +47,13 @@ func (s *revisionControlTestSuite) SetupSuite() {
 func (s *revisionControlTestSuite) SetupTest() {
 	s.testObj = newTestStatefulSet()
 	err := s.client.Create(context.TODO(), s.testObj)
-	s.NoError(err)
+	s.Require().NoError(err)
 
 	collisionCount := int32(0)
 	// create revision for test object
 	revision := newStatefulSetControllerRevision(s.testObj, 0, &collisionCount)
 	err = s.client.Create(context.TODO(), revision)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.testRevision = revision
 }
 
@@ -119,15 +119,15 @@ func (s *revisionControlTestSuite) TestCreateRevisionsConflict1() {
 
 	// this revision will has the same name as the first revision, but it's parent object has different UID.
 	created, err := s.revisionContrl.CreateControllerRevision(context.Background(), obj, revision, &collisionCount)
-	s.NoError(err)
-	s.EqualValues(collisionCount, 1, "create revision conflict, collisionCount should be 1")
+	s.Require().NoError(err)
+	s.Equal(1, collisionCount, "create revision conflict, collisionCount should be 1")
 	s.NotEqual(revision.Name, created.Name, "create revision conflict, revision name should be changed")
-	s.EqualValues(revision.Labels[ControllerRevisionHashLabel], created.Labels[ControllerRevisionHashLabel], "the hash label should be the same")
+	s.Equal(revision.Labels[ControllerRevisionHashLabel], created.Labels[ControllerRevisionHashLabel], "the hash label should be the same")
 	// s.True(strings.HasSuffix(created.Name, created.Labels[ControllerRevisionHashLabel]), "the suffix of revision name should be the same with hash")
 
 	list := &appsv1.ControllerRevisionList{}
 	err = s.client.List(context.Background(), list, client.InNamespace(s.testObj.Namespace))
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.Len(list.Items, 2)
 }
 
@@ -137,20 +137,20 @@ func (s *revisionControlTestSuite) TestCreateRevisionsConflict2() {
 	revision := s.testRevision.DeepCopy()
 	revision.Data.Raw = []byte(`{"data":"changed"}`)
 	err := s.client.Update(context.Background(), revision)
-	s.NoError(err)
+	s.Require().NoError(err)
 
 	// create revision again
 	revision = newStatefulSetControllerRevision(s.testObj, 0, &collisionCount)
 	created, err := s.revisionContrl.CreateControllerRevision(context.Background(), s.testObj, revision, &collisionCount)
-	s.NoError(err)
-	s.EqualValues(collisionCount, 1, "create revision conflict, collisionCount should be 1")
+	s.Require().NoError(err)
+	s.Equal(1, collisionCount, "create revision conflict, collisionCount should be 1")
 	s.NotEqual(revision.Name, created.Name)
-	s.EqualValues(revision.Labels[ControllerRevisionHashLabel], created.Labels[ControllerRevisionHashLabel], "the hash label should be the same")
+	s.Equal(revision.Labels[ControllerRevisionHashLabel], created.Labels[ControllerRevisionHashLabel], "the hash label should be the same")
 	// s.True(strings.HasSuffix(created.Name, created.Labels[ControllerRevisionHashLabel]), "the suffix of revision name should be the same with hash")
 
 	list := &appsv1.ControllerRevisionList{}
 	err = s.client.List(context.Background(), list, client.InNamespace(s.testObj.Namespace))
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.Len(list.Items, 2)
 }
 
@@ -168,7 +168,7 @@ func (s *revisionControlTestSuite) TestListRevisions() {
 
 	selector, _ := metav1.LabelSelectorAsSelector(s.testObj.Spec.Selector)
 	result, err := s.revisionContrl.ListControllerRevisions(context.Background(), s.testObj, selector)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.Len(result, 5)
 }
 
@@ -178,20 +178,20 @@ func (s *revisionControlTestSuite) TestUpdateRevision() {
 
 	revision := &appsv1.ControllerRevision{}
 	err := s.client.Get(context.Background(), client.ObjectKeyFromObject(s.testRevision), revision)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.EqualValues(newRevison, revision.Revision)
 }
 
 func (s *revisionControlTestSuite) TestDeleteRevision() {
 	key := client.ObjectKeyFromObject(s.testRevision)
 	err := s.revisionContrl.DeleteControllerRevision(context.Background(), s.testRevision)
-	s.NoError(err)
+	s.Require().NoError(err)
 	err = s.client.Get(context.Background(), key, &appsv1.ControllerRevision{})
 	s.True(errors.IsNotFound(err), "revision should be deleted")
 
 	// delete it again
 	err = s.revisionContrl.DeleteControllerRevision(context.Background(), s.testRevision)
-	s.NoError(err)
+	s.Require().NoError(err)
 	err = s.client.Get(context.Background(), key, &appsv1.ControllerRevision{})
 	s.True(errors.IsNotFound(err), "revision should be deleted")
 }

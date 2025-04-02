@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	k8smetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
@@ -34,13 +33,11 @@ const (
 	RestRequestCount   = "rest_request_count"
 )
 
-var (
-	controllerRestRequestCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Subsystem: ReconcileSubSystem,
-		Name:      RestRequestCount,
-		Help:      "count the rest request send by controller",
-	}, []string{"controller", "resource", "status", "method", "code"})
-)
+var controllerRestRequestCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Subsystem: ReconcileSubSystem,
+	Name:      RestRequestCount,
+	Help:      "count the rest request send by controller",
+}, []string{"controller", "resource", "status", "method", "code"})
 
 func RegisterControllerRestRequestMetrics() {
 	k8smetrics.Registry.MustRegister(controllerRestRequestCounter)

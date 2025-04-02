@@ -23,6 +23,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -60,7 +61,7 @@ var _ = Describe("Test prioriry_queue", func() {
 		It("Get expected lotteries", func() {
 			lotteries, err := getLotteries([]int{1, 2, 3, 4, 5})
 			Expect(err).To(Succeed())
-			Expect(len(lotteries)).To(Equal(15))
+			Expect(lotteries).To(HaveLen(15))
 			Expect(lotteries[0]).To(Equal(0))
 			Expect(lotteries[1]).To(Equal(1))
 			Expect(lotteries[2]).To(Equal(1))
@@ -83,7 +84,7 @@ var _ = Describe("Test prioriry_queue", func() {
 		It("The number of shuffled lotteries is right", func() {
 			lotteries, err := getLotteries([]int{1, 2, 3, 4, 5})
 			Expect(err).To(Succeed())
-			Expect(len(lotteries)).To(Equal(15))
+			Expect(lotteries).To(HaveLen(15))
 
 			shuffleLotteries(lotteries)
 			count := make(map[int]int)
@@ -100,7 +101,7 @@ var _ = Describe("Test prioriry_queue", func() {
 		It("Shuffled lotteries have different lottery sequences", func() {
 			lotteries1, err := getLotteries([]int{1, 2, 3, 4, 5, 6, 7, 8})
 			Expect(err).To(Succeed())
-			Expect(len(lotteries1)).To(Equal(36))
+			Expect(lotteries1).To(HaveLen(36))
 
 			shuffleLotteries(lotteries1)
 
@@ -115,7 +116,7 @@ var _ = Describe("Test prioriry_queue", func() {
 	Context("PriorityQueue", func() {
 		It("Failed to create PriorityQueue when name is empty", func() {
 			cfg := &PriorityQueueConfig{
-				GetPriorityFunc: func(obj interface{}) int {
+				GetPriorityFunc: func(obj any) int {
 					return 0
 				},
 				NumOfPriorityLotteries: []int{1, 2, 3, 4, 5},
@@ -136,7 +137,7 @@ var _ = Describe("Test prioriry_queue", func() {
 		It("Failed to create PriorityQueue when NumOfPriorityLotteries is invalid", func() {
 			cfg := &PriorityQueueConfig{
 				Name:                       controllerName,
-				GetPriorityFunc:            func(obj interface{}) int { return 0 },
+				GetPriorityFunc:            func(obj any) int { return 0 },
 				NumOfPriorityLotteries:     []int{5, 2, 3, 4, 5},
 				UnfinishedWorkUpdatePeriod: 100,
 			}
@@ -147,7 +148,7 @@ var _ = Describe("Test prioriry_queue", func() {
 		It("Succeed to create PriorityQueue using DefaultNumOfPriorityLotteries", func() {
 			cfg := &PriorityQueueConfig{
 				Name:                       controllerName,
-				GetPriorityFunc:            func(obj interface{}) int { return 0 },
+				GetPriorityFunc:            func(obj any) int { return 0 },
 				UnfinishedWorkUpdatePeriod: 100,
 			}
 			_, err := NewPriorityQueue(cfg)
@@ -235,7 +236,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			Expect(err).To(Succeed())
 			Expect(priorityQueue).NotTo(BeNil())
 
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				namespace := "namespace0"
 				name := fmt.Sprintf("object0%d", i)
 
@@ -249,7 +250,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			}
 			Expect(priorityQueue.Len()).To(Equal(100))
 
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				namespace := "namespace1"
 				name := fmt.Sprintf("object1%d", i)
 
@@ -263,7 +264,7 @@ var _ = Describe("Test prioriry_queue", func() {
 			}
 			Expect(priorityQueue.Len()).To(Equal(200))
 
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				namespace := "namespace2"
 				name := fmt.Sprintf("object2%d", i)
 
@@ -281,7 +282,7 @@ var _ = Describe("Test prioriry_queue", func() {
 				finishTime [3]time.Time
 				count      [3]int
 			)
-			for i := 0; i < 300; i++ {
+			for range 300 {
 				item, shutdown := priorityQueue.Get()
 				Expect(item).NotTo(BeNil())
 				Expect(shutdown).To(BeFalse())

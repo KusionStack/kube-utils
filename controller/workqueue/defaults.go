@@ -33,9 +33,7 @@ const (
 	DefaultWorkQueuePriority          = 2
 )
 
-var (
-	DefaultNumOfPriorityLotteries = []int{1, 2, 4, 8, 16}
-)
+var DefaultNumOfPriorityLotteries = []int{1, 2, 4, 8, 16}
 
 func DefaultGetPriorityFuncBuilder(cli client.Client) GetPriorityFunc {
 	return GetPriorityFuncBuilder(cli, DefaultWorkQueuePriorityLabel, DefaultWorkQueuePriority)

@@ -59,7 +59,7 @@ func (m *manager) handleNodeEvent() {
 			klog.Errorf("Unexpected node event queue item %v", item)
 			continue
 		}
-		eventType, node := m.decodeString2NodeEvent(info)
+		evtType, node := m.decodeString2NodeEvent(info)
 		if node == nil {
 			continue
 		}
@@ -70,7 +70,7 @@ func (m *manager) handleNodeEvent() {
 			continue
 		}
 
-		switch eventType {
+		switch evtType {
 		case EventTypeAdd:
 			for _, h := range storage.nodeUpdateHandler {
 				h.OnAdd(node)
@@ -104,7 +104,7 @@ func (m *manager) handleRelationEvent() {
 			klog.Errorf("Unexpected relation event queue item %v", item)
 			continue
 		}
-		eventType, preNode, postNode := m.decodeString2RelationEvent(info)
+		evtType, preNode, postNode := m.decodeString2RelationEvent(info)
 		if preNode == nil || postNode == nil {
 			continue
 		}
@@ -119,7 +119,7 @@ func (m *manager) handleRelationEvent() {
 			continue
 		}
 
-		switch eventType {
+		switch evtType {
 		case EventTypeAdd:
 			for _, handler := range handlers {
 				handler.OnAdd(preNode, postNode)

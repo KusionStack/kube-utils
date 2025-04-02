@@ -22,12 +22,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type jsonPathTest struct {
 	name        string
 	template    string
-	input       map[string]interface{}
+	input       map[string]any
 	expect      string
 	expectError bool
 }
@@ -37,11 +38,11 @@ func (t *jsonPathTest) Prepare(opts ...Option) (Extractor, error) {
 	if err != nil {
 		return nil, err
 	}
-	options := options{}
+	o := options{}
 	for _, opt := range opts {
-		opt.ApplyTo(&options)
+		opt.ApplyTo(&o)
 	}
-	jp := newJSONPatch(options, parser)
+	jp := newJSONPatch(o, parser)
 	return jp, nil
 }
 
@@ -137,9 +138,9 @@ var (
 		}
 }`)
 
-	podData map[string]interface{}
+	podData map[string]any
 
-	arbitrary = map[string]interface{}{
+	arbitrary = map[string]any{
 		"e": struct {
 			F1 string `json:"f1"`
 			F2 string `json:"f2"`
@@ -178,19 +179,19 @@ func TestJSONPath(t *testing.T) {
 
 func TestJSONPathReuse(t *testing.T) {
 	parser, err := parseJsonPath(`{.spec.containers[*]['name', 'image']}`)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	extractor := newJSONPatch(options{ignoreMissingKey: true}, parser)
 	got, err := extractor.Extract(podData)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	goup := sync.WaitGroup{}
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		goup.Add(1)
 		go func() {
 			defer goup.Done()
 			got2, err := extractor.Extract(podData)
 			assert.NoError(t, err)
-			assert.EqualValues(t, got, got2)
+			assert.Equal(t, got, got2)
 		}()
 	}
 	goup.Wait()

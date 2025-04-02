@@ -20,8 +20,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/hashicorp/consul/sdk/testutil/retry"
 	. "github.com/onsi/ginkgo"
+
+	"github.com/hashicorp/consul/sdk/testutil/retry"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -278,6 +279,7 @@ func buildMultiClustertopoConfig(k8sInformerFactory informers.SharedInformerFact
 		},
 	}
 }
+
 func newPod(namespace, name string, labels ...string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: *newObjectMeta(namespace, name, labels),
@@ -300,7 +302,6 @@ func newStatefulSet(namespace, name string, labels ...string) *appsv1.StatefulSe
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-
 							Name:  name,
 							Image: "busybox",
 						},
@@ -332,7 +333,6 @@ func newDeploy(namespace, name string, labels ...string) *appsv1.Deployment {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-
 							Name:  name,
 							Image: "busybox",
 						},
@@ -355,7 +355,6 @@ func newReplicaSet(namespace, name string, labels ...string) *appsv1.ReplicaSet 
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-
 							Name:  name,
 							Image: "busybox",
 						},

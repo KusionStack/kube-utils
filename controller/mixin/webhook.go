@@ -23,9 +23,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-var _ inject.Client = &WebhookAdmissionHandlerMixin{}
-var _ inject.Logger = &WebhookAdmissionHandlerMixin{}
-var _ admission.DecoderInjector = &WebhookAdmissionHandlerMixin{}
+var (
+	_ inject.Client             = &WebhookAdmissionHandlerMixin{}
+	_ inject.Logger             = &WebhookAdmissionHandlerMixin{}
+	_ admission.DecoderInjector = &WebhookAdmissionHandlerMixin{}
+)
 
 type WebhookAdmissionHandlerMixin struct {
 	Client  client.Client

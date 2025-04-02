@@ -22,12 +22,12 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var _ = Describe("Test defaults", func() {
@@ -36,12 +36,10 @@ var _ = Describe("Test defaults", func() {
 		testNamespace = "default"
 	)
 
-	var (
-		req = reconcile.Request{NamespacedName: client.ObjectKey{
-			Name:      testObject,
-			Namespace: testNamespace,
-		}}
-	)
+	req := reconcile.Request{NamespacedName: client.ObjectKey{
+		Name:      testObject,
+		Namespace: testNamespace,
+	}}
 
 	Context("Use default workqueue priority label", func() {
 		It("Should get default priority if default workqueue priority label nil", func() {

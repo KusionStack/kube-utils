@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParse(t *testing.T) {
@@ -38,9 +39,9 @@ func TestParse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := parseJsonPath(tt.text)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, got)
 			}
 		})

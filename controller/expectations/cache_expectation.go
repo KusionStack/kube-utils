@@ -31,6 +31,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// CacheExpectationsInterface is an interface that allows users to set and wait on expectations.
+// Only abstracted out for testing.
+type CacheExpectationsInterface interface {
+	GetExpectations(controllerKey string) (*CacheExpectation, bool, error)
+	DeleteExpectations(controllerKey string)
+	SatisfiedExpectations(controllerKey string) bool
+	ExpectCreation(controllerKey string, gvk schema.GroupVersionKind, namespace, name string) error
+	ExpectDeletion(controllerKey string, gvk schema.GroupVersionKind, namespace, name string) error
+	ExpectUpdation(controllerKey string, gvk schema.GroupVersionKind, namespace, name, resourceVersion string) error
+}
+
+var _ CacheExpectationsInterface = &CacheExpectations{}
+
 type CacheExpectations struct {
 	cache.Store
 

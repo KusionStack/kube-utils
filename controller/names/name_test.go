@@ -32,18 +32,18 @@ func Test_generateDNS1035LabelPrefix(t *testing.T) {
 
 	base = "test-1"
 	prefix = generateDNS1035LabelPrefix(base, 57)
-	assert.Equal(t, prefix, "test-1-")
+	assert.Equal(t, "test-1-", prefix)
 
 	base = "test.1"
 	prefix = generateDNS1035LabelPrefix(base, 57)
-	assert.Equal(t, prefix, "test-1-")
+	assert.Equal(t, "test-1-", prefix)
 }
 
 func Test_GenerateDNS1035Label(t *testing.T) {
 	base := "test"
 	suffix := "0"
 	name := GenerateDNS1035Label(base, suffix)
-	assert.Equal(t, name, "test-0")
+	assert.Equal(t, "test-0", name)
 
 	base = "test-123456789012345678901234567890123456789012345678901234567890"
 	name = GenerateDNS1035Label(base, suffix)
