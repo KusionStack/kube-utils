@@ -125,7 +125,7 @@ func (r *CacheExpectations) initExpectations(controllerKey string) (*CacheExpect
 	if !exists {
 		e = newCacheExpectation(controllerKey, r.clock, r.reader, r.scheme)
 		klog.V(5).InfoS("Creating new cache expectation", "key", controllerKey)
-		r.Add(e)
+		r.Add(e) // nolint: errcheck
 		e, _, _ = r.GetByKey(controllerKey)
 	}
 	return e.(*CacheExpectation), nil
@@ -161,7 +161,7 @@ func (e *CacheExpectation) Fulfilled() bool {
 	for _, item := range items {
 		citem := item.(*CacheExpectationItem)
 		if citem.Fulfilled() {
-			e.items.Delete(item)
+			e.items.Delete(item) // nolint: errcheck
 			continue
 		}
 		satisfied = false
@@ -191,7 +191,7 @@ func (e *CacheExpectation) expect(key string, fn satisfied) error {
 		eitem = item.(*CacheExpectationItem)
 	} else {
 		eitem = newCacheExpatationItem(key, e.clock)
-		e.items.Add(eitem)
+		e.items.Add(eitem) // nolint: errcheck
 	}
 	eitem.Set(fn)
 	return nil
@@ -213,10 +213,7 @@ func (e *CacheExpectation) creationObserved(gvk schema.GroupVersionKind, namespa
 			panic(fmt.Errorf("failed to cast object to client.Object"))
 		}
 		err = e.reader.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, cObj)
-		if err != nil {
-			return false
-		}
-		return true
+		return err == nil
 	}
 }
 

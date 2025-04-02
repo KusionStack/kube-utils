@@ -174,7 +174,7 @@ func (ip *cacheSupportDisableDeepCopy) objectTypeForListObject(list client.Objec
 		// http://knowyourmeme.com/memes/this-is-fine
 		elemType := reflect.Indirect(reflect.ValueOf(itemsPtr)).Type().Elem()
 		if elemType.Kind() != reflect.Ptr {
-			elemType = reflect.PtrTo(elemType)
+			elemType = reflect.PointerTo(elemType)
 		}
 
 		cacheTypeValue := reflect.Zero(elemType)
@@ -286,8 +286,7 @@ type ObjectWithoutDeepCopy struct {
 
 var DisableDeepCopy = &disableDeepCopyListOption{}
 
-type disableDeepCopyListOption struct {
-}
+type disableDeepCopyListOption struct{}
 
 func (o *disableDeepCopyListOption) ApplyToList(*client.ListOptions) {
 }
