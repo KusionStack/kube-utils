@@ -29,7 +29,7 @@ import (
 
 type OwnerRefWriter interface {
 	Adopt(ctx context.Context, parent metav1.Object, parentGVK schema.GroupVersionKind, child metav1.Object) error
-	Release(ctx context.Context, parant metav1.Object, child metav1.Object) error
+	Release(ctx context.Context, parant, child metav1.Object) error
 }
 
 func NewOwnerRefWriter(client client.Writer) OwnerRefWriter {
@@ -60,7 +60,7 @@ func (w *ownerRefWriter) Adopt(ctx context.Context, parent metav1.Object, parent
 	return w.client.Update(ctx, clientObj)
 }
 
-func (w *ownerRefWriter) Release(ctx context.Context, parent metav1.Object, obj metav1.Object) error {
+func (w *ownerRefWriter) Release(ctx context.Context, parent, obj metav1.Object) error {
 	oldOwners := obj.GetOwnerReferences()
 
 	// filter out the owner that points to the parent

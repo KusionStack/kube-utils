@@ -78,7 +78,7 @@ formatters:
         - default
         - localmodule
     gofumpt:
-      extra_rules: true
+      extra-rules: true
   exclusions:
     generated: lax
     paths:

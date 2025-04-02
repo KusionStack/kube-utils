@@ -262,7 +262,7 @@ const allNamespacesNamespace = "__all_namespaces"
 
 // KeyToNamespacedKey prefixes the given index key with a namespace
 // for use in field selector indexes.
-func KeyToNamespacedKey(ns string, baseKey string) string {
+func KeyToNamespacedKey(ns, baseKey string) string {
 	if ns != "" {
 		return ns + "/" + baseKey
 	}

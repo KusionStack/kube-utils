@@ -164,10 +164,10 @@ type ResourceRelation struct {
 
 type RelationHandler interface {
 	// OnAdd is called after relation newly added between preOrder and postOrder
-	OnAdd(preOrder NodeInfo, postOrder NodeInfo)
+	OnAdd(preOrder, postOrder NodeInfo)
 
 	// OnDelete is called after relation deleted between preOrder and postOrder
-	OnDelete(preOrder NodeInfo, postOrder NodeInfo)
+	OnDelete(preOrder, postOrder NodeInfo)
 }
 
 type NodeHandler interface {
