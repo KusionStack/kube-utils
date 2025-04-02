@@ -142,7 +142,7 @@ func (s *historyManagerTestSuite) TestRevisionConstruction() {
 	// sync again
 	currentRevison, updatedRevision, revisions, collisionCount, created, err = s.manager.ConstructRevisions(context.Background(), s.testObj)
 	if s.NoError(err) {
-		s.Equal(0, collisionCount, "collision count should be 0")
+		s.EqualValues(0, collisionCount, "collision count should be 0")
 		s.False(created, "template does not change, should not create new revision")
 		s.Len(revisions, 2, "should have 2 revisions")
 		s.NotEmpty(currentRevison.Name)
@@ -155,7 +155,7 @@ func (s *historyManagerTestSuite) TestRevisionConstruction() {
 	s.testObj.Spec.Template.Labels["version"] = "v1"
 	currentRevison, updatedRevision, revisions, collisionCount, created, err = s.manager.ConstructRevisions(context.Background(), s.testObj)
 	if s.NoError(err) {
-		s.Equal(0, collisionCount, "collision count should be 0")
+		s.EqualValues(0, collisionCount, "collision count should be 0")
 		s.False(created, "v1 revision is already exist, should not create new revision")
 		s.Len(revisions, 2, "should have 2 revisions")
 		s.NotEmpty(currentRevison.Name)

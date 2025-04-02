@@ -120,7 +120,7 @@ func (s *revisionControlTestSuite) TestCreateRevisionsConflict1() {
 	// this revision will has the same name as the first revision, but it's parent object has different UID.
 	created, err := s.revisionContrl.CreateControllerRevision(context.Background(), obj, revision, &collisionCount)
 	s.Require().NoError(err)
-	s.Equal(1, collisionCount, "create revision conflict, collisionCount should be 1")
+	s.EqualValues(1, collisionCount, "create revision conflict, collisionCount should be 1")
 	s.NotEqual(revision.Name, created.Name, "create revision conflict, revision name should be changed")
 	s.Equal(revision.Labels[ControllerRevisionHashLabel], created.Labels[ControllerRevisionHashLabel], "the hash label should be the same")
 	// s.True(strings.HasSuffix(created.Name, created.Labels[ControllerRevisionHashLabel]), "the suffix of revision name should be the same with hash")
@@ -143,7 +143,7 @@ func (s *revisionControlTestSuite) TestCreateRevisionsConflict2() {
 	revision = newStatefulSetControllerRevision(s.testObj, 0, &collisionCount)
 	created, err := s.revisionContrl.CreateControllerRevision(context.Background(), s.testObj, revision, &collisionCount)
 	s.Require().NoError(err)
-	s.Equal(1, collisionCount, "create revision conflict, collisionCount should be 1")
+	s.EqualValues(1, collisionCount, "create revision conflict, collisionCount should be 1")
 	s.NotEqual(revision.Name, created.Name)
 	s.Equal(revision.Labels[ControllerRevisionHashLabel], created.Labels[ControllerRevisionHashLabel], "the hash label should be the same")
 	// s.True(strings.HasSuffix(created.Name, created.Labels[ControllerRevisionHashLabel]), "the suffix of revision name should be the same with hash")

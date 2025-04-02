@@ -53,7 +53,7 @@ func TestAddFinalizerAndUpdate(t *testing.T) {
 	pod = oldPod.DeepCopy()
 	err = AddFinalizerAndUpdate(c, pod, "test/v2")
 	if assert.NoError(t, err) {
-		assert.Len(t, len(pod.Finalizers), 2)
+		assert.Len(t, pod.Finalizers, 2)
 		assert.Equal(t, "test/v1", pod.Finalizers[0])
 		assert.Equal(t, "test/v2", pod.Finalizers[1])
 	}
@@ -88,7 +88,7 @@ func TestRemoveFinalizerAndUpdate(t *testing.T) {
 	pod = oldPod.DeepCopy()
 	err = RemoveFinalizerAndUpdate(c, pod, "test/v1")
 	require.NoError(t, err)
-	assert.Len(t, len(pod.Finalizers), 1)
+	assert.Len(t, pod.Finalizers, 1)
 	assert.Equal(t, "test/v2", pod.Finalizers[0])
 }
 

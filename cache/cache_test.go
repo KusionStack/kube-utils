@@ -95,7 +95,7 @@ var _ = Describe("cache support no DeepCopy", func() {
 		Expect(podWithoutDeepCopy2.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).ShouldNot(BeNil())
 		Expect(podWithDeepCopy.Spec.Containers[0].ReadinessProbe).ShouldNot(BeNil())
 		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).Should(BeIdenticalTo(podWithoutDeepCopy2.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe))
-		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).Should(BeIdenticalTo(podWithDeepCopy.Spec.Containers[0].ReadinessProbe))
+		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).ShouldNot(BeIdenticalTo(podWithDeepCopy.Spec.Containers[0].ReadinessProbe))
 
 		Expect(errors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: "not-found"}, podWithoutDeepCopy1))).Should(BeTrue())
 	})

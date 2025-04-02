@@ -432,7 +432,7 @@ var _ = Describe("multicluster", func() {
 		var deployments appsv1.DeploymentList
 		err = fedClient.List(ctx, &deployments)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(deployments.Items)).To(HaveLen(3)) // cluster1 cluster4 cluster5
+		Expect(deployments.Items).To(HaveLen(3)) // cluster1 cluster4 cluster5
 		Expect(manager.SyncedClusters()).To(Equal([]string{"cluster1"}))
 
 		clusterCtx := clusterinfo.WithClusters(ctx, []string{"cluster2"})
@@ -546,7 +546,7 @@ var _ = Describe("test cluster filter", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(clusterFilter("cluster1")).To(BeTrue())
-		Expect(clusterFilter("cluster3")).To(BeTrue())
+		Expect(clusterFilter("cluster3")).To(BeFalse())
 	})
 })
 

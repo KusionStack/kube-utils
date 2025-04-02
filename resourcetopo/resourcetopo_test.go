@@ -104,8 +104,8 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		Eventually(func(g Gomega) {
 			pod, _ := podStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: podName})
 			g.Expect(pod).NotTo(BeNil())
-			g.Expect(len(pod.GetPostOrders())).To(BeEmpty())
-			g.Expect(len(pod.GetPreOrders())).To(BeEmpty())
+			g.Expect(pod.GetPostOrders()).To(BeEmpty())
+			g.Expect(pod.GetPreOrders()).To(BeEmpty())
 
 			g.Expect(pod.TypeInfo()).To(Equal(PodMeta))
 			g.Expect(pod.NodeInfo()).To(Equal(types.NamespacedName{Namespace: namespaceDefault, Name: podName}))

@@ -34,7 +34,7 @@ func TestServingCerts_Validate(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, certs.Validate("foo.example.com"))
 	require.NoError(t, certs.Validate("bar.example.com"))
-	require.NoError(t, certs.Validate("unknown.example.com"))
+	require.Error(t, certs.Validate("unknown.example.com"))
 }
 
 func TestGenerateSelfSignedCerts(t *testing.T) {

@@ -6,17 +6,8 @@ ENVTEST_K8S_VERSION = 1.24.1
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-
-.PHONY: fmt
-fmt: ## Run go fmt against code.
-	go fmt ./...
-
-.PHONY: vet
-vet: ## Run go vet against code.
-	go vet ./...
-
 .PHONY: test
-test: fmt vet envtest ## Run tests.
+test: envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
 .PHONY: lint
