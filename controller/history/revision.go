@@ -46,7 +46,7 @@ const (
 
 // ControllerRevisionName returns the Name for a ControllerRevision in the form prefix-hash. If the length
 // of prefix is greater than 223 bytes, it is truncated to allow for a name that is no larger than 253 bytes.
-func ControllerRevisionName(prefix string, hash string) string {
+func ControllerRevisionName(prefix, hash string) string {
 	if len(prefix) > 223 {
 		prefix = prefix[:223]
 	}
@@ -105,7 +105,7 @@ func (br byRevision) Swap(i, j int) {
 
 // EqualRevision returns true if lhs and rhs are either both nil, or both have same labels and annotations, or bath point
 // to non-nil ControllerRevisions that contain semantically equivalent data. Otherwise this method returns false.
-func EqualRevision(lhs *apps.ControllerRevision, rhs *apps.ControllerRevision) bool {
+func EqualRevision(lhs, rhs *apps.ControllerRevision) bool {
 	var lhsHash, rhsHash *uint32
 	if lhs == nil || rhs == nil {
 		return lhs == rhs

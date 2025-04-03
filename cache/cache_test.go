@@ -55,14 +55,13 @@ var (
 )
 
 var _ = Describe("cache support no DeepCopy", func() {
-
 	It("support list without DeepCopy", func() {
 		podListNoDeepCopy1 := &corev1.PodList{}
-		Expect(c.List(ctx, podListNoDeepCopy1, DisableDeepCopy)).Should(BeNil())
+		Expect(c.List(ctx, podListNoDeepCopy1, DisableDeepCopy)).Should(Succeed())
 		podListNoDeepCopy2 := &corev1.PodList{}
-		Expect(c.List(ctx, podListNoDeepCopy2, DisableDeepCopy)).Should(BeNil())
+		Expect(c.List(ctx, podListNoDeepCopy2, DisableDeepCopy)).Should(Succeed())
 		podListDeepCopy := &corev1.PodList{}
-		Expect(c.List(ctx, podListDeepCopy)).Should(BeNil())
+		Expect(c.List(ctx, podListDeepCopy)).Should(Succeed())
 
 		Expect(podListNoDeepCopy1.Items[0]).Should(BeEquivalentTo(podListNoDeepCopy2.Items[0]))
 		Expect(podListNoDeepCopy1.Items[0]).ShouldNot(BeEquivalentTo(podListDeepCopy.Items[0]))
@@ -71,13 +70,14 @@ var _ = Describe("cache support no DeepCopy", func() {
 	It("support list without DeepCopy using field index", func() {
 		fieldIndexOption := &client.ListOptions{
 			FieldSelector: fields.AndSelectors(fields.OneTermEqualSelector(TestPodNamespaceFieldIndex, pod.Namespace),
-				fields.OneTermEqualSelector(TestPodContainerNumberFieldIndex, fmt.Sprintf("%d", len(pod.Spec.Containers))))}
+				fields.OneTermEqualSelector(TestPodContainerNumberFieldIndex, fmt.Sprintf("%d", len(pod.Spec.Containers)))),
+		}
 		podListNoDeepCopy1 := &corev1.PodList{}
-		Expect(c.List(ctx, podListNoDeepCopy1, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
+		Expect(c.List(ctx, podListNoDeepCopy1, DisableDeepCopy, fieldIndexOption)).Should(Succeed())
 		podListNoDeepCopy2 := &corev1.PodList{}
-		Expect(c.List(ctx, podListNoDeepCopy2, DisableDeepCopy, fieldIndexOption)).Should(BeNil())
+		Expect(c.List(ctx, podListNoDeepCopy2, DisableDeepCopy, fieldIndexOption)).Should(Succeed())
 		podListDeepCopy := &corev1.PodList{}
-		Expect(c.List(ctx, podListDeepCopy)).Should(BeNil())
+		Expect(c.List(ctx, podListDeepCopy)).Should(Succeed())
 
 		Expect(podListNoDeepCopy1.Items[0]).Should(BeEquivalentTo(podListNoDeepCopy2.Items[0]))
 		Expect(podListNoDeepCopy1.Items[0]).ShouldNot(BeEquivalentTo(podListDeepCopy.Items[0]))
@@ -85,32 +85,32 @@ var _ = Describe("cache support no DeepCopy", func() {
 
 	It("support get without DeepCopy", func() {
 		podWithoutDeepCopy1 := &ObjectWithoutDeepCopy{Object: &corev1.Pod{}}
-		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy1)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy1)).Should(Succeed())
 		podWithoutDeepCopy2 := &ObjectWithoutDeepCopy{Object: &corev1.Pod{}}
-		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy2)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithoutDeepCopy2)).Should(Succeed())
 		podWithDeepCopy := &corev1.Pod{}
-		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithDeepCopy)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, podWithDeepCopy)).Should(Succeed())
 
 		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).ShouldNot(BeNil())
 		Expect(podWithoutDeepCopy2.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).ShouldNot(BeNil())
 		Expect(podWithDeepCopy.Spec.Containers[0].ReadinessProbe).ShouldNot(BeNil())
-		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe == podWithoutDeepCopy2.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).Should(BeTrue())
-		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe == podWithDeepCopy.Spec.Containers[0].ReadinessProbe).Should(BeFalse())
+		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).Should(BeIdenticalTo(podWithoutDeepCopy2.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe))
+		Expect(podWithoutDeepCopy1.Object.(*corev1.Pod).Spec.Containers[0].ReadinessProbe).ShouldNot(BeIdenticalTo(podWithDeepCopy.Spec.Containers[0].ReadinessProbe))
 
 		Expect(errors.IsNotFound(c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: "not-found"}, podWithoutDeepCopy1))).Should(BeTrue())
 	})
 
 	It("support uncached object", func() {
 		deployUncached0 := &ObjectWithoutDeepCopy{Object: &appsv1.Deployment{}}
-		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached0)).ShouldNot(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached0)).ShouldNot(Succeed())
 		deployUncached1 := &appsv1.Deployment{}
-		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached1)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached1)).Should(Succeed())
 		deployUncached2 := &appsv1.Deployment{}
-		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached2)).Should(BeNil())
+		Expect(c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deployUncached2)).Should(Succeed())
 
 		Expect(deployUncached1.Spec.Selector).ShouldNot(BeNil())
 		Expect(deployUncached2.Spec.Selector).ShouldNot(BeNil())
-		Expect(deployUncached1.Spec.Selector == deployUncached2.Spec.Selector).Should(BeFalse())
+		Expect(deployUncached1.Spec.Selector).ShouldNot(BeIdenticalTo(deployUncached2.Spec.Selector))
 	})
 })
 
@@ -137,7 +137,7 @@ func initPod() {
 			},
 		},
 	}
-	Expect(c.Create(ctx, pod)).Should(BeNil())
+	Expect(c.Create(ctx, pod)).Should(Succeed())
 	Eventually(func() bool {
 		return c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, pod) == nil
 	}, 5*time.Second, 1*time.Second).Should(BeTrue())
@@ -172,7 +172,7 @@ func initDeploy() {
 			},
 		},
 	}
-	Expect(c.Create(ctx, deploy)).Should(BeNil())
+	Expect(c.Create(ctx, deploy)).Should(Succeed())
 	Eventually(func() bool {
 		return c.Get(ctx, types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, deploy) == nil
 	}, 5*time.Second, 1*time.Second).Should(BeTrue())

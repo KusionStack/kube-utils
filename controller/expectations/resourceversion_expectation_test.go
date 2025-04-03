@@ -39,13 +39,13 @@ func (s *resourceVersionExpactationTestSuite) TearDownTest() {
 
 func (s *resourceVersionExpactationTestSuite) TestExpectations_General() {
 	_, ok, err := s.expectation.GetExpectations(s.testKey)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.False(ok)
 
 	// set
 	s.expectation.SetExpectations(s.testKey, "1")
 	_, ok, err = s.expectation.GetExpectations(s.testKey)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.True(ok)
 
 	// satisfied
@@ -58,7 +58,7 @@ func (s *resourceVersionExpactationTestSuite) TestExpectations_General() {
 	// delete expectations
 	s.expectation.DeleteExpectations(s.testKey)
 	_, ok, err = s.expectation.GetExpectations(s.testKey)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.False(ok)
 
 	// expect update

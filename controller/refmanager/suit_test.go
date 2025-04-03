@@ -112,14 +112,14 @@ func (s *ownerReferenceTestSute) SetupSuite() {
 func (s *ownerReferenceTestSute) SetupTest() {
 	s.owner = newTestStatefulSet()
 	err := s.client.Create(context.TODO(), s.owner)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.ownerRef = *metav1.NewControllerRef(s.owner, s.ownerGVK)
 
 	s.deferentOwner = newTestStatefulSet()
 	s.deferentOwner.Name = "deferent-owner"
 	s.deferentOwner.UID = "deferent-uid"
 	err = s.client.Create(context.TODO(), s.deferentOwner)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.deferentOwnerRef = *metav1.NewControllerRef(s.deferentOwner, s.ownerGVK)
 }
 

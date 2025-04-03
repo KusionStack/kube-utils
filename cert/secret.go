@@ -38,7 +38,7 @@ const (
 
 // SecretClient is a client wrapper for secret operations.
 type SecretClient interface {
-	Get(ctx context.Context, namespace string, name string) (*corev1.Secret, error)
+	Get(ctx context.Context, namespace, name string) (*corev1.Secret, error)
 	Create(ctx context.Context, secret *corev1.Secret) error
 	Update(ctx context.Context, secret *corev1.Secret) error
 }
@@ -68,7 +68,7 @@ func (s *secretClient) Create(ctx context.Context, secret *corev1.Secret) error 
 }
 
 // Get implements SecretClient.
-func (s *secretClient) Get(ctx context.Context, namespace string, name string) (*corev1.Secret, error) {
+func (s *secretClient) Get(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
 	var secret corev1.Secret
 	err := s.reader.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &secret)
 	if err != nil {

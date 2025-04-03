@@ -23,6 +23,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
@@ -98,19 +99,18 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podName := "test1"
 		podHandler.addCallExpected()
 		_, err := fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
-
 			pod, _ := podStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: podName})
 			g.Expect(pod).NotTo(BeNil())
-			g.Expect(len(pod.GetPostOrders())).To(Equal(0))
-			g.Expect(len(pod.GetPreOrders())).To(Equal(0))
+			g.Expect(pod.GetPostOrders()).To(BeEmpty())
+			g.Expect(pod.GetPreOrders()).To(BeEmpty())
 
 			g.Expect(pod.TypeInfo()).To(Equal(PodMeta))
 			g.Expect(pod.NodeInfo()).To(Equal(types.NamespacedName{Namespace: namespaceDefault, Name: podName}))
 
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -123,17 +123,17 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		istsHandler.relatedCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			sts, _ := stsStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: stsName})
 			g.Expect(sts).NotTo(BeNil())
 
 			preOrders := sts.GetPreOrders()
-			g.Expect(len(preOrders)).To(Equal(1))
+			g.Expect(preOrders).To(HaveLen(1))
 			postOrders := sts.GetPostOrders()
-			g.Expect(len(postOrders)).To(Equal(0))
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(postOrders).To(BeEmpty())
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -143,7 +143,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 
 		podHandler.addCallExpected()
 		_, err := fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.addCallExpected()
@@ -152,19 +152,18 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.addCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			pod, _ := podStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: podName})
 			g.Expect(pod).NotTo(BeNil())
-			g.Expect(len(pod.GetPostOrders())).To(Equal(0))
+			g.Expect(pod.GetPostOrders()).To(BeEmpty())
 			preOrders := pod.GetPreOrders()
-			g.Expect(len(preOrders)).To(Equal(1))
+			g.Expect(preOrders).To(HaveLen(1))
 			g.Expect(pod.TypeInfo()).To(Equal(PodMeta))
 			g.Expect(pod.NodeInfo()).To(Equal(types.NamespacedName{Namespace: namespaceDefault, Name: podName}))
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
-
 	})
 
 	It("create sts and pod", func() {
@@ -176,7 +175,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		istsHandler.relatedCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err := fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
@@ -184,16 +183,16 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		istsHandler.relatedCallExpected()
 		podStsRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			pod, _ := podStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: podName})
 			g.Expect(pod).NotTo(BeNil())
-			g.Expect(len(pod.GetPostOrders())).To(Equal(0))
-			g.Expect(len(pod.GetPreOrders())).To(Equal(1))
+			g.Expect(pod.GetPostOrders()).To(BeEmpty())
+			g.Expect(pod.GetPreOrders()).To(HaveLen(1))
 			g.Expect(pod.TypeInfo()).To(Equal(PodMeta))
 			g.Expect(pod.NodeInfo()).To(Equal(types.NamespacedName{Namespace: namespaceDefault, Name: podName}))
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -205,7 +204,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod1Name, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.addCallExpected()
@@ -214,7 +213,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.addCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
@@ -222,17 +221,17 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		istsHandler.relatedCallExpected()
 		podStsRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod2Name, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			sts, _ := stsStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: stsName})
 			g.Expect(sts).NotTo(BeNil())
 
 			preOrders := sts.GetPreOrders()
-			g.Expect(len(preOrders)).To(Equal(1))
+			g.Expect(preOrders).To(HaveLen(1))
 			postOrders := sts.GetPostOrders()
-			g.Expect(len(postOrders)).To(Equal(2))
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(postOrders).To(HaveLen(2))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -243,7 +242,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod1Name, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.addCallExpected()
@@ -252,7 +251,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.addCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.deleteCallExpected()
@@ -260,7 +259,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		istsHandler.relatedCallExpected()
 		podStsRelation.deleteCallExpected()
 		err = fakeClient.CoreV1().Pods(namespaceDefault).Delete(ctx, pod1Name, metav1.DeleteOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.deleteCallExpected()
@@ -268,7 +267,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		istsHandler.deleteCallExpected()
 		stsIstsRelation.deleteCallExpected()
 		err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Delete(ctx, stsName, metav1.DeleteOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		Eventually(func(g Gomega) {
@@ -284,7 +283,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod1Name, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.addCallExpected()
@@ -293,7 +292,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.addCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.deleteCallExpected()
@@ -302,12 +301,12 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.deleteCallExpected()
 		stsIstsRelation.deleteCallExpected()
 		err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Delete(ctx, stsName, metav1.DeleteOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.deleteCallExpected()
 		err = fakeClient.CoreV1().Pods(namespaceDefault).Delete(ctx, pod1Name, metav1.DeleteOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		Eventually(func(g Gomega) {
@@ -315,7 +314,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 			sts, _ := stsStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: stsName})
 			g.Expect(sts).To(BeNil())
 			g.Expect(pod).To(BeNil())
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -326,7 +325,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod1Name, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.addCallExpected()
@@ -335,30 +334,30 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.addCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.updateCallExpected()
 		stsHandler.relatedCallExpected()
 		istsHandler.relatedCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Update(ctx, newPod(namespaceDefault, pod1Name, "apps", stsName), metav1.UpdateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.updateCallExpected()
 		istsHandler.relatedCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Update(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.UpdateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		Eventually(func(g Gomega) {
 			sts, _ := stsStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: stsName})
 			g.Expect(sts).NotTo(BeNil())
 			preOrders := sts.GetPreOrders()
-			g.Expect(len(preOrders)).To(Equal(1))
+			g.Expect(preOrders).To(HaveLen(1))
 			postOrders := sts.GetPostOrders()
-			g.Expect(len(postOrders)).To(Equal(1))
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(postOrders).To(HaveLen(1))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -369,7 +368,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod1Name, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.addCallExpected()
@@ -378,7 +377,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.addCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.updateCallExpected()
@@ -386,18 +385,17 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		istsHandler.relatedCallExpected()
 		podStsRelation.deleteCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Update(ctx, newPod(namespaceDefault, pod1Name, "apps", stsName+"failed"), metav1.UpdateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			sts, _ := stsStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: stsName})
 			g.Expect(sts).NotTo(BeNil())
 			preOrders := sts.GetPreOrders()
-			g.Expect(len(preOrders)).To(Equal(1))
+			g.Expect(preOrders).To(HaveLen(1))
 			postOrders := sts.GetPostOrders()
-			g.Expect(len(postOrders)).To(Equal(0))
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(postOrders).To(BeEmpty())
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
-
 	})
 
 	It("create pod and sts; update sts label to no longer match", func() {
@@ -407,7 +405,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod1Name, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.addCallExpected()
@@ -416,7 +414,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.addCallExpected()
 		stsIstsRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Create(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		stsHandler.updateCallExpected()
@@ -424,16 +422,16 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		podStsRelation.deleteCallExpected()
 
 		_, err = fakeClient.AppsV1().StatefulSets(namespaceDefault).Update(ctx, newStatefulSet(namespaceDefault, stsName, "apps", stsName+"failed"), metav1.UpdateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			sts, _ := stsStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: stsName})
 			g.Expect(sts).NotTo(BeNil())
 			preOrders := sts.GetPreOrders()
 			postOrders := sts.GetPostOrders()
-			g.Expect(len(preOrders)).To(Equal(1))
-			g.Expect(len(postOrders)).To(Equal(0))
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(preOrders).To(HaveLen(1))
+			g.Expect(postOrders).To(BeEmpty())
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 })
@@ -480,9 +478,9 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).NotTo(HaveOccurred())
 
 		roleBindingRelation = &relationHandler{}
-		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ClusterRoleMeta, roleBindingRelation)).To(BeNil())
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ClusterRoleMeta, roleBindingRelation)).To(Succeed())
 		saBindingRelation = &relationHandler{}
-		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ServiceAccountMeta, saBindingRelation)).To(BeNil())
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ServiceAccountMeta, saBindingRelation)).To(Succeed())
 
 		manager.Start(ctx.Done())
 		k8sInformerFactory.Start(ctx.Done())
@@ -509,7 +507,7 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 		Eventually(func(g Gomega) {
 			crb, _ := clusterRoleBindingStorage.GetNode(types.NamespacedName{Name: crbName})
 			g.Expect(crb).NotTo(BeNil())
-			g.Expect(len(crb.GetPostOrders())).To(Equal(0))
+			g.Expect(crb.GetPostOrders()).To(BeEmpty())
 			g.Expect(clusterroleStorage.GetNode(types.NamespacedName{Name: crName})).To(BeNil())
 			g.Expect(saStorage.GetNode(types.NamespacedName{Name: saName, Namespace: ns})).To(BeNil())
 		}).Should(Succeed())
@@ -596,7 +594,7 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 		Eventually(func(g Gomega) {
 			clusterrolebindingNode, _ := clusterRoleBindingStorage.GetNode(types.NamespacedName{Name: crbName})
 			g.Expect(clusterrolebindingNode).NotTo(BeNil())
-			g.Expect(len(clusterrolebindingNode.GetPostOrders())).To(Equal(0))
+			g.Expect(clusterrolebindingNode.GetPostOrders()).To(BeEmpty())
 		}).Should(Succeed())
 	})
 
@@ -633,7 +631,6 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 			g.Expect(clusterrolebindingNode).To(BeNil())
 			clusterrole, _ := clusterroleStorage.GetNode(types.NamespacedName{Name: crName})
 			g.Expect(clusterrole).NotTo(BeNil())
-
 		}).Should(Succeed())
 	})
 
@@ -687,7 +684,7 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 			clusterrolebindingNode, _ := clusterRoleBindingStorage.GetNode(types.NamespacedName{Name: crbName})
 			g.Expect(clusterrolebindingNode).NotTo(BeNil())
 			postNodes := clusterrolebindingNode.GetPostOrders()
-			g.Expect(len(postNodes)).To(Equal(2))
+			g.Expect(postNodes).To(HaveLen(2))
 		}).Should(Succeed())
 	})
 
@@ -729,7 +726,7 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 			clusterrolebindingNode, _ := clusterRoleBindingStorage.GetNode(types.NamespacedName{Name: crbName})
 			g.Expect(clusterrolebindingNode).NotTo(BeNil())
 			postNodes := clusterrolebindingNode.GetPostOrders()
-			g.Expect(len(postNodes)).To(Equal(2))
+			g.Expect(postNodes).To(HaveLen(2))
 		}).Should(Succeed())
 	})
 	It("create all and delete all", func() {
@@ -807,12 +804,12 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		ctx, cancel = context.WithCancel((context.Background()))
 		podHandler = &objecthandler{}
-		Expect(manager.AddNodeHandler(PodMeta, podHandler)).To(BeNil())
+		Expect(manager.AddNodeHandler(PodMeta, podHandler)).To(Succeed())
 		svcHandler = &objecthandler{}
-		Expect(manager.AddNodeHandler(ServiceMeta, svcHandler)).To(BeNil())
+		Expect(manager.AddNodeHandler(ServiceMeta, svcHandler)).To(Succeed())
 
 		podSvcRelation = &relationHandler{}
-		Expect(manager.AddRelationHandler(ServiceMeta, PodMeta, podSvcRelation)).To(BeNil())
+		Expect(manager.AddRelationHandler(ServiceMeta, PodMeta, podSvcRelation)).To(Succeed())
 
 		manager.Start(ctx.Done())
 		k8sInformerFactory.Start(ctx.Done())
@@ -833,25 +830,25 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		podHandler.relatedCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			pod, _ := podStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: podName})
 			g.Expect(pod).NotTo(BeNil())
-			g.Expect(len(pod.GetPostOrders())).To(Equal(0))
-			g.Expect(len(pod.GetPreOrders())).To(Equal(1))
+			g.Expect(pod.GetPostOrders()).To(BeEmpty())
+			g.Expect(pod.GetPreOrders()).To(HaveLen(1))
 
 			g.Expect(pod.TypeInfo()).To(Equal(PodMeta))
 			g.Expect(pod.NodeInfo()).To(Equal(types.NamespacedName{Namespace: namespaceDefault, Name: podName}))
 
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -862,24 +859,24 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		svcHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			svcNode, _ := svcStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: svcName})
 			g.Expect(svcNode).NotTo(BeNil())
-			g.Expect(len(svcNode.GetPreOrders())).To(Equal(0))
-			g.Expect(len(svcNode.GetPostOrders())).To(Equal(1))
+			g.Expect(svcNode.GetPreOrders()).To(BeEmpty())
+			g.Expect(svcNode.GetPostOrders()).To(HaveLen(1))
 
 			g.Expect(svcNode.TypeInfo()).To(Equal(ServiceMeta))
 			g.Expect(svcNode.NodeInfo()).To(Equal(types.NamespacedName{Namespace: namespaceDefault, Name: svcName}))
 
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -891,30 +888,30 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		svcHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod2Name, "apps", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			svcNode, _ := svcStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: svcName})
 			g.Expect(svcNode).NotTo(BeNil())
-			g.Expect(len(svcNode.GetPreOrders())).To(Equal(0))
-			g.Expect(len(svcNode.GetPostOrders())).To(Equal(2))
+			g.Expect(svcNode.GetPreOrders()).To(BeEmpty())
+			g.Expect(svcNode.GetPostOrders()).To(HaveLen(2))
 
 			g.Expect(svcNode.TypeInfo()).To(Equal(ServiceMeta))
 			g.Expect(svcNode.NodeInfo()).To(Equal(types.NamespacedName{Namespace: namespaceDefault, Name: svcName}))
 
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -926,31 +923,31 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		podHandler.relatedCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod2Name, "apps", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func(g Gomega) {
 			svcNode, _ := svcStorage.GetNode(types.NamespacedName{Namespace: namespaceDefault, Name: svcName})
 			g.Expect(svcNode).NotTo(BeNil())
-			g.Expect(len(svcNode.GetPreOrders())).To(Equal(0))
-			g.Expect(len(svcNode.GetPostOrders())).To(Equal(2))
+			g.Expect(svcNode.GetPreOrders()).To(BeEmpty())
+			g.Expect(svcNode.GetPostOrders()).To(HaveLen(2))
 
 			g.Expect(svcNode.TypeInfo()).To(Equal(ServiceMeta))
 			g.Expect(svcNode.NodeInfo()).To(Equal(types.NamespacedName{Namespace: namespaceDefault, Name: svcName}))
 
-			g.Expect(checkAll()).To(Equal(true))
+			g.Expect(checkAll()).To(BeTrue())
 		}).Should(Succeed())
 	})
 
@@ -962,17 +959,17 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, pod2Name, "apps", pod2Name), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 	})
 
@@ -986,32 +983,32 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "app1", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName2, "app2", svcName2), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		podSvcRelation.addCallExpected()
 		podHandler.relatedCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "app1", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		podSvcRelation.addCallExpected()
 		podHandler.relatedCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName2, "app2", svcName2), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
 		podSvcRelation.addCallExpected().addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName3, "app2", svcName2, "app1", svcName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 	})
 
@@ -1022,20 +1019,20 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		podHandler.relatedCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.deleteCallExpected()
 		podSvcRelation.deleteCallExpected()
 		podHandler.relatedCallExpected()
-		Expect(fakeClient.CoreV1().Services(namespaceDefault).Delete(ctx, svcName, metav1.DeleteOptions{})).To(BeNil())
+		Expect(fakeClient.CoreV1().Services(namespaceDefault).Delete(ctx, svcName, metav1.DeleteOptions{})).To(Succeed())
 		syncStatus(checkAll)
 	})
 
@@ -1046,19 +1043,19 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		podHandler.relatedCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		podHandler.deleteCallExpected()
 		podSvcRelation.deleteCallExpected()
-		Expect(fakeClient.CoreV1().Pods(namespaceDefault).Delete(ctx, podName, metav1.DeleteOptions{})).To(BeNil())
+		Expect(fakeClient.CoreV1().Pods(namespaceDefault).Delete(ctx, podName, metav1.DeleteOptions{})).To(Succeed())
 		syncStatus(checkAll)
 	})
 
@@ -1069,20 +1066,20 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		podHandler.relatedCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.updateCallExpected()
 		podHandler.relatedCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Update(ctx, newSvc(namespaceDefault, svcName, "apps", podName), metav1.UpdateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 	})
 
@@ -1093,21 +1090,21 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 
 		podHandler.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.addCallExpected()
 		podHandler.relatedCallExpected()
 		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Create(ctx, newSvc(namespaceDefault, svcName, "apps", podName), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		svcHandler.updateCallExpected()
 		podHandler.relatedCallExpected()
 		podSvcRelation.deleteCallExpected()
 		_, err = fakeClient.CoreV1().Services(namespaceDefault).Update(ctx, newSvc(namespaceDefault, svcName, "apps", podName+"failed"), metav1.UpdateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 	})
 })
@@ -1177,7 +1174,7 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 
 		deployHandler.addCallExpected()
 		_, err = fakeClient.AppsV1().Deployments(namespaceDefault).Create(ctx, newDeploy(namespaceDefault, deployName, labels...), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		replicasetHandler.addCallExpected()
@@ -1221,7 +1218,7 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 		deployHandler.addCallExpected()
 		rsDeployRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().Deployments(namespaceDefault).Create(ctx, newDeploy(namespaceDefault, deployName, labels...), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 	})
 
@@ -1234,7 +1231,7 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 
 		deployHandler.addCallExpected()
 		_, err = fakeClient.AppsV1().Deployments(namespaceDefault).Create(ctx, newDeploy(namespaceDefault, deployName, labels...), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		replicasetHandler.addCallExpected()
@@ -1275,7 +1272,7 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 
 		deployHandler.addCallExpected()
 		_, err = fakeClient.AppsV1().Deployments(namespaceDefault).Create(ctx, newDeploy(namespaceDefault, deployName+"failed", labels...), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 	})
 
@@ -1294,7 +1291,7 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 
 		deployHandler.addCallExpected()
 		_, err = fakeClient.AppsV1().Deployments(namespaceDefault).Create(ctx, newDeploy(namespaceDefault, deployName, labels...), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		replicasetHandler.addCallExpected()
@@ -1339,19 +1336,19 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 		deployHandler.addCallExpected()
 		rsDeployRelation.addCallExpected()
 		_, err = fakeClient.AppsV1().Deployments(namespaceDefault).Create(ctx, newDeploy(namespaceDefault, deployName2, labels...), metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)
 
 		Eventually(func(g Gomega) {
 			rs1, _ := replicasetStorage.GetNode(types.NamespacedName{Name: rsName, Namespace: namespaceDefault})
 			Expect(rs1).NotTo(BeNil())
-			Expect(len(rs1.GetPreOrders())).To(Equal(1))
-			Expect(len(rs1.GetPostOrders())).To(Equal(2))
+			Expect(rs1.GetPreOrders()).To(HaveLen(1))
+			Expect(rs1.GetPostOrders()).To(HaveLen(2))
 
 			rs2, _ := replicasetStorage.GetNode(types.NamespacedName{Name: rsName2, Namespace: namespaceDefault})
 			Expect(rs2).NotTo(BeNil())
-			Expect(len(rs2.GetPreOrders())).To(Equal(1))
-			Expect(len(rs2.GetPostOrders())).To(Equal(1))
+			Expect(rs2.GetPreOrders()).To(HaveLen(1))
+			Expect(rs2.GetPostOrders()).To(HaveLen(1))
 		}).Should(Succeed())
 	})
 })
@@ -1398,9 +1395,9 @@ var _ = Describe("test suite with relations update", func() {
 		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).NotTo(HaveOccurred())
 
 		roleBindingRelation = &relationHandler{}
-		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ClusterRoleMeta, roleBindingRelation)).To(BeNil())
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ClusterRoleMeta, roleBindingRelation)).To(Succeed())
 		saBindingRelation = &relationHandler{}
-		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ServiceAccountMeta, saBindingRelation)).To(BeNil())
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ServiceAccountMeta, saBindingRelation)).To(Succeed())
 
 		manager.Start(ctx.Done())
 		k8sInformerFactory.Start(ctx.Done())
@@ -1585,7 +1582,7 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 		Expect(manager.AddNodeHandler(NamespaceMeta, nsHandler)).NotTo(HaveOccurred())
 
 		nsPodRelation = &relationHandler{}
-		Expect(manager.AddRelationHandler(NamespaceMeta, PodMeta, nsPodRelation)).To(BeNil())
+		Expect(manager.AddRelationHandler(NamespaceMeta, PodMeta, nsPodRelation)).To(Succeed())
 
 		manager.Start(ctx.Done())
 		k8sInformerFactory.Start(ctx.Done())
@@ -1638,11 +1635,12 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 		setObjectCluster(pod, localCluster)
 		pod2 := newPod(nsName, podName2)
 		setObjectCluster(pod2, localCluster2)
-		setMultiClusterDepend(ns1, []MultiClusterDepend{{
-			Cluster:   localCluster,
-			Namespace: nsName,
-			Name:      podName,
-		},
+		setMultiClusterDepend(ns1, []MultiClusterDepend{
+			{
+				Cluster:   localCluster,
+				Namespace: nsName,
+				Name:      podName,
+			},
 			{
 				Cluster:   localCluster2,
 				Namespace: nsName,
@@ -1661,7 +1659,7 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 
 		nsHandler.relatedCallExpected()
 		nsPodRelation.deleteCallExpected()
-		Expect(fakeClient.CoreV1().Pods(nsName).Delete(ctx, podName, metav1.DeleteOptions{})).To(BeNil())
+		Expect(fakeClient.CoreV1().Pods(nsName).Delete(ctx, podName, metav1.DeleteOptions{})).To(Succeed())
 		syncStatus(checkAll)
 
 		nsHandler.relatedCallExpected()
@@ -1734,7 +1732,7 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 
 		nsHandler.relatedCallExpected()
 		nsPodRelation.deleteCallExpected()
-		Expect(fakeClient.CoreV1().Pods(nsName).Delete(ctx, pod.Name, metav1.DeleteOptions{})).To(BeNil())
+		Expect(fakeClient.CoreV1().Pods(nsName).Delete(ctx, pod.Name, metav1.DeleteOptions{})).To(Succeed())
 		syncStatus(checkAll)
 
 		nsHandler.relatedCallExpected()

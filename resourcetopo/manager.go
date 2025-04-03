@@ -87,10 +87,7 @@ func (m *manager) AddTopologyConfig(cfg TopologyConfig) error {
 		if err != nil {
 			return err
 		}
-
-		if err = s.addDiscoverConfig(&d); err != nil {
-			return err
-		}
+		s.addDiscoverConfig(&d)
 	}
 
 	if err := m.dagCheck(); err != nil {

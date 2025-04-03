@@ -52,8 +52,10 @@ type KindWithClusters struct {
 	Kind     *source.Kind
 }
 
-var _ source.Source = &KindWithClusters{}
-var _ source.SyncingSource = &KindWithClusters{}
+var (
+	_ source.Source        = &KindWithClusters{}
+	_ source.SyncingSource = &KindWithClusters{}
+)
 
 func (k *KindWithClusters) InjectCache(c cache.Cache) error {
 	return k.Kind.InjectCache(c)

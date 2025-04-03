@@ -22,7 +22,6 @@ package extractor
 import (
 	"fmt"
 	"reflect"
-	"strings"
 
 	"k8s.io/client-go/third_party/forked/golang/template"
 	"k8s.io/client-go/util/jsonpath"
@@ -50,7 +49,7 @@ var nopSetFieldFunc = func(_ reflect.Value) error { return nil }
 
 func makeNopSetFieldFuncSlice(n int) []setFieldFunc {
 	fns := make([]setFieldFunc, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		fns[i] = nopSetFieldFunc
 	}
 	return fns
@@ -59,9 +58,9 @@ func makeNopSetFieldFuncSlice(n int) []setFieldFunc {
 // Extract outputs the field specified by JSONPath.
 // The output contains not only the field value, but also its upstream structure.
 //
-// The data structure of the extracted field must be of type `map[string]interface{}`,
+// The data structure of the extracted field must be of type `map[string]any`,
 // and `struct` is not supported (an error will be returned).
-func (j *jsonPath) Extract(data map[string]interface{}) (map[string]interface{}, error) {
+func (j *jsonPath) Extract(data map[string]any) (map[string]any, error) {
 	container := struct{ Root reflect.Value }{}
 	setFn := func(val reflect.Value) error {
 		container.Root = val
@@ -77,10 +76,10 @@ func (j *jsonPath) Extract(data map[string]interface{}) (map[string]interface{},
 		return nil, nil
 	}
 
-	return container.Root.Interface().(map[string]interface{}), nil
+	return container.Root.Interface().(map[string]any), nil
 }
 
-func (j *jsonPath) findResults(data interface{}, setFn setFieldFunc) ([][]reflect.Value, error) {
+func (j *jsonPath) findResults(data any, setFn setFieldFunc) ([][]reflect.Value, error) {
 	if j.parser == nil {
 		return nil, fmt.Errorf("%s is an incomplete jsonpath template", j.name)
 	}
@@ -89,7 +88,7 @@ func (j *jsonPath) findResults(data interface{}, setFn setFieldFunc) ([][]reflec
 	curnFn := []setFieldFunc{setFn}
 	nodes := j.parser.Root.Nodes
 	fullResult := [][]reflect.Value{}
-	for i := 0; i < len(nodes); i++ {
+	for i := range nodes {
 		node := nodes[i]
 		results, _, err := j._walk(cur, node, curnFn)
 		if err != nil {
@@ -234,28 +233,28 @@ func (j *jsonPath) evalArray(input []reflect.Value, node *jsonpath.ArrayNode, se
 	result := []reflect.Value{}
 	nextFns := []setFieldFunc{}
 	for k, value := range input {
-		value, isNil := template.Indirect(value)
+		v, isNil := template.Indirect(value)
 		if isNil {
 			continue
 		}
-		if value.Kind() != reflect.Array && value.Kind() != reflect.Slice {
-			return input, nextFns, fmt.Errorf("%v is not array or slice", value.Type())
+		if v.Kind() != reflect.Array && v.Kind() != reflect.Slice {
+			return input, nextFns, fmt.Errorf("%v is not array or slice", v.Type())
 		}
 		params := node.Params
 		if !params[0].Known {
 			params[0].Value = 0
 		}
 		if params[0].Value < 0 {
-			params[0].Value += value.Len()
+			params[0].Value += v.Len()
 		}
 		if !params[1].Known {
-			params[1].Value = value.Len()
+			params[1].Value = v.Len()
 		}
 
 		if params[1].Value < 0 || (params[1].Value == 0 && params[1].Derived) {
-			params[1].Value += value.Len()
+			params[1].Value += v.Len()
 		}
-		sliceLength := value.Len()
+		sliceLength := v.Len()
 		if params[1].Value != params[0].Value { // if you're requesting zero elements, allow it through.
 			if params[0].Value >= sliceLength || params[0].Value < 0 {
 				return input, nextFns, fmt.Errorf("array index out of bounds: index %d, length %d", params[0].Value, sliceLength)
@@ -270,7 +269,7 @@ func (j *jsonPath) evalArray(input []reflect.Value, node *jsonpath.ArrayNode, se
 			return result, nextFns, nil
 		}
 
-		value = value.Slice(params[0].Value, params[1].Value)
+		v = v.Slice(params[0].Value, params[1].Value)
 
 		step := 1
 		if params[2].Known {
@@ -281,13 +280,13 @@ func (j *jsonPath) evalArray(input []reflect.Value, node *jsonpath.ArrayNode, se
 		}
 
 		loopResult := []reflect.Value{}
-		for i := 0; i < value.Len(); i += step {
-			loopResult = append(loopResult, value.Index(i))
+		for i := 0; i < v.Len(); i += step {
+			loopResult = append(loopResult, v.Index(i))
 		}
 		result = append(result, loopResult...)
 
-		s := reflect.MakeSlice(value.Type(), len(loopResult), len(loopResult))
-		for i := 0; i < len(loopResult); i++ {
+		s := reflect.MakeSlice(v.Type(), len(loopResult), len(loopResult))
+		for i := range loopResult {
 			ii := i
 			s.Index(ii).Set(loopResult[i])
 			nextFns = append(nextFns, func(val reflect.Value) error {
@@ -308,7 +307,7 @@ func (j *jsonPath) _evalUnion(input []reflect.Value, node *jsonpath.UnionNode, s
 	union := make([][]reflect.Value, len(input))
 	setFn_ := make([]setFieldFunc, len(input))
 
-	for i := 0; i < len(input); i++ {
+	for i := range input {
 		ii := i
 		setFn_[i] = func(val reflect.Value) error {
 			union[ii] = append(union[ii], val)
@@ -356,40 +355,6 @@ func (j *jsonPath) evalUnion(input []reflect.Value, node *jsonpath.UnionNode) ([
 	return result, nil
 }
 
-//lint:ignore U1000 ignore unused function
-func (j *jsonPath) findFieldInValue(value *reflect.Value, node *jsonpath.FieldNode) (reflect.Value, error) {
-	t := value.Type()
-	var inlineValue *reflect.Value
-	for ix := 0; ix < t.NumField(); ix++ {
-		f := t.Field(ix)
-		jsonTag := f.Tag.Get("json")
-		parts := strings.Split(jsonTag, ",")
-		if len(parts) == 0 {
-			continue
-		}
-		if parts[0] == node.Value {
-			return value.Field(ix), nil
-		}
-		if len(parts[0]) == 0 {
-			val := value.Field(ix)
-			inlineValue = &val
-		}
-	}
-	if inlineValue != nil {
-		if inlineValue.Kind() == reflect.Struct {
-			// handle 'inline'
-			match, err := j.findFieldInValue(inlineValue, node)
-			if err != nil {
-				return reflect.Value{}, err
-			}
-			if match.IsValid() {
-				return match, nil
-			}
-		}
-	}
-	return value.FieldByName(node.Value), nil
-}
-
 // evalField evaluates field of struct or key of map.
 func (j *jsonPath) evalField(input []reflect.Value, node *jsonpath.FieldNode, setFn []setFieldFunc) ([]reflect.Value, []setFieldFunc, error) {
 	results := []reflect.Value{}
@@ -401,24 +366,24 @@ func (j *jsonPath) evalField(input []reflect.Value, node *jsonpath.FieldNode, se
 	for k, value := range input {
 		var result reflect.Value
 		var fn setFieldFunc
-		value, isNil := template.Indirect(value)
+		v, isNil := template.Indirect(value)
 		if isNil {
 			continue
 		}
 
-		if value.Kind() != reflect.Map {
-			return results, nextFns, fmt.Errorf("%v is of the type %T, expected map[string]interface{}", value.Interface(), value.Interface())
+		if v.Kind() != reflect.Map {
+			return results, nextFns, fmt.Errorf("%v is of the type %T, expected map[string]any", v.Interface(), v.Interface())
 		} else {
-			mapKeyType := value.Type().Key()
+			mapKeyType := v.Type().Key()
 			nodeValue := reflect.ValueOf(node.Value)
 			// node value type must be convertible to map key type
 			if !nodeValue.Type().ConvertibleTo(mapKeyType) {
 				return results, nextFns, fmt.Errorf("%s is not convertible to %s", nodeValue, mapKeyType)
 			}
 			key := nodeValue.Convert(mapKeyType)
-			result = value.MapIndex(key)
+			result = v.MapIndex(key)
 
-			val := reflect.MakeMap(value.Type())
+			val := reflect.MakeMap(v.Type())
 			val.SetMapIndex(key, result)
 			setFn[k](val) // nolint: errcheck
 
@@ -446,23 +411,23 @@ func (j *jsonPath) evalField(input []reflect.Value, node *jsonpath.FieldNode, se
 func (j *jsonPath) evalWildcard(input []reflect.Value) ([]reflect.Value, error) {
 	results := []reflect.Value{}
 	for _, value := range input {
-		value, isNil := template.Indirect(value)
+		v, isNil := template.Indirect(value)
 		if isNil {
 			continue
 		}
 
-		kind := value.Kind()
+		kind := v.Kind()
 		if kind == reflect.Struct {
-			for i := 0; i < value.NumField(); i++ {
-				results = append(results, value.Field(i))
+			for i := range v.NumField() {
+				results = append(results, v.Field(i))
 			}
 		} else if kind == reflect.Map {
-			for _, key := range value.MapKeys() {
-				results = append(results, value.MapIndex(key))
+			for _, key := range v.MapKeys() {
+				results = append(results, v.MapIndex(key))
 			}
 		} else if kind == reflect.Array || kind == reflect.Slice || kind == reflect.String {
-			for i := 0; i < value.Len(); i++ {
-				results = append(results, value.Index(i))
+			for i := range v.Len() {
+				results = append(results, v.Index(i))
 			}
 		}
 	}
@@ -474,27 +439,27 @@ func (j *jsonPath) evalRecursive(input []reflect.Value) ([]reflect.Value, error)
 	result := []reflect.Value{}
 	for _, value := range input {
 		results := []reflect.Value{}
-		value, isNil := template.Indirect(value)
+		v, isNil := template.Indirect(value)
 		if isNil {
 			continue
 		}
 
-		kind := value.Kind()
+		kind := v.Kind()
 		if kind == reflect.Struct {
-			for i := 0; i < value.NumField(); i++ {
-				results = append(results, value.Field(i))
+			for i := range v.NumField() {
+				results = append(results, v.Field(i))
 			}
 		} else if kind == reflect.Map {
-			for _, key := range value.MapKeys() {
-				results = append(results, value.MapIndex(key))
+			for _, key := range v.MapKeys() {
+				results = append(results, v.MapIndex(key))
 			}
 		} else if kind == reflect.Array || kind == reflect.Slice || kind == reflect.String {
-			for i := 0; i < value.Len(); i++ {
-				results = append(results, value.Index(i))
+			for i := range v.Len() {
+				results = append(results, v.Index(i))
 			}
 		}
 		if len(results) != 0 {
-			result = append(result, value)
+			result = append(result, v)
 			output, err := j.evalRecursive(results)
 			if err != nil {
 				return result, err
@@ -517,7 +482,7 @@ func (j *jsonPath) evalFilter(input []reflect.Value, node *jsonpath.FilterNode, 
 		}
 
 		loopResult := []reflect.Value{}
-		for i := 0; i < value.Len(); i++ {
+		for i := range value.Len() {
 			temp := []reflect.Value{value.Index(i)}
 			lefts, err := j.evalList(temp, node.Left)
 
@@ -533,7 +498,7 @@ func (j *jsonPath) evalFilter(input []reflect.Value, node *jsonpath.FilterNode, 
 				return input, fns, err
 			}
 
-			var left, right interface{}
+			var left, right any
 			switch {
 			case len(lefts) == 0:
 				continue
@@ -580,7 +545,7 @@ func (j *jsonPath) evalFilter(input []reflect.Value, node *jsonpath.FilterNode, 
 		}
 
 		s := reflect.MakeSlice(value.Type(), len(loopResult), len(loopResult))
-		for i := 0; i < len(loopResult); i++ {
+		for i := range loopResult {
 			ii := i
 			s.Index(ii).Set(loopResult[i])
 			fns = append(fns, func(val reflect.Value) error {

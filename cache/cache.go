@@ -174,7 +174,7 @@ func (ip *cacheSupportDisableDeepCopy) objectTypeForListObject(list client.Objec
 		// http://knowyourmeme.com/memes/this-is-fine
 		elemType := reflect.Indirect(reflect.ValueOf(itemsPtr)).Type().Elem()
 		if elemType.Kind() != reflect.Ptr {
-			elemType = reflect.PtrTo(elemType)
+			elemType = reflect.PointerTo(elemType)
 		}
 
 		cacheTypeValue := reflect.Zero(elemType)
@@ -262,7 +262,7 @@ const allNamespacesNamespace = "__all_namespaces"
 
 // KeyToNamespacedKey prefixes the given index key with a namespace
 // for use in field selector indexes.
-func KeyToNamespacedKey(ns string, baseKey string) string {
+func KeyToNamespacedKey(ns, baseKey string) string {
 	if ns != "" {
 		return ns + "/" + baseKey
 	}
@@ -286,8 +286,7 @@ type ObjectWithoutDeepCopy struct {
 
 var DisableDeepCopy = &disableDeepCopyListOption{}
 
-type disableDeepCopyListOption struct {
-}
+type disableDeepCopyListOption struct{}
 
 func (o *disableDeepCopyListOption) ApplyToList(*client.ListOptions) {
 }

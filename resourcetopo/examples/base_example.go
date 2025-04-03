@@ -245,11 +245,11 @@ var _ resourcetopo.RelationHandler = &appPodRelationEventHandler{}
 
 type appPodRelationEventHandler struct{}
 
-func (s *appPodRelationEventHandler) OnAdd(preOrder resourcetopo.NodeInfo, postOrder resourcetopo.NodeInfo) {
+func (s *appPodRelationEventHandler) OnAdd(preOrder, postOrder resourcetopo.NodeInfo) {
 	klog.Infof("received relation add event for %s -> %s", preOrder.NodeInfo().String(), postOrder.NodeInfo().String())
 }
 
-func (s *appPodRelationEventHandler) OnDelete(preOrder resourcetopo.NodeInfo, postOrder resourcetopo.NodeInfo) {
+func (s *appPodRelationEventHandler) OnDelete(preOrder, postOrder resourcetopo.NodeInfo) {
 	klog.Infof("received relation delete event for %s -> %s", preOrder.NodeInfo().String(), postOrder.NodeInfo().String())
 }
 

@@ -20,8 +20,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/hashicorp/consul/sdk/testutil/retry"
 	. "github.com/onsi/ginkgo"
+
+	"github.com/hashicorp/consul/sdk/testutil/retry"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -278,6 +279,7 @@ func buildMultiClustertopoConfig(k8sInformerFactory informers.SharedInformerFact
 		},
 	}
 }
+
 func newPod(namespace, name string, labels ...string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: *newObjectMeta(namespace, name, labels),
@@ -300,7 +302,6 @@ func newStatefulSet(namespace, name string, labels ...string) *appsv1.StatefulSe
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-
 							Name:  name,
 							Image: "busybox",
 						},
@@ -332,7 +333,6 @@ func newDeploy(namespace, name string, labels ...string) *appsv1.Deployment {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-
 							Name:  name,
 							Image: "busybox",
 						},
@@ -355,7 +355,6 @@ func newReplicaSet(namespace, name string, labels ...string) *appsv1.ReplicaSet 
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-
 							Name:  name,
 							Image: "busybox",
 						},
@@ -376,7 +375,7 @@ func newClusterRole(name string) *rbacv1.ClusterRole {
 	}
 }
 
-func newClusterRoleBinding(name string, clusterRole string, sas []types.NamespacedName) *rbacv1.ClusterRoleBinding {
+func newClusterRoleBinding(name, clusterRole string, sas []types.NamespacedName) *rbacv1.ClusterRoleBinding {
 	crb := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: *newObjectMeta("", name, nil),
 		RoleRef: rbacv1.RoleRef{
@@ -401,7 +400,7 @@ func newServiceAccount(namespace, name string, labels ...string) *corev1.Service
 	}
 }
 
-func newNamespaceWithCluster(name string, cluster string) *corev1.Namespace {
+func newNamespaceWithCluster(name, cluster string) *corev1.Namespace {
 	ns := &corev1.Namespace{
 		ObjectMeta: *newObjectMeta("", name, nil),
 	}
@@ -548,13 +547,13 @@ type relationHandler struct {
 	deleteCounter int
 }
 
-func (r *relationHandler) OnAdd(preNode NodeInfo, postNode NodeInfo) {
+func (r *relationHandler) OnAdd(preNode, postNode NodeInfo) {
 	klog.V(loglevel).Infof("received added relation, preNode %v %v, postNode %v %v",
 		preNode.TypeInfo(), preNode.NodeInfo(), postNode.TypeInfo(), postNode.NodeInfo())
 	r.addCounter--
 }
 
-func (r *relationHandler) OnDelete(preNode NodeInfo, postNode NodeInfo) {
+func (r *relationHandler) OnDelete(preNode, postNode NodeInfo) {
 	klog.V(loglevel).Infof("received deleted relation, preNode %v %v, postNode %v %v",
 		preNode.TypeInfo(), preNode.NodeInfo(), postNode.TypeInfo(), postNode.NodeInfo())
 	r.deleteCounter--

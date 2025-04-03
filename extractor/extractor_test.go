@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
@@ -45,10 +46,10 @@ func TestNew(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := New(tt.args.paths, IgnoreMissingKey(tt.args.ignoreMissingKey))
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				return
 			}
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.NotNil(t, got)
 		})
 	}
@@ -121,15 +122,15 @@ func TestExtractors_Extract(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ex, err := New(tt.args.paths, IgnoreMissingKey(true))
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			got, err := ex.Extract(tt.args.input)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				return
 			}
 			// assert.True(t, equality.Semantic.DeepEqual(tt.wantObj, got))
-			assert.EqualValues(t, tt.wantObj, got)
+			assert.Equal(t, tt.wantObj, got)
 		})
 	}
 }

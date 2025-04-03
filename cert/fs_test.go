@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFSProvider_Ensure(t *testing.T) {
@@ -34,11 +35,11 @@ func TestFSProvider_Ensure(t *testing.T) {
 	domains := []string{"one.kusionstack.io", "two.kusionstack.io"}
 	for _, domain := range domains {
 		certs, err := provider.Ensure(context.Background(), Config{CommonName: domain})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		certs.Validate(domain)
 		assert.NotNil(t, certs)
 		certs, err = provider.Load(context.Background())
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		certs.Validate(domain)
 		assert.NotNil(t, certs)
 	}

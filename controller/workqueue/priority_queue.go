@@ -27,7 +27,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type GetPriorityFunc func(item interface{}) int
+type GetPriorityFunc func(item any) int
 
 var _ workqueue.Interface = &PriorityQueue{}
 
@@ -84,7 +84,7 @@ func getLotteries(numOfPriorityLotteries []int) ([]int, error) {
 	}
 
 	var lotteries []int
-	for i := 0; i < len(numOfPriorityLotteries); i++ {
+	for i := range numOfPriorityLotteries {
 		if numOfPriorityLotteries[i] <= 0 {
 			return nil, fmt.Errorf("invalid numOfPriorityLotteries")
 		}
@@ -93,7 +93,7 @@ func getLotteries(numOfPriorityLotteries []int) ([]int, error) {
 			return nil, fmt.Errorf("invalid numOfPriorityLotteries")
 		}
 
-		for j := 0; j < numOfPriorityLotteries[i]; j++ {
+		for range numOfPriorityLotteries[i] {
 			lotteries = append(lotteries, i)
 		}
 	}
@@ -102,7 +102,7 @@ func getLotteries(numOfPriorityLotteries []int) ([]int, error) {
 }
 
 func shuffleLotteries(lotteries []int) {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 	n := len(lotteries)
 	for i := n - 1; i > 0; i-- {
 		j := rand.Intn(i + 1)
@@ -164,9 +164,11 @@ type PriorityQueue struct {
 	clock                      clock.Clock
 }
 
-type empty struct{}
-type t interface{}
-type set map[t]empty
+type (
+	empty struct{}
+	t     any
+	set   map[t]empty
+)
 
 func (s set) has(item t) bool {
 	_, exists := s[item]
@@ -182,7 +184,7 @@ func (s set) delete(item t) {
 }
 
 // Add marks item as needing processing.
-func (q *PriorityQueue) Add(item interface{}) {
+func (q *PriorityQueue) Add(item any) {
 	q.cond.L.Lock()
 	defer q.cond.L.Unlock()
 	if q.shuttingDown {
@@ -206,7 +208,7 @@ func (q *PriorityQueue) Add(item interface{}) {
 	q.cond.Signal()
 }
 
-func (q *PriorityQueue) getPriority(item interface{}) int {
+func (q *PriorityQueue) getPriority(item any) int {
 	priority := q.getPriorityFunc(item)
 	if priority < 0 {
 		return 0

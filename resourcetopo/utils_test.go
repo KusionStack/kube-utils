@@ -263,7 +263,7 @@ func Test_slicesCompare(t *testing.T) {
 				diffSlice1 = append(diffSlice1, i)
 			}, func(i int) {
 				diffSlice2 = append(diffSlice2, i)
-			}, func(a int, b int) int {
+			}, func(a, b int) int {
 				return a - b
 			})
 			if !slices.Equal(diffSlice1, tt.args.expectDiffSlice1) {

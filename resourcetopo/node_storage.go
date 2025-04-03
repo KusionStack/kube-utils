@@ -138,10 +138,9 @@ func (s *nodeStorage) addRelationConfig(r *RelationResolver) error {
 	return nil
 }
 
-func (s *nodeStorage) addDiscoverConfig(d *VirtualResourceDiscoverer) error {
+func (s *nodeStorage) addDiscoverConfig(d *VirtualResourceDiscoverer) {
 	s.addPreOrder(d.PreMeta)
 	s.discoverers = append(s.discoverers, *d)
-	return nil
 }
 
 func (s *nodeStorage) addPreOrder(preOrder metav1.TypeMeta) {

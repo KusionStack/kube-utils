@@ -39,13 +39,13 @@ func (s *controllerExpactationTestSuite) TearDownTest() {
 
 func (s *controllerExpactationTestSuite) TestExpectations_General() {
 	_, ok, err := s.expectation.GetExpectations(s.testKey)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.False(ok)
 
 	// set
 	s.expectation.SetExpectations(s.testKey, 1, 1)
 	exp, ok, err := s.expectation.GetExpectations(s.testKey)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.True(ok)
 	s.EqualValues(1, exp.add)
 	s.EqualValues(1, exp.del)
@@ -53,7 +53,7 @@ func (s *controllerExpactationTestSuite) TestExpectations_General() {
 	// raise expectation
 	s.expectation.RaiseExpectations(s.testKey, 1, 1)
 	exp, ok, err = s.expectation.GetExpectations(s.testKey)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.True(ok)
 	s.EqualValues(2, exp.add)
 	s.EqualValues(2, exp.del)
@@ -61,7 +61,7 @@ func (s *controllerExpactationTestSuite) TestExpectations_General() {
 	// lower expectations
 	s.expectation.LowerExpectations(s.testKey, 2, 2)
 	exp, ok, err = s.expectation.GetExpectations(s.testKey)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.True(ok)
 	s.EqualValues(0, exp.add)
 	s.EqualValues(0, exp.del)
@@ -73,7 +73,7 @@ func (s *controllerExpactationTestSuite) TestExpectations_General() {
 	// delete expectations
 	s.expectation.DeleteExpectations(s.testKey)
 	_, ok, err = s.expectation.GetExpectations(s.testKey)
-	s.NoError(err)
+	s.Require().NoError(err)
 	s.False(ok)
 }
 

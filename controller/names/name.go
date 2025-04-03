@@ -30,13 +30,13 @@ import (
 // Usually:
 // - base is the name of workload, such as "deployment", "statefulset", "daemonset".
 // - uniqueName is a random string, such as "12345" or ordinal index.
-func GenerateDNS1035Label(base string, uniqueName string) string {
+func GenerateDNS1035Label(base, uniqueName string) string {
 	return GenerateDNS1035LabelByMaxLength(base, uniqueName, validation.DNS1035LabelMaxLength)
 }
 
 // GenerateDNS1035LabelByMaxLength generates a valid DNS label (compliant with RFC 1035)
 // limited by the specified maximum length.
-func GenerateDNS1035LabelByMaxLength(base string, uniqueName string, maxLength int) string {
+func GenerateDNS1035LabelByMaxLength(base, uniqueName string, maxLength int) string {
 	if maxLength <= 0 {
 		return ""
 	}
