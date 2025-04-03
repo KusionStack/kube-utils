@@ -168,7 +168,7 @@ func (c *Controller) runWorker() {
 	for c.processNextWorkItem() {
 		c.mutex.Lock()
 		if c.syncedNum > 0 {
-			c.syncedNum = c.syncedNum - 1
+			c.syncedNum--
 			if c.syncedNum == 0 {
 				close(c.syncedCh)
 			}

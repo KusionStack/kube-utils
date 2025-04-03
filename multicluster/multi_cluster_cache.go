@@ -54,7 +54,7 @@ func MultiClusterCacheBuilder(log logr.Logger, managerOption *Options) (cache.Ne
 	newCacheFunc := func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
 		fedCache, err := managerOption.NewCache(config, opts)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create fed cache: %v", err)
+			return nil, fmt.Errorf("failed to create fed cache: %w", err)
 		}
 
 		mcc.fedCache = fedCache

@@ -23,7 +23,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
-	apps "k8s.io/api/apps/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,22 +51,22 @@ type RevisionControlInterface interface {
 	// error is not nil, creation failed. If the returned error is nil, the returned ControllerRevision has been
 	// created.
 	// Callers must make sure that collisionCount is not nil. An error is returned if it is.
-	CreateControllerRevision(ctx context.Context, parent metav1.Object, revision *apps.ControllerRevision, collisionCount *int32) (*apps.ControllerRevision, error)
+	CreateControllerRevision(ctx context.Context, parent metav1.Object, revision *appsv1.ControllerRevision, collisionCount *int32) (*appsv1.ControllerRevision, error)
 	// DeleteControllerRevision attempts to delete revision. If the returned error is not nil, deletion has failed.
-	DeleteControllerRevision(ctx context.Context, revision *apps.ControllerRevision) error
+	DeleteControllerRevision(ctx context.Context, revision *appsv1.ControllerRevision) error
 	// UpdateControllerRevision updates revision such that its Revision is equal to newRevision. Implementations
 	// may retry on conflict. If the returned error is nil, the update was successful and returned ControllerRevision
 	// is valid. If the returned error is not nil, the update failed and the returned ControllerRevision is invalid.
-	UpdateControllerRevision(ctx context.Context, revision *apps.ControllerRevision, newRevision int64) (*apps.ControllerRevision, error)
+	UpdateControllerRevision(ctx context.Context, revision *appsv1.ControllerRevision, newRevision int64) (*appsv1.ControllerRevision, error)
 	// AdoptControllerRevision attempts to adopt revision by adding a ControllerRef indicating that the parent
 	// Object of parentKind is the owner of revision. If revision is already owned, an error is returned. If the
 	// resource patch fails, an error is returned. If no error is returned, the returned ControllerRevision is
 	// valid.
-	AdoptControllerRevision(ctx context.Context, parent metav1.Object, parentKind schema.GroupVersionKind, revision *apps.ControllerRevision) (*apps.ControllerRevision, error)
+	AdoptControllerRevision(ctx context.Context, parent metav1.Object, parentKind schema.GroupVersionKind, revision *appsv1.ControllerRevision) (*appsv1.ControllerRevision, error)
 	// ReleaseControllerRevision attempts to release parent's ownership of revision by removing parent from the
 	// OwnerReferences of revision. If an error is returned, parent remains the owner of revision. If no error is
 	// returned, the returned ControllerRevision is valid.
-	ReleaseControllerRevision(ctx context.Context, parent metav1.Object, revision *apps.ControllerRevision) (*apps.ControllerRevision, error)
+	ReleaseControllerRevision(ctx context.Context, parent metav1.Object, revision *appsv1.ControllerRevision) (*appsv1.ControllerRevision, error)
 }
 
 var _ RevisionControlInterface = &realRevisionControl{}
@@ -103,7 +102,7 @@ func (h *realRevisionControl) ListControllerRevisions(ctx context.Context, paren
 	return result, nil
 }
 
-func (h *realRevisionControl) CreateControllerRevision(ctx context.Context, parent metav1.Object, revision *apps.ControllerRevision, collisionCount *int32) (*apps.ControllerRevision, error) {
+func (h *realRevisionControl) CreateControllerRevision(ctx context.Context, parent metav1.Object, revision *appsv1.ControllerRevision, collisionCount *int32) (*appsv1.ControllerRevision, error) {
 	if collisionCount == nil {
 		return nil, fmt.Errorf("collisionCount should not be nil")
 	}
@@ -126,7 +125,7 @@ func (h *realRevisionControl) CreateControllerRevision(ctx context.Context, pare
 		clone.Name = ControllerRevisionName(parent.GetName(), hash)
 		err = h.writer.Create(ctx, clone)
 		if errors.IsAlreadyExists(err) {
-			exists := &apps.ControllerRevision{}
+			exists := &appsv1.ControllerRevision{}
 			err := h.reader.Get(ctx, types.NamespacedName{Namespace: clone.Namespace, Name: clone.Name}, exists)
 			if err != nil {
 				return nil, err
@@ -151,7 +150,7 @@ func (h *realRevisionControl) CreateControllerRevision(ctx context.Context, pare
 func (h *realRevisionControl) UpdateControllerRevision(ctx context.Context, revision *appsv1.ControllerRevision, newRevision int64) (*appsv1.ControllerRevision, error) {
 	clone := revision.DeepCopy()
 	oldRevision := clone.Revision
-	changed, err := clientutil.UpdateOnConflict(ctx, h.reader, h.writer, clone, func(obj *apps.ControllerRevision) error {
+	changed, err := clientutil.UpdateOnConflict(ctx, h.reader, h.writer, clone, func(obj *appsv1.ControllerRevision) error {
 		oldRevision = obj.Revision
 		obj.Revision = newRevision
 		return nil
@@ -163,7 +162,7 @@ func (h *realRevisionControl) UpdateControllerRevision(ctx context.Context, revi
 	return clone, err
 }
 
-func (h *realRevisionControl) DeleteControllerRevision(ctx context.Context, revision *apps.ControllerRevision) error {
+func (h *realRevisionControl) DeleteControllerRevision(ctx context.Context, revision *appsv1.ControllerRevision) error {
 	err := h.writer.Delete(ctx, revision)
 	if err == nil {
 		logger := logr.FromContextOrDiscard(ctx)
@@ -173,7 +172,7 @@ func (h *realRevisionControl) DeleteControllerRevision(ctx context.Context, revi
 	return client.IgnoreNotFound(err)
 }
 
-func (h *realRevisionControl) AdoptControllerRevision(ctx context.Context, parent metav1.Object, parentKind schema.GroupVersionKind, revision *apps.ControllerRevision) (*apps.ControllerRevision, error) {
+func (h *realRevisionControl) AdoptControllerRevision(ctx context.Context, parent metav1.Object, parentKind schema.GroupVersionKind, revision *appsv1.ControllerRevision) (*appsv1.ControllerRevision, error) {
 	oldOwner := metav1.GetControllerOfNoCopy(revision)
 	newOwner := metav1.NewControllerRef(parent, parentKind)
 
@@ -194,7 +193,7 @@ func (h *realRevisionControl) AdoptControllerRevision(ctx context.Context, paren
 	return revision, err
 }
 
-func (h *realRevisionControl) ReleaseControllerRevision(ctx context.Context, parent metav1.Object, revision *apps.ControllerRevision) (*apps.ControllerRevision, error) {
+func (h *realRevisionControl) ReleaseControllerRevision(ctx context.Context, parent metav1.Object, revision *appsv1.ControllerRevision) (*appsv1.ControllerRevision, error) {
 	w := refmanager.NewOwnerRefWriter(h.writer)
 	err := w.Release(ctx, parent, revision)
 	return revision, err

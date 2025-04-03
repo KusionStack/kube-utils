@@ -66,7 +66,7 @@ func MultiClusterClientBuilder(log logr.Logger) (cluster.NewClientFunc, ClusterC
 	newClientFunc := func(cache cache.Cache, config *rest.Config, options client.Options, uncachedObjects ...client.Object) (client.Client, error) {
 		fedClient, err := client.New(config, options)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create fed client: %v", err)
+			return nil, fmt.Errorf("failed to create fed client: %w", err)
 		}
 
 		delegatingFedClient, err := client.NewDelegatingClient(client.NewDelegatingClientInput{
@@ -76,12 +76,12 @@ func MultiClusterClientBuilder(log logr.Logger) (cluster.NewClientFunc, ClusterC
 			CacheUnstructured: true,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create fed client: %v", err)
+			return nil, fmt.Errorf("failed to create fed client: %w", err)
 		}
 
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create fed discovery client: %v", err)
+			return nil, fmt.Errorf("failed to create fed discovery client: %w", err) // 将 %v 改为 %w
 		}
 
 		mcc.fedDiscovery = discoveryClient
@@ -537,7 +537,8 @@ func (c *cachedMultiClusterDiscoveryClient) ServerGroupsAndResources() ([]*metav
 		}
 
 		for _, apiResourceList := range apiResourceLists {
-			for _, apiResource := range apiResourceList.APIResources {
+			for i := range apiResourceList.APIResources {
+				apiResource := apiResourceList.APIResources[i]
 				groupVersionName := fmt.Sprintf("%s/%s", apiResourceList.GroupVersion, apiResource.Name)
 
 				if _, ok := groupVersionNameCount[groupVersionName]; !ok {

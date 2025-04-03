@@ -182,28 +182,28 @@ func (p *FSCertProvider) Overwrite(certs *ServingCerts) (bool, error) {
 	var updated bool
 	changed, err := p.writeFile(keyPath, certs.Key)
 	if err != nil {
-		return false, fmt.Errorf("failed to write key to %s: %v", keyPath, err)
+		return false, fmt.Errorf("failed to write key to %s: %w", keyPath, err)
 	}
 	updated = changed || updated
 
 	certPath := path.Join(p.path, p.CertName)
 	changed, err = p.writeFile(certPath, certs.Cert)
 	if err != nil {
-		return false, fmt.Errorf("failed to write cert to %s: %v", certPath, err)
+		return false, fmt.Errorf("failed to write cert to %s: %w", certPath, err)
 	}
 	updated = changed || updated
 
 	caKeyPath := path.Join(p.path, p.CAKeyName)
 	changed, err = p.writeFile(caKeyPath, certs.CAKey)
 	if err != nil {
-		return false, fmt.Errorf("failed to write ca key to %s: %v", caKeyPath, err)
+		return false, fmt.Errorf("failed to write ca key to %s: %w", caKeyPath, err)
 	}
 	updated = changed || updated
 
 	caCertPath := path.Join(p.path, p.CACertName)
 	changed, err = p.writeFile(caCertPath, certs.CACert)
 	if err != nil {
-		return false, fmt.Errorf("failed to write ca cert to %s: %v", caCertPath, err)
+		return false, fmt.Errorf("failed to write ca cert to %s: %w", caCertPath, err)
 	}
 	updated = changed || updated
 	return updated, nil

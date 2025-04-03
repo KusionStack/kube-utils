@@ -1006,7 +1006,8 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 		syncStatus(checkAll)
 
 		podHandler.addCallExpected()
-		podSvcRelation.addCallExpected().addCallExpected()
+		podSvcRelation.addCallExpected()
+		podSvcRelation.addCallExpected()
 		_, err = fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, newPod(namespaceDefault, podName3, "app2", svcName2, "app1", svcName), metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		syncStatus(checkAll)

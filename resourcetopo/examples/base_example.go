@@ -145,7 +145,8 @@ func buildExampleTopologyConfig() *resourcetopo.TopologyConfig {
 						return nil
 					}
 					var pvcNames []types.NamespacedName
-					for _, v := range podObj.Spec.Volumes {
+					for i := range podObj.Spec.Volumes {
+						v := podObj.Spec.Volumes[i]
 						if v.PersistentVolumeClaim != nil {
 							pvcNames = append(pvcNames, types.NamespacedName{
 								Namespace: podObj.Namespace,

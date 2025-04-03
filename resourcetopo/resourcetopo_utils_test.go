@@ -512,24 +512,20 @@ func (o *objecthandler) OnRelatedUpdate(info NodeInfo) {
 	o.relatedCounter--
 }
 
-func (o *objecthandler) addCallExpected() *objecthandler {
+func (o *objecthandler) addCallExpected() {
 	o.addCounter++
-	return o
 }
 
-func (o *objecthandler) updateCallExpected() *objecthandler {
+func (o *objecthandler) updateCallExpected() {
 	o.updateCounter++
-	return o
 }
 
-func (o *objecthandler) deleteCallExpected() *objecthandler {
+func (o *objecthandler) deleteCallExpected() {
 	o.deletedCounter++
-	return o
 }
 
-func (o *objecthandler) relatedCallExpected() *objecthandler {
+func (o *objecthandler) relatedCallExpected() {
 	o.relatedCounter++
-	return o
 }
 
 func (h *objecthandler) matchExpected() bool {
@@ -559,20 +555,18 @@ func (r *relationHandler) OnDelete(preNode, postNode NodeInfo) {
 	r.deleteCounter--
 }
 
-func (r *relationHandler) addCallExpected() *relationHandler {
+func (r *relationHandler) addCallExpected() {
 	r.addCounter++
-	return r
 }
 
-func (r *relationHandler) deleteCallExpected() *relationHandler {
+func (r *relationHandler) deleteCallExpected() {
 	r.deleteCounter++
-	return r
 }
 
-func (h *relationHandler) matchExpected() bool {
-	return h.addCounter == 0 && h.deleteCounter == 0
+func (r *relationHandler) matchExpected() bool {
+	return r.addCounter == 0 && r.deleteCounter == 0
 }
 
-func (o *relationHandler) string() string {
-	return fmt.Sprintf("{add: %d, delete %d}", o.addCounter, o.deleteCounter)
+func (r *relationHandler) string() string {
+	return fmt.Sprintf("{add: %d, delete %d}", r.addCounter, r.deleteCounter)
 }

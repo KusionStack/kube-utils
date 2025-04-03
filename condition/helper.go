@@ -60,6 +60,7 @@ func SetCondition(conditions []metav1.Condition, condition metav1.Condition) []m
 
 func RejectConditionByType(conditions []metav1.Condition, ctype string) []metav1.Condition {
 	result := []metav1.Condition{}
+
 	for i := range conditions {
 		c := conditions[i]
 		if c.Type == ctype {

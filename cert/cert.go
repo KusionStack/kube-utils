@@ -24,13 +24,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/zoumo/golib/cert"
 	certutil "github.com/zoumo/golib/cert"
 )
 
 type (
-	Config   = cert.Config
-	AltNames = cert.AltNames
+	Config   = certutil.Config
+	AltNames = certutil.AltNames
 )
 
 // ServingCerts is a set of serving certificates.
@@ -56,7 +55,7 @@ func (c *ServingCerts) Validate(host string) error {
 		return fmt.Errorf("CA certificate is empty")
 	}
 
-	tlsCert, err := cert.X509KeyPair(c.Cert, c.Key)
+	tlsCert, err := certutil.X509KeyPair(c.Cert, c.Key)
 	if err != nil {
 		return fmt.Errorf("invalid x509 keypair: %w", err)
 	}
@@ -99,7 +98,7 @@ func GenerateSelfSignedCerts(cfg Config) (*ServingCerts, error) {
 
 // GenerateSelfSignedCertKeyIfNotExist generates a self-signed certificate and
 // write them to the given path if not exist.
-func GenerateSelfSignedCertKeyIfNotExist(path string, cfg cert.Config) error {
+func GenerateSelfSignedCertKeyIfNotExist(path string, cfg Config) error {
 	fscerts, err := NewFSCertProvider(path, FSOptions{})
 	if err != nil {
 		return err

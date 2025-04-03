@@ -183,7 +183,7 @@ func (m *managerInitializer) SetupWithManager(mgr manager.Manager) error {
 		logger.Info("initializer enabled", "name", name)
 		_, err := m.initializers[name](mgr)
 		if err != nil {
-			return fmt.Errorf("failed to initialize %q: %v", name, err)
+			return fmt.Errorf("failed to initialize %q: %w", name, err)
 		}
 	}
 	return nil

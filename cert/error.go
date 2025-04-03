@@ -26,7 +26,7 @@ import (
 var errNotFound = errors.New("not found")
 
 func newNotFound(name string, err error) error {
-	return fmt.Errorf("%s %w: %v", name, errNotFound, err)
+	return fmt.Errorf("%s %w: %w", name, errNotFound, err)
 }
 
 // IsNotFound returns true if certificate not found.

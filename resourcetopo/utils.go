@@ -32,8 +32,8 @@ func generateMetaKey(meta metav1.TypeMeta) string {
 	return fmt.Sprintf("%s/%s", meta.APIVersion, meta.Kind)
 }
 
-func generateKey(APIVersion, Kind string) string {
-	return fmt.Sprintf("%s/%s", APIVersion, Kind)
+func generateKey(apiVersion, kind string) string {
+	return fmt.Sprintf("%s/%s", apiVersion, kind)
 }
 
 func checkNode(s *nodeStorage, stack *list.List, visited map[string]bool) error {

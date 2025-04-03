@@ -265,7 +265,7 @@ func (q *PriorityQueue) Get() (item interface{}, shutdown bool) {
 }
 
 func (q *PriorityQueue) nextLottery() int {
-	q.lotteryIndex = q.lotteryIndex + 1
+	q.lotteryIndex++
 	if q.lotteryIndex >= len(q.lotteries) {
 		q.lotteryIndex = 0
 	}

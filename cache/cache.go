@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -92,7 +93,7 @@ func (c *cacheSupportDisableDeepCopy) ListWithoutDeepCopy(ctx context.Context, l
 	}
 
 	indexer := sharedInformer.GetIndexer()
-	var objs []interface{}
+	var objs []any
 
 	switch {
 	case listOpts.FieldSelector != nil:
@@ -149,8 +150,8 @@ func (c *cacheSupportDisableDeepCopy) ListWithoutDeepCopy(ctx context.Context, l
 // objectTypeForListObject tries to find the runtime.Object and associated GVK
 // for a single object corresponding to the passed-in list type. We need them
 // because they are used as cache map key.
-func (ip *cacheSupportDisableDeepCopy) objectTypeForListObject(list client.ObjectList) (*schema.GroupVersionKind, runtime.Object, error) {
-	gvk, err := apiutil.GVKForObject(list, ip.scheme)
+func (c *cacheSupportDisableDeepCopy) objectTypeForListObject(list client.ObjectList) (*schema.GroupVersionKind, runtime.Object, error) {
+	gvk, err := apiutil.GVKForObject(list, c.scheme)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -203,10 +204,10 @@ func RequiresExactMatch(sel fields.Selector) bool {
 	return true
 }
 
-func byIndexes(indexer clienttoolcache.Indexer, requires fields.Requirements, namespace string) ([]interface{}, error) {
+func byIndexes(indexer clienttoolcache.Indexer, requires fields.Requirements, namespace string) ([]any, error) {
 	var (
 		err  error
-		objs []interface{}
+		objs []any
 		vals []string
 	)
 	indexers := indexer.GetIndexers()
@@ -230,17 +231,14 @@ func byIndexes(indexer clienttoolcache.Indexer, requires fields.Requirements, na
 		if !exist {
 			return nil, fmt.Errorf("index with name %s does not exist", indexName)
 		}
-		filteredObjects := make([]interface{}, 0, len(objs))
+		filteredObjects := make([]any, 0, len(objs))
 		for _, obj := range objs {
 			vals, err = fn(obj)
 			if err != nil {
 				return nil, err
 			}
-			for _, val := range vals {
-				if val == indexedValue {
-					filteredObjects = append(filteredObjects, obj)
-					break
-				}
+			if slices.Contains(vals, indexedValue) {
+				filteredObjects = append(filteredObjects, obj)
 			}
 		}
 		if len(filteredObjects) == 0 {

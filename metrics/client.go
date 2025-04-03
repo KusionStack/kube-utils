@@ -48,9 +48,9 @@ func NewControllerRestRequestCounter(controller, resource, status, method, code 
 }
 
 func CodeForError(err error) int32 {
-	switch t := err.(type) {
-	case errors.APIStatus:
-		return t.Status().Code
+	e, ok := err.(errors.APIStatus)
+	if ok {
+		return e.Status().Code
 	}
 	return 0
 }
