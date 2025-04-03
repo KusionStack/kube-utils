@@ -129,7 +129,6 @@ func TestExtractors_Extract(t *testing.T) {
 				require.Error(t, err)
 				return
 			}
-			// assert.True(t, equality.Semantic.DeepEqual(tt.wantObj, got))
 			assert.Equal(t, tt.wantObj, got)
 		})
 	}

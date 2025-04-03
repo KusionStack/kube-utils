@@ -85,10 +85,9 @@ func CodeForError(err error) string {
 	if err == nil {
 		return "200"
 	}
-
-	switch t := err.(type) {
-	case errors.APIStatus:
-		return strconv.Itoa(int(t.Status().Code))
+	e, ok := err.(errors.APIStatus)
+	if ok {
+		return strconv.Itoa(int(e.Status().Code))
 	}
 	return "0"
 }

@@ -73,7 +73,7 @@ func (m *manager) AddTopologyConfig(cfg TopologyConfig) error {
 				return err
 			}
 		}
-		if err = preOrderStorage.addRelationConfig(&r); err != nil {
+		if err := preOrderStorage.addRelationConfig(&r); err != nil {
 			return err
 		}
 	}

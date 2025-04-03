@@ -11,37 +11,27 @@ linters:
     - unconvert
     - unparam
     - whitespace
+    - gocritic
+    - errorlint
   settings:
-    dupl:
-      threshold: 100
-    funlen:
-      lines: 100
-      statements: 50
-    gocritic:
-      disabled-checks:
-        - dupImport
-        - ifElseChain
-        - octalLiteral
-        - wrapperFunc
-      enabled-tags:
-        - diagnostic
-        - experimental
-        - opinionated
-        - performance
-        - style
-    gocyclo:
-      min-complexity: 15
     govet:
       enable:
         - shadow
     misspell:
       locale: US
-    revive:
-      confidence: 0.1
-      enable-all-rules: true
     staticcheck:
       checks:
        - "-QF1008"
+    gocritic:
+      enable-all: true
+      disabled-checks:
+        - emptyStringTest
+        - ifElseChain
+        - singleCaseSwitch
+        - hugeParam
+        - unnamedResult
+        - whyNoLint
+        - tooManyResultsChecker
   exclusions:
     generated: lax
     presets:
@@ -51,11 +41,8 @@ linters:
       - std-error-handling
     rules:
       - linters:
-          - dupl
-          - errcheck
-          - gocyclo
-          - gosec
-          - unparam
+        - errcheck
+        - unparam
         path: _test.go
       - linters:
           - govet
@@ -88,3 +75,4 @@ formatters:
 
 run:
   allow-parallel-runners: true
+  timeout: 10m

@@ -56,7 +56,7 @@ func UpdateOnConflict[T client.Object](
 	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		if !first {
 			// refresh object
-			if innerErr := reader.Get(ctx, key, original); err != nil {
+			if innerErr := reader.Get(ctx, key, original); innerErr != nil {
 				return innerErr
 			}
 		} else {

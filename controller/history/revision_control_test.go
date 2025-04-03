@@ -123,7 +123,6 @@ func (s *revisionControlTestSuite) TestCreateRevisionsConflict1() {
 	s.EqualValues(1, collisionCount, "create revision conflict, collisionCount should be 1")
 	s.NotEqual(revision.Name, created.Name, "create revision conflict, revision name should be changed")
 	s.Equal(revision.Labels[ControllerRevisionHashLabel], created.Labels[ControllerRevisionHashLabel], "the hash label should be the same")
-	// s.True(strings.HasSuffix(created.Name, created.Labels[ControllerRevisionHashLabel]), "the suffix of revision name should be the same with hash")
 
 	list := &appsv1.ControllerRevisionList{}
 	err = s.client.List(context.Background(), list, client.InNamespace(s.testObj.Namespace))
@@ -146,7 +145,6 @@ func (s *revisionControlTestSuite) TestCreateRevisionsConflict2() {
 	s.EqualValues(1, collisionCount, "create revision conflict, collisionCount should be 1")
 	s.NotEqual(revision.Name, created.Name)
 	s.Equal(revision.Labels[ControllerRevisionHashLabel], created.Labels[ControllerRevisionHashLabel], "the hash label should be the same")
-	// s.True(strings.HasSuffix(created.Name, created.Labels[ControllerRevisionHashLabel]), "the suffix of revision name should be the same with hash")
 
 	list := &appsv1.ControllerRevisionList{}
 	err = s.client.List(context.Background(), list, client.InNamespace(s.testObj.Namespace))

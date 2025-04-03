@@ -17,6 +17,7 @@
 package certmanager
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -225,7 +226,7 @@ func (s *WebhookServingCertManager) ensureWebhookConfiguration(ctx context.Conte
 			}
 
 			for i := range mutatingCfg.Webhooks {
-				if string(mutatingCfg.Webhooks[i].ClientConfig.CABundle) != string(caBundle) {
+				if !bytes.Equal(mutatingCfg.Webhooks[i].ClientConfig.CABundle, caBundle) {
 					changed = true
 					mutatingCfg.Webhooks[i].ClientConfig.CABundle = caBundle
 				}
@@ -239,7 +240,7 @@ func (s *WebhookServingCertManager) ensureWebhookConfiguration(ctx context.Conte
 		}); err != nil {
 			s.Logger.Info("failed to update ca in mutating webhook", "name", name, "error", err.Error())
 			if !errors.IsNotFound(err) {
-				errList = append(errList, fmt.Errorf("failed to update ca in mutating webhook %s: %s", name, err))
+				errList = append(errList, fmt.Errorf("failed to update ca in mutating webhook %s: %w", name, err)) // 将第二个 %s 改为 %w
 			}
 			continue
 		}
@@ -259,7 +260,7 @@ func (s *WebhookServingCertManager) ensureWebhookConfiguration(ctx context.Conte
 			}
 
 			for i := range validatingCfg.Webhooks {
-				if string(validatingCfg.Webhooks[i].ClientConfig.CABundle) != string(caBundle) {
+				if !bytes.Equal(validatingCfg.Webhooks[i].ClientConfig.CABundle, caBundle) {
 					changed = true
 					validatingCfg.Webhooks[i].ClientConfig.CABundle = caBundle
 				}
@@ -273,7 +274,7 @@ func (s *WebhookServingCertManager) ensureWebhookConfiguration(ctx context.Conte
 		}); err != nil {
 			s.Logger.Info("failed to update ca in validating webhook", "name", name, "error", err.Error())
 			if !errors.IsNotFound(err) {
-				errList = append(errList, fmt.Errorf("failed to update ca in validating webhook %s: %s", name, err))
+				errList = append(errList, fmt.Errorf("failed to update ca in validating webhook %s: %w", name, err)) // 将第二个 %s 改为 %w
 			}
 			continue
 		}

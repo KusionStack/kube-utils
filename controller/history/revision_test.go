@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	apps "k8s.io/api/apps/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/utils/ptr"
 )
@@ -78,8 +77,8 @@ func TestHashControllerRevisionRawData(t *testing.T) {
 func TestEqualRevision(t *testing.T) {
 	tests := []struct {
 		name string
-		lrv  *apps.ControllerRevision
-		rrv  *apps.ControllerRevision
+		lrv  *appsv1.ControllerRevision
+		rrv  *appsv1.ControllerRevision
 		want bool
 	}{
 		{

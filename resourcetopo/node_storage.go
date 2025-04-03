@@ -328,10 +328,8 @@ func (s *nodeStorage) checkLabelUpdateForNode(preNode, postNode *nodeInfo) {
 				return
 			}
 			rangeAndSetLabelRelation(preNode, postNode, s.manager)
-		} else {
-			if deleteLabelRelation(preNode, postNode) {
-				preNode.postOrderRelationDeleted(postNode)
-			}
+		} else if deleteLabelRelation(preNode, postNode) {
+			preNode.postOrderRelationDeleted(postNode)
 		}
 	}
 }
