@@ -240,7 +240,7 @@ func (s *WebhookServingCertManager) ensureWebhookConfiguration(ctx context.Conte
 		}); err != nil {
 			s.Logger.Info("failed to update ca in mutating webhook", "name", name, "error", err.Error())
 			if !errors.IsNotFound(err) {
-				errList = append(errList, fmt.Errorf("failed to update ca in mutating webhook %s: %w", name, err)) // 将第二个 %s 改为 %w
+				errList = append(errList, fmt.Errorf("failed to update ca in mutating webhook %s: %w", name, err))
 			}
 			continue
 		}
