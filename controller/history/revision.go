@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"kusionstack.io/kube-utils/controller/names"
 )
 
 const (
@@ -44,14 +45,13 @@ const (
 	ControllerRevisionCollisionLabel = "controller.kubernetes.io/collision"
 )
 
-// ControllerRevisionName returns the Name for a ControllerRevision in the form prefix-hash. If the length
-// of prefix is greater than 223 bytes, it is truncated to allow for a name that is no larger than 253 bytes.
+// ControllerRevisionName returns the Name for a ControllerRevision in the form prefix-hash.
+// The ControllerRevisionName sometimes will be used as a label value so it must be no more than 63 characters.
+//
+// If the length of final name is greater than 63 bytes, the prefix is truncated to allow for a name
+// that is no larger than 63 bytes.
 func ControllerRevisionName(prefix, hash string) string {
-	if len(prefix) > 223 {
-		prefix = prefix[:223]
-	}
-
-	return fmt.Sprintf("%s-%s", prefix, hash)
+	return names.GenerateDNS1035Label(prefix, hash)
 }
 
 // HashControllerRevision hashes the contents of revision's Data using FNV hashing. If probe is not nil, the byte value
