@@ -10,8 +10,12 @@ SHELL = /usr/bin/env bash -o pipefail
 test: envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
+.PHONY: fmt
+fmt: golangci
+	$(GOLANGCI) fmt
+
 .PHONY: lint
-lint: golangci
+lint: fmt
 	$(GOLANGCI) run 
 
 ##@ Build Dependencies

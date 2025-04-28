@@ -133,3 +133,38 @@ func TestEqualRevision(t *testing.T) {
 		})
 	}
 }
+
+func TestControllerRevisionName(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+		hash   string
+		want   string
+	}{
+		{
+			name:   "normal",
+			prefix: "test",
+			hash:   "1234567890",
+			want:   "test-1234567890",
+		},
+		{
+			name:   "prefix too long",
+			prefix: "ab-0123456789012345678901234567890123456789012345678901234567890123456789",
+			hash:   "abcdefghij",
+			want:   "ab-0123456789012345678901234567890123456789012345678-abcdefghij",
+		},
+		{
+			name:   "hash too long",
+			prefix: "abdcefghij",
+			hash:   "ab-0123456789012345678901234567890123456789012345678901234567890123456789",
+			want:   "ab-012345678901234567890123456789012345678901234567890123456789",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ControllerRevisionName(tt.prefix, tt.hash); got != tt.want {
+				t.Errorf("ControllerRevisionName() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
