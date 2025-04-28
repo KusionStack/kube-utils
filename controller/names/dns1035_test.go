@@ -90,7 +90,7 @@ func Test_generateDNS1035LabelPrefix(t *testing.T) {
 			got := GenerateDNS1035LabelPrefixByMaxLength(tt.base, tt.maxLength)
 			assert.Equal(t, tt.want, got)
 			if len(got) > 0 {
-				assert.Equal(t, byte('-'), byte(got[len(got)-1]), "prefix should end with '-'")
+				assert.Equal(t, byte('-'), got[len(got)-1], "prefix should end with '-'")
 			}
 		})
 	}
@@ -187,7 +187,7 @@ func Test_GenerateDNS1035Label(t *testing.T) {
 		got := GenerateDNS1035LabelByMaxLength(tt.base, tt.unique, tt.maxLength)
 		assert.Equal(t, tt.want, got)
 		if len(got) > 0 {
-			assert.Len(t, validation.IsDNS1035Label(got), 0, "should be a valid DNS1035 label")
+			assert.Empty(t, validation.IsDNS1035Label(got), "should be a valid DNS1035 label")
 		}
 	}
 }
