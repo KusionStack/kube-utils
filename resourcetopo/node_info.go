@@ -183,9 +183,6 @@ func (n *nodeInfo) postOrderRelationDeleted(postNode *nodeInfo) {
 
 // propagateNodeChange call node event handler for existed relations.
 func (n *nodeInfo) propagateNodeChange(m *manager) {
-	n.lock.RLock()
-	defer n.lock.RUnlock()
-
 	noticePreOrder := func(preOrder *nodeInfo) {
 		if _, ok := preOrder.storageRef.postNoticeRelation[n.storageRef.metaKey]; !ok {
 			m.newNodeEvent(preOrder, EventTypeRelatedUpdate)
@@ -202,10 +199,13 @@ func (n *nodeInfo) propagateNodeChange(m *manager) {
 		}
 	}
 
+	n.lock.RLock()
 	rangeNodeList(n.directReferredPreOrders, noticePreOrder)
 	rangeNodeList(n.labelReferredPreOrders, noticePreOrder)
 	rangeNodeList(n.directReferredPostOrders, noticePostOrder)
 	rangeNodeList(n.labelReferredPostOrders, noticePostOrder)
+	// readyToDelete will call RLock, unlock here to avoid deadlock
+	n.lock.RUnlock()
 
 	if n.storageRef.virtualResource {
 		if n.directReferredPostOrders == nil || n.directReferredPostOrders.Len() == 0 {
@@ -245,6 +245,7 @@ func (n *nodeInfo) preObjectDeleted() {
 }
 
 func (n *nodeInfo) resolveOwner(o Object) {
+	var ownerInfos []ownerInfo
 	for _, ownerref := range o.GetOwnerReferences() {
 		ownerKey := generateKey(ownerref.APIVersion, ownerref.Kind)
 		ownerStorage := n.storageRef.preOrderResources[ownerKey]
@@ -254,12 +255,12 @@ func (n *nodeInfo) resolveOwner(o Object) {
 		if _, ok := ownerStorage.ownerRelation[n.storageRef.metaKey]; !ok {
 			continue
 		}
-
-		n.ownerNodes = append(n.ownerNodes, ownerInfo{
+		ownerInfos = append(ownerInfos, ownerInfo{
 			metaKey: ownerKey,
 			name:    ownerref.Name,
 		})
 	}
+	n.ownerNodes = ownerInfos
 }
 
 func metaMatchFillter(meta metav1.TypeMeta) func(info *nodeInfo) bool {
