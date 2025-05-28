@@ -18,6 +18,8 @@ package resourcetopo
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -488,8 +490,8 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 	})
 	AfterEach(func() {
 		if !checkAll() {
-			klog.Infof("end with object [%s, %s, %s]", clusterRoleBindingHandler.string(), clusterRoleHandler.string(), saHandler.string())
-			klog.Infof("end with relation [%s, %s]", roleBindingRelation.string(), saBindingRelation.string())
+			klog.Infof("end with object [crb %s, cr %s, sa %s]", clusterRoleBindingHandler.string(), clusterRoleHandler.string(), saHandler.string())
+			klog.Infof("end with relation [crbCr %s, crbSa %s]", roleBindingRelation.string(), saBindingRelation.string())
 		}
 		cancel()
 	})
@@ -817,8 +819,8 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 	})
 	AfterEach(func() {
 		if !checkAll() {
-			klog.Infof("end with object [%s, %s]", podHandler.string(), svcHandler.string())
-			klog.Infof("end with relation [%s]", podSvcRelation.string())
+			klog.Infof("end with object [pod %s, svc %s]", podHandler.string(), svcHandler.string())
+			klog.Infof("end with relation [podSvc %s]", podSvcRelation.string())
 		}
 		cancel()
 	})
@@ -1406,8 +1408,8 @@ var _ = Describe("test suite with relations update", func() {
 	})
 	AfterEach(func() {
 		if !checkAll() {
-			klog.Infof("end with object [%s, %s, %s]", clusterRoleBindingHandler.string(), clusterRoleHandler.string(), saHandler.string())
-			klog.Infof("end with relation [%s, %s]", roleBindingRelation.string(), saBindingRelation.string())
+			klog.Infof("end with object [crb %s, cr %s, sa %s]", clusterRoleBindingHandler.string(), clusterRoleHandler.string(), saHandler.string())
+			klog.Infof("end with relation [crbCr %s, crbSa %s]", roleBindingRelation.string(), saBindingRelation.string())
 		}
 		cancel()
 	})
@@ -1575,7 +1577,6 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 		Expect(err).NotTo(HaveOccurred())
 
 		nsStorage, _ = manager.GetTopoNodeStorage(NamespaceMeta)
-
 		Expect(nsStorage).NotTo(BeNil())
 
 		ctx, cancel = context.WithCancel((context.Background()))
@@ -1592,8 +1593,8 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 
 	AfterEach(func() {
 		if !checkAll() {
-			klog.Infof("end with object [%s]", nsHandler.string())
-			klog.Infof("end with relation [%s]", nsPodRelation.string())
+			klog.Infof("end with object [ns %s]", nsHandler.string())
+			klog.Infof("end with relation [nsPod %s]", nsPodRelation.string())
 		}
 		cancel()
 	})
@@ -1751,5 +1752,246 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 		nsPodRelation.addCallExpected()
 		Expect(fakeClient.CoreV1().Namespaces().Update(ctx, ns1, metav1.UpdateOptions{})).NotTo(BeNil())
 		syncStatus(checkAll)
+	})
+})
+
+var _ = Describe("test suite for multi routine", func() {
+	var manager Manager
+	var fakeClient *fake.Clientset
+	var podHandler, replicasetHandler, deployHandler, inspectDeployHandler *objecthandler
+	var podRsRelation, rsDeployRelation *relationHandler
+
+	var podStorage, replicasetStorage, deployStorage, inspectDeployStorage TopoNodeStorage
+	var ctx context.Context
+	var cancel func()
+	BeforeEach(func() {
+		fakeClient = fake.NewSimpleClientset()
+		k8sInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+		var err error
+		manager, err = NewResourcesTopoManager(*buildManagerConfig(buildDeployTopoConfig(k8sInformerFactory)))
+		Expect(err).NotTo(HaveOccurred())
+
+		replicasetStorage, _ = manager.GetTopoNodeStorage(ReplicaSetMeta)
+		podStorage, _ = manager.GetTopoNodeStorage(PodMeta)
+		deployStorage, _ = manager.GetTopoNodeStorage(DeployMeta)
+		inspectDeployStorage, _ = manager.GetTopoNodeStorage(InspectDeployMeta)
+		Expect(replicasetStorage).NotTo(BeNil())
+		Expect(podStorage).NotTo(BeNil())
+		Expect(deployStorage).NotTo(BeNil())
+		Expect(inspectDeployStorage).NotTo(BeNil())
+
+		ctx, cancel = context.WithCancel((context.Background()))
+		podHandler = &objecthandler{needRangePostOrder: true, needRangePreOrder: true}
+		Expect(manager.AddNodeHandler(PodMeta, podHandler)).Should(Succeed())
+		replicasetHandler = &objecthandler{needRangePostOrder: true, needRangePreOrder: true}
+		Expect(manager.AddNodeHandler(ReplicaSetMeta, replicasetHandler)).Should(Succeed())
+		deployHandler = &objecthandler{needRangePostOrder: true, needRangePreOrder: true}
+		Expect(manager.AddNodeHandler(DeployMeta, deployHandler)).Should(Succeed())
+		inspectDeployHandler = &objecthandler{needRangePostOrder: true, needRangePreOrder: true}
+		Expect(manager.AddNodeHandler(InspectDeployMeta, inspectDeployHandler)).Should(Succeed())
+
+		podRsRelation = &relationHandler{}
+		Expect(manager.AddRelationHandler(ReplicaSetMeta, PodMeta, podRsRelation)).Should(Succeed())
+		rsDeployRelation = &relationHandler{}
+		Expect(manager.AddRelationHandler(DeployMeta, ReplicaSetMeta, rsDeployRelation)).Should(Succeed())
+
+		manager.Start(ctx.Done())
+		k8sInformerFactory.Start(ctx.Done())
+		k8sInformerFactory.WaitForCacheSync(ctx.Done())
+	})
+	AfterEach(func() {
+		klog.V(loglevel).Infof("end with object [rs %s, pod %s, deploy %s, inspectDeploy %s]", replicasetHandler.string(), podHandler.string(), deployHandler.string(), inspectDeployHandler.string())
+		klog.V(loglevel).Infof("end with relation [rsDeploy %s, podRs %s]", rsDeployRelation.string(), podRsRelation.string())
+		cancel()
+	})
+
+	It("test multi routine with pod creation, update and deletion", func() {
+		deployNamePrefix := "testDeploy"
+		rsNamePrefix := deployNamePrefix + "-rs"
+		rsNames := []string{rsNamePrefix + "1", rsNamePrefix + "2"}
+		podNamePrefix := rsNamePrefix + "-pod"
+		appsKey := "apps"
+
+		labels := []string{appsKey, deployNamePrefix}
+		Expect(fakeClient.AppsV1().Deployments(namespaceDefault).Create(ctx, newDeploy(namespaceDefault, deployNamePrefix, labels...), metav1.CreateOptions{})).NotTo(BeNil())
+		for _, rsName := range rsNames {
+			rs := newReplicaSet(namespaceDefault, rsName, labels...)
+			setOwner(rs, DeployMeta, deployNamePrefix)
+			Expect(fakeClient.AppsV1().ReplicaSets(namespaceDefault).Create(ctx, rs, metav1.CreateOptions{})).NotTo(BeNil())
+		}
+
+		totalNum := int(maxChanSize)
+		for i := 0; i < totalNum; i++ {
+			podName := fmt.Sprintf("%s-%d", podNamePrefix, i)
+			pod := newPod(namespaceDefault, podName, labels...)
+			setOwner(pod, ReplicaSetMeta, rsNames[i%len(rsNames)])
+			klog.V(loglevel).Infof("add pod %s", podName)
+			go func() {
+				fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, pod, metav1.CreateOptions{})
+			}()
+		}
+
+		notMatchNum := make([]int, len(rsNames))
+		var lock sync.Mutex
+		notMatchCount := func(i int) {
+			lock.Lock()
+			defer lock.Unlock()
+			notMatchNum[i] += 1
+		}
+
+		updateLabel2NotMatch := func(podName string, succssCall func()) {
+			pod, _ := fakeClient.CoreV1().Pods(namespaceDefault).Get(ctx, podName, metav1.GetOptions{})
+			if pod != nil {
+				pod.Labels[appsKey] = "test2"
+				if _, err := fakeClient.CoreV1().Pods(namespaceDefault).Update(ctx, pod, metav1.UpdateOptions{}); err == nil {
+					klog.V(loglevel).Infof("update pod %s labels to no longer match", podName)
+					succssCall()
+				}
+			}
+		}
+
+		updateLabel2StillMatch := func(podName string, succssCall func()) {
+			pod, _ := fakeClient.CoreV1().Pods(namespaceDefault).Get(ctx, podName, metav1.GetOptions{})
+			if pod != nil {
+				pod.Labels["apps2"] = deployNamePrefix
+				if _, err := fakeClient.CoreV1().Pods(namespaceDefault).Update(ctx, pod, metav1.UpdateOptions{}); err == nil {
+					klog.V(loglevel).Infof("update pod %s labels", podName)
+					succssCall()
+				}
+			}
+		}
+
+		deletePod := func(podName string, succssCall func()) {
+			pod, _ := fakeClient.CoreV1().Pods(namespaceDefault).Get(ctx, podName, metav1.GetOptions{})
+			if pod != nil {
+				if err := fakeClient.CoreV1().Pods(namespaceDefault).Delete(ctx, pod.Name, metav1.DeleteOptions{}); err == nil {
+					klog.V(loglevel).Infof("delete pod %s", podName)
+					succssCall()
+				}
+			}
+		}
+
+		for i := 0; i < totalNum; i++ {
+			podName := fmt.Sprintf("%s-%d", podNamePrefix, i)
+			switch i % 3 {
+			case 0:
+				go updateLabel2StillMatch(podName, func() {})
+			case 1:
+				go deletePod(podName, func() { notMatchCount(i % len(rsNames)) })
+			case 2:
+				go updateLabel2NotMatch(podName, func() { notMatchCount(i % len(rsNames)) })
+			}
+		}
+
+		Eventually(func(g Gomega) {
+			deploy, _ := deployStorage.GetNode(types.NamespacedName{Name: deployNamePrefix, Namespace: namespaceDefault})
+
+			g.Expect(deploy).NotTo(BeNil())
+			g.Expect(deploy.GetPreOrders()).To(HaveLen(1))
+			postOrders := deploy.GetPostOrders()
+			g.Expect(postOrders).To(HaveLen(len(rsNames)))
+			for i := 0; i < len(rsNames); i++ {
+				rsNode, _ := replicasetStorage.GetNode(types.NamespacedName{Name: rsNames[i], Namespace: namespaceDefault})
+
+				g.Expect(rsNode).NotTo(BeNil())
+				g.Expect(rsNode.GetPreOrders()).To(HaveLen(1))
+				// nolint:ginkgolinter
+				g.Expect(len(rsNode.GetPostOrders())).To(Equal(totalNum/len(rsNames) - notMatchNum[i]))
+			}
+		}, "10s").Should(Succeed())
+	})
+
+	It("test multi routine with pod and rs modification", func() {
+		deployNamePrefix := "testDeploy"
+		rsNamePrefix := deployNamePrefix + "-rs"
+		rsNum := 10
+		rsNames := make([]string, rsNum)
+		for i := 0; i < rsNum; i++ {
+			rsNames[i] = fmt.Sprintf("%s-%d", rsNamePrefix, i)
+		}
+		podNamePrefix := rsNamePrefix + "-pod"
+		appsKey := "apps"
+
+		labels := []string{appsKey, deployNamePrefix}
+		Expect(fakeClient.AppsV1().Deployments(namespaceDefault).Create(ctx, newDeploy(namespaceDefault, deployNamePrefix, labels...), metav1.CreateOptions{})).NotTo(BeNil())
+
+		totalNum := rsNum * 1000
+		for i := 0; i < totalNum; i++ {
+			podName := fmt.Sprintf("%s-%d", podNamePrefix, i)
+			pod := newPod(namespaceDefault, podName, labels...)
+			setOwner(pod, ReplicaSetMeta, rsNames[i%len(rsNames)])
+			klog.V(loglevel).Infof("add pod %s", podName)
+			fakeClient.CoreV1().Pods(namespaceDefault).Create(ctx, pod, metav1.CreateOptions{})
+		}
+
+		updateLabel2StillMatch := func(podName string, succssCall func()) {
+			pod, _ := fakeClient.CoreV1().Pods(namespaceDefault).Get(ctx, podName, metav1.GetOptions{})
+			if pod != nil {
+				pod.Labels["apps2"] = deployNamePrefix
+				if _, err := fakeClient.CoreV1().Pods(namespaceDefault).Update(ctx, pod, metav1.UpdateOptions{}); err == nil {
+					klog.V(loglevel).Infof("update pod %s labels", podName)
+					succssCall()
+				}
+			}
+		}
+
+		for _, rsName := range rsNames {
+			rs := newReplicaSet(namespaceDefault, rsName, labels...)
+			setOwner(rs, DeployMeta, deployNamePrefix)
+			Expect(fakeClient.AppsV1().ReplicaSets(namespaceDefault).Create(ctx, rs, metav1.CreateOptions{})).NotTo(BeNil())
+		}
+
+		loopwrapper := func(f func()) {
+			for i := 0; i < 50; i++ {
+				f()
+			}
+		}
+		for i, rsName := range rsNames {
+			rs := newReplicaSet(namespaceDefault, rsName, labels...)
+			setOwner(rs, DeployMeta, deployNamePrefix)
+
+			switch i % 3 {
+			case 0:
+				go loopwrapper(func() {
+					Expect(fakeClient.AppsV1().ReplicaSets(namespaceDefault).Delete(ctx, rsName, metav1.DeleteOptions{})).To(Succeed())
+					Expect(fakeClient.AppsV1().ReplicaSets(namespaceDefault).Create(ctx, rs, metav1.CreateOptions{})).NotTo(BeNil())
+				})
+			case 1:
+				go loopwrapper(func() {
+					rs.Labels[appsKey] = "notExistDeploy"
+					Expect(fakeClient.AppsV1().ReplicaSets(namespaceDefault).Update(ctx, rs, metav1.UpdateOptions{})).NotTo(BeNil())
+					rs.Labels[appsKey] = deployNamePrefix
+					Expect(fakeClient.AppsV1().ReplicaSets(namespaceDefault).Update(ctx, rs, metav1.UpdateOptions{})).NotTo(BeNil())
+				})
+			case 2:
+				go loopwrapper(func() {
+					rs.OwnerReferences = nil
+					Expect(fakeClient.AppsV1().ReplicaSets(namespaceDefault).Update(ctx, rs, metav1.UpdateOptions{})).NotTo(BeNil())
+					setOwner(rs, DeployMeta, deployNamePrefix)
+					Expect(fakeClient.AppsV1().ReplicaSets(namespaceDefault).Update(ctx, rs, metav1.UpdateOptions{})).NotTo(BeNil())
+				})
+			}
+		}
+
+		for i := 0; i < totalNum; i++ {
+			podName := fmt.Sprintf("%s-%d", podNamePrefix, i)
+			go updateLabel2StillMatch(podName, func() {})
+		}
+
+		Eventually(func(g Gomega) {
+			deploy, _ := deployStorage.GetNode(types.NamespacedName{Name: deployNamePrefix, Namespace: namespaceDefault})
+			g.Expect(deploy).NotTo(BeNil())
+			g.Expect(deploy.GetPreOrders()).To(HaveLen(1))
+			postOrders := deploy.GetPostOrders()
+			// nolint:ginkgolinter
+			g.Expect(len(postOrders)).To(Equal(rsNum))
+			for i := 0; i < len(rsNames); i++ {
+				rsNode, _ := replicasetStorage.GetNode(types.NamespacedName{Name: rsNames[i], Namespace: namespaceDefault})
+				g.Expect(rsNode).NotTo(BeNil())
+				g.Expect(rsNode.GetPreOrders()).To(HaveLen(1))
+				// nolint:ginkgolinter
+				g.Expect(len(rsNode.GetPostOrders())).To(Equal(totalNum / len(rsNames)))
+			}
+		}, "10s").Should(Succeed())
 	})
 })

@@ -32,11 +32,14 @@ func (s *nodeStorage) OnAdd(obj interface{}) {
 		klog.Errorf("Failed to transform to k8s object %v, ignore this add nodeEvent", obj)
 		return
 	}
+	klog.V(6).Infof("OnAdd started %s %s/%s", s.metaKey, topoObject.GetNamespace(), topoObject.GetName())
+
 	node := s.getOrCreateNode(getObjectCluster(topoObject), topoObject.GetNamespace(), topoObject.GetName())
 	s.addNode(topoObject, node)
 
 	s.manager.newNodeEvent(node, EventTypeAdd)
-	node.propagateNodeChange(s.manager)
+	node.propagateNodeChange()
+	klog.V(6).Infof("OnAdd finished %s %s/%s", s.metaKey, topoObject.GetNamespace(), topoObject.GetName())
 }
 
 func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
@@ -50,6 +53,7 @@ func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
 		klog.Errorf("Failed to transform to k8s object %v, ignore this update nodeEvent", oldObj)
 		return
 	}
+	klog.V(6).Infof("OnUpdate started %s %s/%s", s.metaKey, newTopoObj.GetNamespace(), newTopoObj.GetName())
 	cluster := getObjectCluster(newTopoObj)
 
 	node := s.getNode(cluster, newTopoObj.GetNamespace(), newTopoObj.GetName())
@@ -78,7 +82,8 @@ func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
 	node.relations = resolvedRelations
 	node.relationsLock.Unlock()
 
-	if !node.labelEqualed(newTopoObj.GetLabels()) {
+	if !node.labelEqualed(newTopoObj.GetLabels()) ||
+		!node.ownersEqualed(newTopoObj.GetOwnerReferences()) {
 		node.updateNodeMeta(newTopoObj)
 		for _, preStorage := range s.preOrderResources {
 			preStorage.checkForLabelUpdate(node)
@@ -86,29 +91,31 @@ func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
 	}
 
 	for _, discover := range s.discoverers {
-		newDiscoverd := discover.Discover(newTopoObj)
-		oldDiscoverd := discover.Discover(oldTopoObj)
-		slices.SortFunc(newDiscoverd, compareNodeName)
-		slices.SortFunc(oldDiscoverd, compareNodeName)
+		newDiscovered := discover.Discover(newTopoObj)
+		oldDiscovered := discover.Discover(oldTopoObj)
+		slices.SortFunc(newDiscovered, compareNodeName)
+		slices.SortFunc(oldDiscovered, compareNodeName)
 
 		discoveredStorage := s.manager.getStorage(discover.PreMeta)
-		sortedSlicesCompare(newDiscoverd, oldDiscoverd,
+		sortedSlicesCompare(newDiscovered, oldDiscovered,
 			func(name types.NamespacedName) {
 				discoveredNode := discoveredStorage.getOrCreateNode(cluster, name.Namespace, name.Name)
-				addDirectRefRelation(discoveredNode, node, s.manager)
+				rangeAndSetDirectRefRelation(discoveredNode, node, s.manager)
 			},
 			func(namespacedName types.NamespacedName) {
 				discoveredNode := discoveredStorage.getNode(cluster, namespacedName.Namespace, namespacedName.Name)
 				if deleteDirectRelation(discoveredNode, node) {
 					// deleted relation will not be called by later node.propagateNodeChange
-					discoveredNode.postOrderRelationDeleted(node)
+					node.noticePreOrderRelationDeleted(discoveredNode)
+					discoveredNode.checkVirtualNodeGC()
 				}
 			},
 			compareNodeName)
 	}
 
 	s.manager.newNodeEvent(node, EventTypeUpdate)
-	node.propagateNodeChange(s.manager)
+	node.propagateNodeChange()
+	klog.V(6).Infof("OnUpdate finished  %s %s/%s", s.metaKey, newTopoObj.GetNamespace(), newTopoObj.GetName())
 }
 
 func (s *nodeStorage) OnDelete(obj interface{}) {
@@ -117,20 +124,20 @@ func (s *nodeStorage) OnDelete(obj interface{}) {
 		klog.Errorf("Failed to transform to k8s object %v, ignore this delete nodeEvent", obj)
 		return
 	}
-	cluster := getObjectCluster(topoObject)
+	klog.V(6).Infof("OnDelete started %s %s/%s", s.metaKey, topoObject.GetNamespace(), topoObject.GetName())
 
+	cluster := getObjectCluster(topoObject)
 	node := s.getNode(cluster, topoObject.GetNamespace(), topoObject.GetName())
 	if node == nil {
 		return
 	}
 
-	node.preObjectDeleted()
+	node.objectDeleted()
 	deleteAllRelation(node)
-	if node.readyToDelete() {
-		s.deleteNode(cluster, node.namespace, node.name)
-	}
+	node.checkGC()
 
 	s.manager.newNodeEvent(node, EventTypeDelete)
+	klog.V(6).Infof("OnDelete finished %s %s/%s", s.metaKey, topoObject.GetNamespace(), topoObject.GetName())
 }
 
 func (s *nodeStorage) addNode(obj Object, node *nodeInfo) {
@@ -155,7 +162,7 @@ func (s *nodeStorage) addNode(obj Object, node *nodeInfo) {
 		preObjs := discoverer.Discover(obj)
 		for _, preObj := range preObjs {
 			preNode := preStorage.getOrCreateNode(node.cluster, preObj.Namespace, preObj.Name)
-			addDirectRefRelation(preNode, node, s.manager)
+			rangeAndSetDirectRefRelation(preNode, node, s.manager)
 		}
 	}
 
@@ -203,7 +210,8 @@ func (s *nodeStorage) removeResourceRelation(node *nodeInfo, relation *ResourceR
 		for _, ref := range relation.DirectRefs {
 			postNode := postStorage.getNode(relation.Cluster, ref.Namespace, ref.Name)
 			if deleteDirectRelation(node, postNode) {
-				postNode.preOrderRelationDeleted(node)
+				node.noticePostOrderRelationDeleted(postNode)
+				postNode.checkGC()
 			}
 		}
 	}
@@ -212,7 +220,7 @@ func (s *nodeStorage) removeResourceRelation(node *nodeInfo, relation *ResourceR
 		postNodes := postStorage.getMatchedNodeList(node.cluster, node.namespace, relation.LabelSelector)
 		for _, postNode := range postNodes {
 			if deleteLabelRelation(node, postNode) {
-				postNode.preOrderRelationDeleted(node)
+				node.noticePostOrderRelationDeleted(postNode)
 			}
 		}
 	}

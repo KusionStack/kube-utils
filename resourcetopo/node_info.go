@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 )
 
 var _ NodeInfo = &nodeInfo{}
@@ -34,7 +35,11 @@ type ownerInfo struct {
 }
 
 type nodeInfo struct {
+	// immutable fields after node created
 	storageRef *nodeStorage
+	cluster    string
+	namespace  string
+	name       string
 
 	// lock for PreOrders and PostOrders
 	lock sync.RWMutex
@@ -44,19 +49,17 @@ type nodeInfo struct {
 	directReferredPostOrders *list.List
 	labelReferredPostOrders  *list.List
 
-	// We cached all the data needed by the relation existence decision.
-	cluster    string
-	namespace  string
-	name       string
+	// only informer routine for this storage type will call metaLock.Lock()
+	// other routines only call metaLock.RLock()
+	metaLock   sync.RWMutex
 	ownerNodes []ownerInfo
 	labels     labels.Set // labels is a ref to object.meta.labels, do not edit!
-
-	relations     []ResourceRelation
-	relationsLock sync.RWMutex
-
 	// objectExisted is added for directRef relation to cache the relation before post object added,
 	// will be updated to true after the object added to cache or the manager is of virtual type.
 	objectExisted bool
+
+	relationsLock sync.RWMutex
+	relations     []ResourceRelation
 }
 
 func newNode(s *nodeStorage, cluster, namespace, name string) *nodeInfo {
@@ -119,26 +122,83 @@ func (n *nodeInfo) GetPostOrdersWithMeta(meta metav1.TypeMeta) []NodeInfo {
 		transformToNodeSliceWithFilters(n.directReferredPostOrders, metaMatchFillter(meta), objectExistFilter)...)
 }
 
-func (n *nodeInfo) updateNodeMeta(obj Object) {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-	n.labels = obj.GetLabels()
-	n.resolveOwner(obj)
-	if !n.objectExisted {
-		n.postObjectAdded()
-		n.objectExisted = true
+func (node *nodeInfo) checkLabelUpdateForPostNode(postNode *nodeInfo) {
+	if !node.isObjectExisted() {
+		return
+	}
+
+	node.relationsLock.RLock()
+	defer node.relationsLock.RUnlock()
+	if len(node.relations) == 0 {
+		return
+	}
+	for _, relation := range node.relations {
+		if !typeEqual(relation.PostMeta, postNode.storageRef.meta) {
+			return
+		}
+		selector, err := metav1.LabelSelectorAsSelector(relation.LabelSelector)
+		if err != nil {
+			klog.Errorf("Failed to resolve selector %v: %s", relation.LabelSelector, err.Error())
+			return
+		}
+		if postNode.matched(selector) {
+			if _, ok := node.storageRef.ownerRelation[postNode.storageRef.metaKey]; !ok || postNode.ownerMatched(node) {
+				rangeAndSetLabelRelation(node, postNode, node.storageRef.manager)
+				return
+			}
+		}
+		if deleteLabelRelation(node, postNode) {
+			postNode.noticePreOrderRelationDeleted(node)
+		}
 	}
 }
 
+func (n *nodeInfo) updateNodeMeta(obj Object) {
+	n.metaLock.Lock()
+	defer n.metaLock.Unlock()
+	n.labels = obj.GetLabels()
+
+	var ownerInfos []ownerInfo
+	for _, ownerref := range obj.GetOwnerReferences() {
+		ownerKey := generateKey(ownerref.APIVersion, ownerref.Kind)
+		if !n.needRecordOwner(ownerKey) {
+			continue
+		}
+		ownerInfos = append(ownerInfos, ownerInfo{metaKey: ownerKey, name: ownerref.Name})
+	}
+	n.ownerNodes = ownerInfos
+
+	if !n.objectExisted {
+		n.objectExisted = true
+		n.lock.RLock()
+		defer n.lock.RUnlock()
+		rangeNodeList(n.directReferredPreOrders, func(preOrder *nodeInfo) {
+			n.storageRef.manager.newRelationEvent(preOrder, n, EventTypeAdd)
+		})
+	}
+}
+
+func (n *nodeInfo) objectDeleted() {
+	n.metaLock.Lock()
+	defer n.metaLock.Unlock()
+	n.relationsLock.Lock()
+	defer n.relationsLock.Unlock()
+
+	n.objectExisted = false
+	n.labels = nil
+	n.ownerNodes = nil
+	n.relations = nil
+}
+
 func (n *nodeInfo) matched(selector labels.Selector) bool {
-	n.lock.RLock()
-	defer n.lock.RUnlock()
-	return selector.Matches(n.labels)
+	n.metaLock.RLock()
+	defer n.metaLock.RUnlock()
+	return n.objectExisted && selector.Matches(n.labels)
 }
 
 func (n *nodeInfo) ownerMatched(node *nodeInfo) bool {
-	n.lock.RLock()
-	defer n.lock.RUnlock()
+	n.metaLock.RLock()
+	defer n.metaLock.RUnlock()
 	for _, owner := range n.ownerNodes {
 		if node.storageRef.metaKey == owner.metaKey &&
 			node.name == owner.name {
@@ -149,118 +209,123 @@ func (n *nodeInfo) ownerMatched(node *nodeInfo) bool {
 }
 
 func (n *nodeInfo) labelEqualed(labelMap map[string]string) bool {
-	n.lock.RLock()
-	defer n.lock.RUnlock()
+	n.metaLock.RLock()
+	defer n.metaLock.RUnlock()
 
 	return maps.Equal(n.labels, labelMap)
 }
 
-// preOrderRelationDeleted do sth when preNode changed and trigger this relation delete event
-func (n *nodeInfo) preOrderRelationDeleted(preNode *nodeInfo) {
-	// for direct referred relation,
-	if !n.isObjectExisted() {
-		return
-	}
-	m := n.storageRef.manager
-	m.newRelationEvent(preNode, n, EventTypeDelete)
+func (n *nodeInfo) ownersEqualed(reference []metav1.OwnerReference) bool {
+	n.metaLock.RLock()
+	defer n.metaLock.RUnlock()
 
-	if _, ok := preNode.storageRef.postNoticeRelation[n.storageRef.metaKey]; ok {
-		m.newNodeEvent(n, EventTypeRelatedUpdate)
-		n.propagateNodeChange(m)
+	if len(n.ownerNodes) > len(reference) {
+		return false
 	}
-}
-
-// postOrderRelationDeleted do sth when postNode changed and trigger this relation delete event
-func (n *nodeInfo) postOrderRelationDeleted(postNode *nodeInfo) {
-	m := n.storageRef.manager
-	m.newRelationEvent(n, postNode, EventTypeDelete)
-
-	if _, ok := n.storageRef.postNoticeRelation[postNode.storageRef.metaKey]; !ok {
-		m.newNodeEvent(n, EventTypeRelatedUpdate)
-		n.propagateNodeChange(m)
-	}
-}
-
-// propagateNodeChange call node event handler for existed relations.
-func (n *nodeInfo) propagateNodeChange(m *manager) {
-	noticePreOrder := func(preOrder *nodeInfo) {
-		if _, ok := preOrder.storageRef.postNoticeRelation[n.storageRef.metaKey]; !ok {
-			m.newNodeEvent(preOrder, EventTypeRelatedUpdate)
-			preOrder.propagateNodeChange(m)
-		}
-	}
-	noticePostOrder := func(postOrder *nodeInfo) {
-		if _, ok := n.storageRef.postNoticeRelation[postOrder.storageRef.metaKey]; ok {
-			if !postOrder.isObjectExisted() {
-				return
+	idx := 0
+	for _, owner := range reference {
+		ownerKey := generateKey(owner.APIVersion, owner.Kind)
+		if n.needRecordOwner(ownerKey) {
+			if idx < len(n.ownerNodes) && owner.Name == n.ownerNodes[idx].name && ownerKey == n.ownerNodes[idx].metaKey {
+				idx++
+			} else {
+				return false
 			}
-			m.newNodeEvent(postOrder, EventTypeRelatedUpdate)
-			postOrder.propagateNodeChange(m)
 		}
 	}
+	return idx == len(n.ownerNodes)
+}
 
+func (n *nodeInfo) checkGC() {
+	n.metaLock.RLock()
+	defer n.metaLock.RUnlock()
 	n.lock.RLock()
-	rangeNodeList(n.directReferredPreOrders, noticePreOrder)
-	rangeNodeList(n.labelReferredPreOrders, noticePreOrder)
-	rangeNodeList(n.directReferredPostOrders, noticePostOrder)
-	rangeNodeList(n.labelReferredPostOrders, noticePostOrder)
-	// readyToDelete will call RLock, unlock here to avoid deadlock
-	n.lock.RUnlock()
+	defer n.lock.RUnlock()
 
-	if n.storageRef.virtualResource {
-		if n.directReferredPostOrders == nil || n.directReferredPostOrders.Len() == 0 {
-			n.storageRef.deleteNode(n.cluster, n.namespace, n.name)
-			m.newNodeEvent(n, EventTypeDelete)
-		}
-	} else if n.readyToDelete() {
+	if !n.objectExisted &&
+		// n maybe set as notExisted, but still have related nodes to handle
+		(n.directReferredPreOrders == nil || n.directReferredPreOrders.Len() == 0) &&
+		(n.directReferredPostOrders == nil || n.directReferredPostOrders.Len() == 0) &&
+		(n.labelReferredPreOrders == nil || n.labelReferredPreOrders.Len() == 0) &&
+		(n.labelReferredPostOrders == nil || n.labelReferredPostOrders.Len() == 0) {
 		n.storageRef.deleteNode(n.cluster, n.namespace, n.name)
 	}
 }
 
-func (n *nodeInfo) readyToDelete() bool {
+func (n *nodeInfo) checkVirtualNodeGC() {
+	if !n.storageRef.virtualResource {
+		return
+	}
 	n.lock.RLock()
 	defer n.lock.RUnlock()
-	return !n.objectExisted && (n.directReferredPreOrders == nil || n.directReferredPreOrders.Len() == 0)
+	if n.directReferredPostOrders == nil || n.directReferredPostOrders.Len() == 0 {
+		n.storageRef.deleteNode(n.cluster, n.namespace, n.name)
+		n.storageRef.manager.newNodeEvent(n, EventTypeDelete)
+	}
 }
 
 func (n *nodeInfo) isObjectExisted() bool {
-	n.lock.RLock()
-	defer n.lock.RUnlock()
+	n.metaLock.RLock()
+	defer n.metaLock.RUnlock()
 
 	return n.objectExisted
 }
 
-func (n *nodeInfo) postObjectAdded() {
-	if n.directReferredPreOrders != nil {
-		for ele := n.directReferredPreOrders.Front(); ele != nil; ele = ele.Next() {
-			preOrder := ele.Value.(*nodeInfo)
-			n.storageRef.manager.newRelationEvent(preOrder, n, EventTypeAdd)
-		}
+func (n *nodeInfo) needRecordOwner(ownerKey string) bool {
+	if ownerStorage := n.storageRef.preOrderResources[ownerKey]; ownerStorage == nil {
+		return false
+	} else {
+		_, ok := ownerStorage.ownerRelation[n.storageRef.metaKey]
+		return ok
 	}
 }
 
-func (n *nodeInfo) preObjectDeleted() {
-	n.objectExisted = false
-	n.labels = nil
+func (n *nodeInfo) noticePostOrderRelationDeleted(postOrder *nodeInfo) {
+	if !postOrder.isObjectExisted() {
+		return
+	}
+	m := n.storageRef.manager
+	m.newRelationEvent(n, postOrder, EventTypeDelete)
+	n.noticePostOrder(postOrder)
 }
 
-func (n *nodeInfo) resolveOwner(o Object) {
-	var ownerInfos []ownerInfo
-	for _, ownerref := range o.GetOwnerReferences() {
-		ownerKey := generateKey(ownerref.APIVersion, ownerref.Kind)
-		ownerStorage := n.storageRef.preOrderResources[ownerKey]
-		if ownerStorage == nil {
-			continue
-		}
-		if _, ok := ownerStorage.ownerRelation[n.storageRef.metaKey]; !ok {
-			continue
-		}
-		ownerInfos = append(ownerInfos, ownerInfo{
-			metaKey: ownerKey,
-			name:    ownerref.Name,
-		})
+func (n *nodeInfo) noticePreOrderRelationDeleted(preOrder *nodeInfo) {
+	m := n.storageRef.manager
+	m.newRelationEvent(preOrder, n, EventTypeDelete)
+
+	n.noticePreOrder(preOrder)
+}
+
+func (n *nodeInfo) noticePreOrder(preOrder *nodeInfo) {
+	if _, ok := preOrder.storageRef.postNoticeRelation[n.storageRef.metaKey]; !ok {
+		n.storageRef.manager.newNodeEvent(preOrder, EventTypeRelatedUpdate)
+		preOrder.propagateNodeChange()
 	}
-	n.ownerNodes = ownerInfos
+}
+
+func (n *nodeInfo) noticePostOrder(postOrder *nodeInfo) {
+	if _, ok := n.storageRef.postNoticeRelation[postOrder.storageRef.metaKey]; ok {
+		if !postOrder.isObjectExisted() {
+			return
+		}
+		n.storageRef.manager.newNodeEvent(postOrder, EventTypeRelatedUpdate)
+		postOrder.propagateNodeChange()
+	}
+}
+
+// propagateNodeChange call node event handler for existed relations.
+func (n *nodeInfo) propagateNodeChange() {
+	// related nodes may be changed after RUnlock, but avoid RLock recursion caused deadlock
+	preOrderNodes, postOrderNodes := list.New(), list.New()
+	n.lock.RLock()
+	rangeNodeList(n.directReferredPreOrders, func(preOrder *nodeInfo) { preOrderNodes.PushBack(preOrder) })
+	rangeNodeList(n.labelReferredPreOrders, func(preOrder *nodeInfo) { preOrderNodes.PushBack(preOrder) })
+	rangeNodeList(n.directReferredPostOrders, func(postOrder *nodeInfo) { postOrderNodes.PushBack(postOrder) })
+	rangeNodeList(n.labelReferredPostOrders, func(postOrder *nodeInfo) { postOrderNodes.PushBack(postOrder) })
+	n.lock.RUnlock()
+
+	rangeNodeList(preOrderNodes, n.noticePreOrder)
+	rangeNodeList(postOrderNodes, n.noticePostOrder)
 }
 
 func metaMatchFillter(meta metav1.TypeMeta) func(info *nodeInfo) bool {

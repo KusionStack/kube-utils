@@ -28,6 +28,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/informers"
 	"k8s.io/klog/v2"
 
@@ -41,6 +42,7 @@ var (
 	ServiceMeta            = metav1.TypeMeta{Kind: "Service", APIVersion: "core/v1"}
 	ReplicaSetMeta         = metav1.TypeMeta{Kind: "ReplicaSet", APIVersion: "apps/v1"}
 	DeployMeta             = metav1.TypeMeta{Kind: "Deployment", APIVersion: "apps/v1"}
+	InspectDeployMeta      = metav1.TypeMeta{Kind: "Deployment", APIVersion: "inspect/v1"}
 	StatefulSetMeta        = metav1.TypeMeta{Kind: "StatefulSet", APIVersion: "apps/v1"}
 	InspectStatefulSetMeta = metav1.TypeMeta{Kind: "StatefulSet", APIVersion: "inspect/v1"}
 	ClusterRoleBindingMeta = metav1.TypeMeta{Kind: "ClusterRoleBinding", APIVersion: "rbac/v1"}
@@ -48,6 +50,12 @@ var (
 	ServiceAccountMeta     = metav1.TypeMeta{Kind: "ServiceAccount", APIVersion: "core/v1"}
 	NamespaceMeta          = metav1.TypeMeta{Kind: "Namespace", APIVersion: "core/v1"}
 )
+
+var maxChanSize int32 = 10240
+
+func init() {
+	watch.DefaultChanSize = maxChanSize
+}
 
 func GetInformer(meta metav1.TypeMeta, k8sInformerFactory informers.SharedInformerFactory) Informer {
 	gvk := meta.String()
@@ -243,6 +251,24 @@ func buildDeployTopoConfig(k8sInformerFactory informers.SharedInformerFactory) *
 				},
 			},
 		},
+		Discoverers: []VirtualResourceDiscoverer{
+			{
+				PreMeta:  InspectDeployMeta,
+				PostMeta: DeployMeta,
+				Discover: func(postObject Object) []types.NamespacedName {
+					deployObj, ok := postObject.(*appsv1.Deployment)
+					if !ok {
+						return nil
+					}
+					return []types.NamespacedName{
+						{
+							Name:      deployObj.Name,
+							Namespace: deployObj.Namespace,
+						},
+					}
+				},
+			},
+		},
 	}
 }
 
@@ -417,7 +443,7 @@ type MultiClusterDepend struct {
 func syncStatus(f func() bool) {
 	retry.RunWith(retry.TwoSeconds(), GinkgoT(), func(r *retry.R) {
 		if !f() {
-			r.Fatal()
+			r.Fatalf("failed to sync status")
 		}
 	})
 }
@@ -487,6 +513,9 @@ type objecthandler struct {
 	updateCounter  int
 	relatedCounter int
 	deletedCounter int
+
+	needRangePreOrder  bool
+	needRangePostOrder bool
 }
 
 // change loglevel flag to 0 to enable log output
@@ -495,21 +524,25 @@ const loglevel = 1
 func (o *objecthandler) OnAdd(info NodeInfo) {
 	klog.V(loglevel).Infof("received added object %v %v", info.TypeInfo(), info.NodeInfo())
 	o.addCounter--
+	o.rangeNode(info)
 }
 
 func (o *objecthandler) OnUpdate(info NodeInfo) {
 	klog.V(loglevel).Infof("received updated object %v %v", info.TypeInfo(), info.NodeInfo())
 	o.updateCounter--
+	o.rangeNode(info)
 }
 
 func (o *objecthandler) OnDelete(info NodeInfo) {
 	klog.V(loglevel).Infof("received deleted object %v %v", info.TypeInfo(), info.NodeInfo())
 	o.deletedCounter--
+	o.rangeNode(info)
 }
 
 func (o *objecthandler) OnRelatedUpdate(info NodeInfo) {
 	klog.V(loglevel).Infof("received related updated object %v %v", info.TypeInfo(), info.NodeInfo())
 	o.relatedCounter--
+	o.rangeNode(info)
 }
 
 func (o *objecthandler) addCallExpected() {
@@ -530,6 +563,31 @@ func (o *objecthandler) relatedCallExpected() {
 
 func (h *objecthandler) matchExpected() bool {
 	return h.addCounter == 0 && h.updateCounter == 0 && h.deletedCounter == 0 && h.relatedCounter == 0
+}
+
+func (o *objecthandler) rangeNode(node NodeInfo) {
+	if o.needRangePreOrder {
+		o.rangePreOrder(node)
+	}
+	if o.needRangePostOrder {
+		o.rangePostOrder(node)
+	}
+}
+
+func (o *objecthandler) rangePreOrder(node NodeInfo) {
+	klog.V(loglevel).Infof("range pre order")
+	for _, preNode := range node.GetPreOrders() {
+		klog.V(loglevel).Infof("pre order %v", preNode.NodeInfo())
+		o.rangePreOrder(preNode)
+	}
+}
+
+func (o *objecthandler) rangePostOrder(node NodeInfo) {
+	klog.V(loglevel).Infof("range post order")
+	for _, postNode := range node.GetPostOrders() {
+		klog.V(loglevel).Infof("post order %v", postNode.NodeInfo())
+		o.rangePostOrder(postNode)
+	}
 }
 
 func (o *objecthandler) string() string {
