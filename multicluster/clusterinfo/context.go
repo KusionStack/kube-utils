@@ -21,8 +21,6 @@ import (
 	"strings"
 )
 
-type contextKey string
-
 const (
 	clusterInfo string = "clusterInfo"
 
