@@ -21,10 +21,8 @@ import (
 	"strings"
 )
 
-type contextKey string
-
 const (
-	clusterInfo contextKey = "clusterInfo"
+	clusterInfo string = "clusterInfo"
 
 	ClusterLabelKey = "kusionstack.io/cluster" // Label key for cluster name that will be attached when use Client or Cache to read
 
