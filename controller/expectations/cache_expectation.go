@@ -61,6 +61,10 @@ func NewxCacheExpectations(reader client.Reader, scheme *runtime.Scheme, clock c
 	}
 }
 
+func (r *CacheExpectations) CreateExpectations(controllerKey string) (*CacheExpectation, error) {
+	return r.initExpectations(controllerKey)
+}
+
 // GetExpectations returns the ControlleeExpectations of the given controller.
 func (r *CacheExpectations) GetExpectations(controllerKey string) (*CacheExpectation, bool, error) {
 	exp, exists, err := r.GetByKey(controllerKey)
@@ -180,6 +184,16 @@ func (e *CacheExpectation) Fulfilled() bool {
 		satisfied = false
 	}
 	return satisfied
+}
+
+func (e *CacheExpectation) FulFilledFor(gvk schema.GroupVersionKind, namespace, name string) bool {
+	key := e.getKey(gvk, namespace, name)
+	item, ok, err := e.items.GetByKey(key)
+	if err != nil || !ok {
+		return true
+	}
+	eitem := item.(*CacheExpectationItem)
+	return eitem.Fulfilled()
 }
 
 func (e *CacheExpectation) ExpectCreation(gvk schema.GroupVersionKind, namespace, name string) error {
