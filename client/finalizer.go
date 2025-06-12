@@ -23,22 +23,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func AddFinalizerAndUpdate(c client.Client, obj client.Object, finalizer string) error {
+func AddFinalizerAndUpdate(ctx context.Context, c client.Client, obj client.Object, finalizer string) error {
 	if controllerutil.ContainsFinalizer(obj, finalizer) {
 		return nil
 	}
-	_, err := UpdateOnConflict(context.TODO(), c, c, obj, func(obj client.Object) error {
+	_, err := UpdateOnConflict(ctx, c, c, obj, func(obj client.Object) error {
 		controllerutil.AddFinalizer(obj, finalizer)
 		return nil
 	})
 	return err
 }
 
-func RemoveFinalizerAndUpdate(c client.Client, obj client.Object, finalizer string) error {
+func RemoveFinalizerAndUpdate(ctx context.Context, c client.Client, obj client.Object, finalizer string) error {
 	if !controllerutil.ContainsFinalizer(obj, finalizer) {
 		return nil
 	}
-	_, err := UpdateOnConflict(context.TODO(), c, c, obj, func(obj client.Object) error {
+	_, err := UpdateOnConflict(ctx, c, c, obj, func(obj client.Object) error {
 		controllerutil.RemoveFinalizer(obj, finalizer)
 		return nil
 	})
@@ -46,7 +46,7 @@ func RemoveFinalizerAndUpdate(c client.Client, obj client.Object, finalizer stri
 }
 
 func RemoveFinalizerAndDelete(ctx context.Context, c client.Client, obj client.Object, finalizer string) error {
-	err := RemoveFinalizerAndUpdate(c, obj, finalizer)
+	err := RemoveFinalizerAndUpdate(ctx, c, obj, finalizer)
 	if err != nil {
 		return err
 	}
