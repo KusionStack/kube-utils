@@ -38,7 +38,7 @@ func TestAddFinalizerAndUpdate(t *testing.T) {
 	oldPod := pod.DeepCopy()
 
 	// latest pod has finalizers: test/v1
-	err = AddFinalizerAndUpdate(c, pod, "test/v1")
+	err = AddFinalizerAndUpdate(context.Background(), c, pod, "test/v1")
 	require.NoError(t, err)
 
 	// oldPod is behind latest pod's resourceVersion
@@ -51,7 +51,7 @@ func TestAddFinalizerAndUpdate(t *testing.T) {
 	// latest pod has finalizers: test/v1, test/v2
 	oldPod.Finalizers = []string{}
 	pod = oldPod.DeepCopy()
-	err = AddFinalizerAndUpdate(c, pod, "test/v2")
+	err = AddFinalizerAndUpdate(context.Background(), c, pod, "test/v2")
 	if assert.NoError(t, err) {
 		assert.Len(t, pod.Finalizers, 2)
 		assert.Equal(t, "test/v1", pod.Finalizers[0])
@@ -67,13 +67,13 @@ func TestRemoveFinalizerAndUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// latest pod has finalizers: test/v1
-	err = AddFinalizerAndUpdate(c, pod, "test/v1")
+	err = AddFinalizerAndUpdate(context.Background(), c, pod, "test/v1")
 	require.NoError(t, err)
 
 	oldPod := pod.DeepCopy()
 
 	// latest pod has finalizers: test/v1 test/v2
-	err = AddFinalizerAndUpdate(c, pod, "test/v2")
+	err = AddFinalizerAndUpdate(context.Background(), c, pod, "test/v2")
 	require.NoError(t, err)
 
 	// oldPod is behind latest pod's resourceVersion
@@ -86,7 +86,7 @@ func TestRemoveFinalizerAndUpdate(t *testing.T) {
 	// latest pod has finalizers: test/v2
 	oldPod.Finalizers = []string{"test/v1"}
 	pod = oldPod.DeepCopy()
-	err = RemoveFinalizerAndUpdate(c, pod, "test/v1")
+	err = RemoveFinalizerAndUpdate(context.Background(), c, pod, "test/v1")
 	require.NoError(t, err)
 	assert.Len(t, pod.Finalizers, 1)
 	assert.Equal(t, "test/v2", pod.Finalizers[0])
@@ -99,7 +99,7 @@ func TestRemoveFinalizerAndDelete(t *testing.T) {
 	err := c.Create(context.Background(), pod)
 	require.NoError(t, err)
 
-	err = AddFinalizerAndUpdate(c, pod, "test/v1")
+	err = AddFinalizerAndUpdate(context.Background(), c, pod, "test/v1")
 	require.NoError(t, err)
 
 	// delete pod with non-exist finalizer "test/v2"
