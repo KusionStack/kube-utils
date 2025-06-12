@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	clusterInfo string = "clusterInfo"
+	clusterInfo string = "kusionstack.io/clusterInfo"
 
 	ClusterLabelKey = "kusionstack.io/cluster" // Label key for cluster name that will be attached when use Client or Cache to read
 
