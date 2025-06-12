@@ -22,8 +22,6 @@ import (
 )
 
 const (
-	clusterInfo string = "kusionstack.io/clusterInfo"
-
 	ClusterLabelKey = "kusionstack.io/cluster" // Label key for cluster name that will be attached when use Client or Cache to read
 
 	EnvClusterAllowList = "CLUSTER_ALLOW_LIST" // Comma separated list of cluster names that are allowed to be accessed
@@ -43,11 +41,11 @@ var (
 )
 
 func WithCluster(parent context.Context, cluster string) context.Context {
-	return context.WithValue(parent, clusterInfo, cluster)
+	return context.WithValue(parent, ClusterLabelKey, cluster)
 }
 
 func GetCluster(ctx context.Context) (string, bool) {
-	cluster, ok := ctx.Value(clusterInfo).(string)
+	cluster, ok := ctx.Value(ClusterLabelKey).(string)
 	return cluster, ok
 }
 
