@@ -16,43 +16,40 @@
 
 package resourcetopo
 
-import "container/list"
+import (
+	"container/list"
+)
 
 func rangeAndSetLabelRelation(preNode, postNode *nodeInfo, m *manager) {
-	if labelRelationExist(preNode, postNode) {
+	// relation add should be an atomic action
+	preNode.lock.Lock()
+	defer preNode.lock.Unlock()
+	if existInList(preNode.labelReferredPostOrders, postNode) {
 		return
 	}
-	addLabelRelation(preNode, postNode, m)
-}
+	postNode.lock.Lock()
+	defer postNode.lock.Unlock()
 
-func rangeAndSetDirectRefRelation(preNode, postNode *nodeInfo, m *manager) {
-	if directRelationExist(preNode, postNode) {
-		return
-	}
-	addDirectRefRelation(preNode, postNode, m)
-}
-
-func addLabelRelation(preNode, postNode *nodeInfo, m *manager) {
 	if postNode.labelReferredPreOrders == nil {
 		postNode.labelReferredPreOrders = list.New()
 	}
 	if preNode.labelReferredPostOrders == nil {
 		preNode.labelReferredPostOrders = list.New()
 	}
-
-	// relation add should be an atomic action
-	preNode.lock.Lock()
-	defer preNode.lock.Unlock()
-	postNode.lock.Lock()
-	defer postNode.lock.Unlock()
-
 	postNode.labelReferredPreOrders.PushBack(preNode)
 	preNode.labelReferredPostOrders.PushBack(postNode)
-
 	m.newRelationEvent(preNode, postNode, EventTypeAdd)
 }
 
-func addDirectRefRelation(preNode, postNode *nodeInfo, m *manager) {
+func rangeAndSetDirectRefRelation(preNode, postNode *nodeInfo, m *manager) {
+	preNode.lock.Lock()
+	defer preNode.lock.Unlock()
+	if existInList(preNode.directReferredPostOrders, postNode) {
+		return
+	}
+	postNode.lock.Lock()
+	defer postNode.lock.Unlock()
+
 	if postNode.directReferredPreOrders == nil {
 		postNode.directReferredPreOrders = list.New()
 	}
@@ -61,12 +58,8 @@ func addDirectRefRelation(preNode, postNode *nodeInfo, m *manager) {
 	}
 
 	// relation add should be an atomic action
-	preNode.lock.Lock()
-	postNode.lock.Lock()
 	postNode.directReferredPreOrders.PushBack(preNode)
 	preNode.directReferredPostOrders.PushBack(postNode)
-	postNode.lock.Unlock()
-	preNode.lock.Unlock()
 
 	if postNode.isObjectExisted() {
 		m.newRelationEvent(preNode, postNode, EventTypeAdd)
@@ -99,15 +92,23 @@ func deleteDirectRelation(preNode, postNode *nodeInfo) bool {
 		removeFromList(postNode.directReferredPreOrders, preNode)
 }
 
+// deleteAllRelation will remove all relation in this node.
+// only be called in object deletion scenario.
 func deleteAllRelation(node *nodeInfo) {
+	// In resourcetopo package, when do relation change operations,
+	// we always lock preOrder before postOrder, expect in this function.
+	// but to keep transition atomic, and in object deletion scenario,
+	// this is okay to hold the lock in whole process, and lock preOrderNode as needed.
 	node.lock.Lock()
+	defer node.lock.Unlock()
 
 	rangeNodeList(node.directReferredPostOrders, func(postNode *nodeInfo) {
 		postNode.lock.Lock()
 		removeFromList(postNode.directReferredPreOrders, node)
 		postNode.lock.Unlock()
 
-		postNode.preOrderRelationDeleted(node)
+		node.noticePostOrderRelationDeleted(postNode)
+		postNode.checkGC()
 	})
 	node.directReferredPostOrders = nil
 
@@ -116,60 +117,32 @@ func deleteAllRelation(node *nodeInfo) {
 		removeFromList(postNode.labelReferredPreOrders, node)
 		postNode.lock.Unlock()
 
-		postNode.preOrderRelationDeleted(node)
+		node.noticePostOrderRelationDeleted(postNode)
 	})
 	node.labelReferredPostOrders = nil
 
-	node.lock.Unlock()
+	// node has been set as deleted, labels set to nil,
+	// so can not be locked as postOrder to add new label selector relation
+	rangeNodeList(node.labelReferredPreOrders, func(preNode *nodeInfo) {
+		preNode.lock.Lock()
+		removeFromList(preNode.labelReferredPostOrders, node)
+		preNode.lock.Unlock()
+		node.noticePreOrderRelationDeleted(preNode)
+	})
+	node.labelReferredPreOrders = nil
 
-	// In case of deadlock, we will always expect to lock pre node before post node.
-	for {
-		node.lock.RLock()
-		if node.labelReferredPreOrders == nil || node.labelReferredPreOrders.Len() == 0 {
-			node.labelReferredPreOrders = nil
-			node.lock.RUnlock()
-			break
-		} else {
-			preNode := node.labelReferredPreOrders.Front().Value.(*nodeInfo)
-			node.lock.RUnlock()
-
-			deleteLabelRelation(preNode, node)
-			preNode.postOrderRelationDeleted(node)
-		}
-	}
-
-	virtualNodelist := list.New()
-	node.lock.RLock()
 	rangeNodeList(node.directReferredPreOrders, func(preNode *nodeInfo) {
 		if preNode.storageRef.virtualResource {
-			// remember virtual nodes to delete later.
-			virtualNodelist.PushBack(preNode)
+			// virtual node will not start a relation pair change, so virtual preOrder node can be locked later
+			preNode.lock.Lock()
+			removeFromList(preNode.directReferredPostOrders, node)
+			preNode.lock.Unlock()
+			removeFromList(node.directReferredPreOrders, preNode)
+			node.noticePreOrderRelationDeleted(preNode)
+			preNode.checkVirtualNodeGC()
 		} else {
 			// notice relation deleted, but hold this place in case this object will be recreated
-			preNode.postOrderRelationDeleted(node)
+			node.noticePreOrderRelationDeleted(preNode)
 		}
 	})
-	node.lock.RUnlock()
-	rangeNodeList(virtualNodelist, func(preNode *nodeInfo) {
-		deleteDirectRelation(preNode, node)
-		preNode.postOrderRelationDeleted(node)
-	})
-}
-
-func labelRelationExist(preOrder, postOrder *nodeInfo) bool {
-	preOrder.lock.RLock()
-	defer preOrder.lock.RUnlock()
-	postOrder.lock.RLock()
-	defer postOrder.lock.RUnlock()
-
-	return existInList(preOrder.labelReferredPostOrders, postOrder)
-}
-
-func directRelationExist(preOrder, postOrder *nodeInfo) bool {
-	preOrder.lock.RLock()
-	defer preOrder.lock.RUnlock()
-	postOrder.lock.RLock()
-	defer postOrder.lock.RUnlock()
-
-	return existInList(preOrder.directReferredPostOrders, postOrder)
 }

@@ -90,7 +90,7 @@ func (s *nodeStorage) GetNode(namespacedName types.NamespacedName) (NodeInfo, er
 
 func (s *nodeStorage) GetClusterNode(cluster string, namespacedName types.NamespacedName) (NodeInfo, error) {
 	node := s.getNode(cluster, namespacedName.Namespace, namespacedName.Name)
-	if node != nil && !node.objectExisted {
+	if node != nil && !node.isObjectExisted() {
 		return nil, nil
 	}
 	return node, nil
@@ -234,6 +234,8 @@ func (s *nodeStorage) getMatchedNodeListWithOwner(cluster, namespace string, lab
 
 	var res []*nodeInfo
 	appendFunc := func(info *nodeInfo) {
+		info.metaLock.RLock()
+		defer info.metaLock.RUnlock()
 		for _, nodeOwner := range info.ownerNodes {
 			if nodeOwner.metaKey == owner.storageRef.metaKey &&
 				nodeOwner.name == owner.name {
@@ -300,37 +302,7 @@ func (s *nodeStorage) checkForLabelUpdate(postNode *nodeInfo) {
 	}
 	nodeList := clsNodes.namespaceNodes[ns]
 	for _, n := range nodeList {
-		s.checkLabelUpdateForNode(n, postNode)
-	}
-}
-
-func (s *nodeStorage) checkLabelUpdateForNode(preNode, postNode *nodeInfo) {
-	if preNode == nil {
-		return
-	}
-
-	preNode.relationsLock.RLock()
-	defer preNode.relationsLock.RUnlock()
-	if len(preNode.relations) == 0 {
-		return
-	}
-	for _, relation := range preNode.relations {
-		if !typeEqual(relation.PostMeta, postNode.storageRef.meta) {
-			return
-		}
-		selector, err := metav1.LabelSelectorAsSelector(relation.LabelSelector)
-		if err != nil {
-			klog.Errorf("Failed to resolve selector %v: %s", relation.LabelSelector, err.Error())
-			return
-		}
-		if postNode.matched(selector) {
-			if _, ok := s.ownerRelation[postNode.storageRef.metaKey]; ok && !postNode.ownerMatched(preNode) {
-				return
-			}
-			rangeAndSetLabelRelation(preNode, postNode, s.manager)
-		} else if deleteLabelRelation(preNode, postNode) {
-			preNode.postOrderRelationDeleted(postNode)
-		}
+		n.checkLabelUpdateForPostNode(postNode)
 	}
 }
 
