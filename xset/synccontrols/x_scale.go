@@ -18,6 +18,7 @@ package synccontrols
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strconv"
 
@@ -120,7 +121,7 @@ func (r *RealSyncControl) doIncludeExcludeTargets(ctx context.Context, xset api.
 		defer func() { includeErrs = append(includeErrs, err) }()
 		return r.includeTarget(ctx, xset, includeTargets[idx], strconv.Itoa(availableContexts[idx].ID))
 	})
-	return controllerutils.AggregateErrors(append(includeErrs, excludeErrs...))
+	return errors.Join(append(includeErrs, excludeErrs...)...)
 }
 
 // excludeTarget try to exclude a target from xset

@@ -1,11 +1,28 @@
+/*
+ * Copyright 2024-2025 KusionStack Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package xset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/clock"
@@ -16,13 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	clientutil "kusionstack.io/kube-utils/client"
 	"kusionstack.io/kube-utils/controller/expectations"
+	"kusionstack.io/kube-utils/controller/history"
 	"kusionstack.io/kube-utils/controller/mixin"
-	"kusionstack.io/kube-utils/controller/revision"
-	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/resourcecontexts"
-	"kusionstack.io/kube-utils/xset/revisionadapter"
+	"kusionstack.io/kube-utils/xset/revisionowner"
 	"kusionstack.io/kube-utils/xset/synccontrols"
 	"kusionstack.io/kube-utils/xset/xcontrol"
 )
@@ -39,7 +56,7 @@ type xSetCommonReconciler struct {
 	cacheExpectation *expectations.CacheExpectation
 	targetControl    xcontrol.TargetControl
 	syncControl      synccontrols.SyncControl
-	revisionManager  *revision.RevisionManager
+	revisionManager  history.HistoryManager
 }
 
 func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error {
@@ -56,7 +73,10 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 
 	targetControl, err := xcontrol.NewTargetControl(reconcilerMixin, xsetController, cacheExpectation)
 	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, cacheExpectation)
-	revisionManager := revision.NewRevisionManager(reconcilerMixin.Client, reconcilerMixin.Scheme, revisionadapter.NewRevisionOwnerAdapter(xsetController, targetControl))
+	revisionControl := history.NewRevisionControl(reconcilerMixin.Client, reconcilerMixin.Client)
+	revisionOwner := revisionowner.NewRevisionOwner(xsetController, targetControl)
+	revisionManager := history.NewHistoryManager(revisionControl, revisionOwner)
+
 	reconciler := &xSetCommonReconciler{
 		targetControl:    targetControl,
 		ReconcilerMixin:  *reconcilerMixin,
@@ -97,7 +117,7 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 	logger := r.Logger.WithValues(kind, key)
 	instance := r.XSetController.EmptyXSetObject()
 	if err := r.Client.Get(ctx, req.NamespacedName, instance); err != nil {
-		if !errors.IsNotFound(err) {
+		if !apierrors.IsNotFound(err) {
 			logger.Error(err, "failed to find object")
 			return reconcile.Result{}, err
 		}
@@ -113,11 +133,6 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 	}
 
 	if instance.GetDeletionTimestamp() != nil {
-		// todo, why reclaim ownerReferences before target deletion?
-		if err := r.ensureReclaimTargetOwnerReferences(ctx, instance); err != nil {
-			// reclaim targets ownerReferences before remove finalizers
-			return ctrl.Result{}, err
-		}
 		if err := r.ensureReclaimTargetsDeletion(ctx, instance); err != nil {
 			// reclaim targets deletion before remove finalizers
 			return ctrl.Result{}, err
@@ -127,7 +142,7 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 			if err := resourcecontexts.UpdateToTargetContext(r.XSetController, r.Client, r.cacheExpectation, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
-			if err := controllerutils.RemoveFinalizer(ctx, r.Client, instance, r.finalizerName); err != nil {
+			if err := clientutil.RemoveFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -136,10 +151,10 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 	}
 
 	if !controllerutil.ContainsFinalizer(instance, r.finalizerName) {
-		return ctrl.Result{}, controllerutils.AddFinalizer(context.TODO(), r.Client, instance, r.finalizerName)
+		return ctrl.Result{}, clientutil.AddFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName)
 	}
 
-	currentRevision, updatedRevision, revisions, collisionCount, _, err := r.revisionManager.ConstructRevisions(instance, false)
+	currentRevision, updatedRevision, revisions, collisionCount, _, err := r.revisionManager.ConstructRevisions(ctx, instance)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("fail to construct revision for %s %s: %s", kind, key, err.Error())
 	}
@@ -148,7 +163,7 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 	newStatus := xsetStatus.DeepCopy()
 	newStatus.UpdatedRevision = updatedRevision.Name
 	newStatus.CurrentRevision = currentRevision.Name
-	newStatus.CollisionCount = collisionCount
+	newStatus.CollisionCount = &collisionCount
 	syncContext := &synccontrols.SyncContext{
 		Revisions:       revisions,
 		CurrentRevision: currentRevision,
@@ -183,37 +198,11 @@ func (r *xSetCommonReconciler) doSync(ctx context.Context, instance api.XSetObje
 	_, scaleRequeueAfter, scaleErr := r.syncControl.Scale(ctx, instance, syncContext)
 	_, updateRequeueAfter, updateErr := r.syncControl.Update(ctx, instance, syncContext)
 
-	err = controllerutils.AggregateErrors([]error{scaleErr, updateErr})
+	err = errors.Join(scaleErr, updateErr)
 	if updateRequeueAfter != nil && (scaleRequeueAfter == nil || *updateRequeueAfter < *scaleRequeueAfter) {
 		return updateRequeueAfter, err
 	}
 	return scaleRequeueAfter, err
-}
-
-func (r *xSetCommonReconciler) ensureReclaimTargetOwnerReferences(ctx context.Context, instance api.XSetObject) error {
-	xspec := r.XSetController.GetXSetSpec(instance)
-	targets, err := r.targetControl.GetFilteredTargets(ctx, xspec.Selector, instance)
-	if err != nil {
-		return fmt.Errorf("fail to get filtered Targets: %s", err.Error())
-	}
-	for i := range targets {
-		target := targets[i]
-		targetOwner := target.GetOwnerReferences()
-		if len(targetOwner) == 0 {
-			continue
-		}
-		var newOwnerRefs []metav1.OwnerReference
-		for j := range targetOwner {
-			newOwnerRefs = append(newOwnerRefs, targetOwner[j])
-		}
-		if len(newOwnerRefs) != len(targetOwner) {
-			target.SetOwnerReferences(newOwnerRefs)
-			if err := r.targetControl.UpdateTarget(ctx, target); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context, instance api.XSetObject) error {

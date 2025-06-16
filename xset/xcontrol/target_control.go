@@ -18,6 +18,7 @@ package xcontrol
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -31,7 +32,6 @@ import (
 	"kusionstack.io/kube-utils/controller/expectations"
 	"kusionstack.io/kube-utils/controller/mixin"
 	refmanagerutil "kusionstack.io/kube-utils/controller/refmanager"
-	"kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 )
 
@@ -200,7 +200,7 @@ func (r *targetControl) getTargets(candidates []client.Object, selector *metav1.
 		}
 	}
 
-	return claimObjs, utils.AggregateErrors(errList)
+	return claimObjs, errors.Join(errList...)
 }
 
 func setUpCache(cache cache.Cache, controller api.XSetController) error {

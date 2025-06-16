@@ -18,6 +18,7 @@ package synccontrols
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -26,7 +27,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -292,7 +293,7 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 	if notAllowedIncludeTargets.Len() > 0 {
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "IncludeNotAllowed", fmt.Sprintf("targets [%v] are not allowed to include, please find out the reason from target's event", notAllowedIncludeTargets.List()))
 	}
-	return toExcludeTargets, toIncludeTargets, controllerutils.AggregateErrors([]error{exErr, inErr})
+	return toExcludeTargets, toIncludeTargets, errors.Join(exErr, inErr)
 }
 
 // checkAllowFunc refers to AllowResourceExclude and AllowResourceInclude
@@ -306,7 +307,7 @@ func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset a
 		target := r.xsetController.EmptyXObject()
 		targetName := targetNames[i]
 		err = r.Client.Get(ctx, types.NamespacedName{Namespace: xset.GetNamespace(), Name: targetName}, target)
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			notAllowTargets.Insert(targetNames[i])
 			continue
 		} else if err != nil {
@@ -460,7 +461,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				if updateContextErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 					return resourcecontexts.UpdateToTargetContext(r.xsetController, r.Client, r.cacheExpectation, xsetObject, syncContext.OwnedIds)
 				}); updateContextErr != nil {
-					err = controllerutils.AggregateErrors([]error{updateContextErr, err})
+					err = errors.Join(updateContextErr, err)
 				}
 			}
 			if err != nil {
