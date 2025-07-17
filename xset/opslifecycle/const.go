@@ -17,7 +17,7 @@
 package opslifecycle
 
 // TargetOpsLifecycle labels
-const (
+var (
 	// TargetOperatingLabelPrefix indicates a Target is operating
 	TargetOperatingLabelPrefix = "operating.opslifecycle.kusionstack.io"
 	// TargetOperationTypeLabelPrefix indicates the type of operation

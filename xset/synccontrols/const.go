@@ -17,7 +17,7 @@
 package synccontrols
 
 // XSet labels
-const (
+var (
 	// TargetInstanceIDLabelKey is used to attach target instance ID on target
 	TargetInstanceIDLabelKey = "xset.kusionstack.io/instance-id"
 	// XSetUpdateIndicateLabelKey is used to indicate a target should be updated by label
@@ -41,6 +41,6 @@ const (
 	TargetOrphanedIndicateLabelKey = "xset.kusionstack.io/orphaned"
 )
 
-const (
+var (
 	LastTargetStatusAnnotationKey = "xset.kusionstack.io/last-target-status"
 )
