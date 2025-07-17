@@ -18,7 +18,6 @@ package revisionowner
 
 import (
 	"context"
-	"encoding/json"
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -109,24 +108,5 @@ func (r *revisionOwner) GetCurrentRevision(obj metav1.Object) string {
 }
 
 func (r *revisionOwner) getXSetPatch(obj metav1.Object) ([]byte, error) {
-	xset := obj.(api.XSetObject)
-	xTpl := r.XSetController.GetXTemplate(xset)
-	tplBytes, err := json.Marshal(xTpl)
-	if err != nil {
-		return nil, err
-	}
-	tplMap := make(map[string]interface{})
-	err = json.Unmarshal(tplBytes, &tplMap)
-	if err != nil {
-		return nil, err
-	}
-
-	tplMap["$patch"] = "replace"
-	specMap := make(map[string]interface{})
-	specMap["template"] = tplMap
-	objMap := make(map[string]interface{})
-	objMap["spec"] = specMap
-
-	patch, err := json.Marshal(objMap)
-	return patch, err
+	return r.XSetController.GetXSetPatch(obj)
 }

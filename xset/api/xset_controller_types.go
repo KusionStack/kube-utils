@@ -39,6 +39,7 @@ type XSetController interface {
 	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
 	GetUpdateOpsLifecycleAdapter() LifecycleAdapter
 
+	GetXSetPatch(object metav1.Object) ([]byte, error)
 	GetXTemplate(object XSetObject) client.Object
 	CheckReady(object client.Object) bool
 }
