@@ -17,7 +17,6 @@
 package synccontrols
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -51,15 +50,13 @@ func GetInstanceID(target client.Object) (int, error) {
 }
 
 func NewTargetFrom(setController api.XSetController, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
-	setObj := setController.EmptyXSetObject()
-	err := json.Unmarshal(revision.Data.Raw, setObj)
+	targetObj, err := setController.GetXObjectFromRevision(revision)
 	if err != nil {
 		return nil, err
 	}
 
 	meta := setController.XSetMeta()
 	ownerRef := metav1.NewControllerRef(owner, meta.GroupVersionKind())
-	targetObj := setController.GetXTemplate(setObj)
 	targetObj.SetOwnerReferences(append(targetObj.GetOwnerReferences(), *ownerRef))
 	targetObj.SetNamespace(owner.GetNamespace())
 	targetObj.SetGenerateName(GetTargetsPrefix(owner.GetName()))

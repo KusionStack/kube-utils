@@ -17,6 +17,7 @@
 package api
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -30,8 +31,10 @@ type XSetController interface {
 	EmptyXSetObject() XSetObject
 	EmptyXObject() client.Object
 	EmptyXObjectList() client.ObjectList
+	GetXObjectFromRevision(revision *appsv1.ControllerRevision) (client.Object, error)
 
 	GetXSetSpec(object XSetObject) *XSetSpec
+	GetXSetPatch(object metav1.Object) ([]byte, error)
 	UpdateScaleStrategy(object XSetObject, scaleStrategy *ScaleStrategy) (err error)
 	GetXSetStatus(object XSetObject) *XSetStatus
 	SetXSetStatus(object XSetObject, status *XSetStatus)
@@ -39,8 +42,6 @@ type XSetController interface {
 	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
 	GetUpdateOpsLifecycleAdapter() LifecycleAdapter
 
-	GetXSetPatch(object metav1.Object) ([]byte, error)
-	GetXTemplate(object XSetObject) client.Object
 	CheckScheduled(object client.Object) bool
 	CheckReady(object client.Object) bool
 	CheckAvailable(object client.Object) bool
