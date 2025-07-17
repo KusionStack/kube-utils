@@ -41,7 +41,9 @@ type XSetController interface {
 
 	GetXSetPatch(object metav1.Object) ([]byte, error)
 	GetXTemplate(object XSetObject) client.Object
+	CheckScheduled(object client.Object) bool
 	CheckReady(object client.Object) bool
+	CheckAvailable(object client.Object) bool
 }
 
 type XSetObject client.Object
