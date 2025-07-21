@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The KusionStack Authors.
+Copyright 2023-2025 The KusionStack Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -744,7 +744,7 @@ func (r *RealSyncControl) CalculateStatus(ctx context.Context, instance api.XSet
 	newStatus := syncContext.NewStatus
 	newStatus.ObservedGeneration = instance.GetGeneration()
 
-	var readyReplicas, replicas, updatedReplicas, operatingReplicas, updatedReadyReplicas int32
+	var readyReplicas, scheduledReplicas, replicas, updatedReplicas, operatingReplicas, updatedReadyReplicas, availableReplicas, updatedAvailableReplicas int32
 
 	activeTargets := FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
 	for _, targetWrapper := range activeTargets {
@@ -770,6 +770,17 @@ func (r *RealSyncControl) CalculateStatus(ctx context.Context, instance api.XSet
 				updatedReadyReplicas++
 			}
 		}
+
+		if r.xsetController.CheckAvailable(targetWrapper.Object) {
+			availableReplicas++
+			if isUpdated {
+				updatedAvailableReplicas++
+			}
+		}
+
+		if r.xsetController.CheckScheduled(targetWrapper.Object) {
+			scheduledReplicas++
+		}
 	}
 
 	newStatus.ReadyReplicas = readyReplicas
@@ -777,6 +788,9 @@ func (r *RealSyncControl) CalculateStatus(ctx context.Context, instance api.XSet
 	newStatus.UpdatedReplicas = updatedReplicas
 	newStatus.OperatingReplicas = operatingReplicas
 	newStatus.UpdatedReadyReplicas = updatedReadyReplicas
+	newStatus.ScheduledReplicas = scheduledReplicas
+	newStatus.AvailableReplicas = availableReplicas
+	newStatus.UpdatedAvailableReplicas = updatedAvailableReplicas
 
 	spec := r.xsetController.GetXSetSpec(instance)
 	if (spec.Replicas == nil && newStatus.UpdatedReadyReplicas >= 0) ||

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package api
 
 // +k8s:deepcopy-gen=file
@@ -166,6 +167,10 @@ type XSetStatus struct {
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
 
+	// the number of scheduled replicas for the replicas set.
+	// +optional
+	ScheduledReplicas int32 `json:"scheduledReplicas,omitempty"`
+
 	// The number of targets in updated version.
 	// +optional
 	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
@@ -177,6 +182,15 @@ type XSetStatus struct {
 	// UpdatedReadyReplicas indicates the number of the target with updated revision and ready condition
 	// +optional
 	UpdatedReadyReplicas int32 `json:"updatedReadyReplicas,omitempty"`
+
+	// The number of available replicas for this replica set.
+	// +optional
+	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+
+	// UpdatedAvailableReplicas indicates the number of available updated revision replicas for this replicas set.
+	// A model is updated available means the model is ready for updated revision and accessible
+	// +optional
+	UpdatedAvailableReplicas int32 `json:"updatedAvailableReplicas,omitempty"`
 
 	// Represents the latest available observations of a XSet's current state.
 	// +optional
