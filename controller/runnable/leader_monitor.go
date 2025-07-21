@@ -18,7 +18,7 @@ func (l LeaderMetricsRunnable) NeedLeaderElection() bool {
 	return true
 }
 
-func (l LeaderMetricsRunnable) Start(ctx context.Context) error {
+func (l LeaderMetricsRunnable) Start(_ context.Context) error {
 	m := metrics.LeaderRunningMetrics{Lease: l.leaseName}
 	m.Lead()
 	l.logger.Info("enable leader election, start LeaderMetricsRunnable, record leader metrics")
@@ -36,7 +36,7 @@ func (nl NoneLeaderMetricRunnable) NeedLeaderElection() bool {
 	return false
 }
 
-func (nl NoneLeaderMetricRunnable) Start(ctx context.Context) error {
+func (nl NoneLeaderMetricRunnable) Start(_ context.Context) error {
 	m := metrics.LeaderRunningMetrics{Lease: nl.leaseName}
 	if nl.enableLeaderElection {
 		m.UnLead()
