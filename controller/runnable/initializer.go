@@ -14,7 +14,7 @@ func InitializeRunnable(mgr manager.Manager, opts controllerruntime.Options) err
 	// register leader metrics
 	metrics.RegisterLeaderRunningMetrics()
 	// register runnable
-	AddRunnable(opts)
+	addRunnable(opts)
 	for _, runnable := range runnable {
 		if err := mgr.Add(runnable); err != nil {
 			return err
@@ -23,7 +23,7 @@ func InitializeRunnable(mgr manager.Manager, opts controllerruntime.Options) err
 	return nil
 }
 
-func AddRunnable(opts controllerruntime.Options) {
+func addRunnable(opts controllerruntime.Options) {
 	runnable = append(runnable,
 		&LeaderMetricsRunnable{leaseName: opts.LeaderElectionID},
 		&NoneLeaderMetricRunnable{enableLeaderElection: opts.LeaderElection, leaseName: opts.LeaderElectionID},
