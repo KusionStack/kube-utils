@@ -1,6 +1,7 @@
 package runnable
 
 import (
+	"github.com/go-logr/logr"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -14,7 +15,7 @@ func InitializeRunnable(mgr manager.Manager, opts controllerruntime.Options) err
 	// register leader metrics
 	metrics.RegisterLeaderRunningMetrics()
 	// register runnable
-	addRunnable(opts)
+	addRunnable(opts, mgr.GetLogger())
 	for _, runnable := range runnable {
 		if err := mgr.Add(runnable); err != nil {
 			return err
@@ -23,9 +24,9 @@ func InitializeRunnable(mgr manager.Manager, opts controllerruntime.Options) err
 	return nil
 }
 
-func addRunnable(opts controllerruntime.Options) {
+func addRunnable(opts controllerruntime.Options, logger logr.Logger) {
 	runnable = append(runnable,
-		&LeaderMetricsRunnable{leaseName: opts.LeaderElectionID},
-		&NoneLeaderMetricRunnable{enableLeaderElection: opts.LeaderElection, leaseName: opts.LeaderElectionID},
+		&LeaderMetricsRunnable{leaseName: opts.LeaderElectionID, logger: logger},
+		&NoneLeaderMetricRunnable{enableLeaderElection: opts.LeaderElection, leaseName: opts.LeaderElectionID, logger: logger},
 	)
 }
