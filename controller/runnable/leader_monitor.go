@@ -3,6 +3,8 @@ package runnable
 import (
 	"context"
 
+	"github.com/go-logr/logr"
+
 	"kusionstack.io/kube-utils/metrics"
 )
 
@@ -15,9 +17,11 @@ func (l LeaderMetricsRunnable) NeedLeaderElection() bool {
 	return true
 }
 
-func (l LeaderMetricsRunnable) Start(_ context.Context) error {
+func (l LeaderMetricsRunnable) Start(ctx context.Context) error {
+	logger := logr.FromContextOrDiscard(ctx)
 	m := metrics.LeaderRunningMetrics{Lease: l.leaseName}
 	m.Lead()
+	logger.Info("enable leader election, record leader metrics")
 	return nil
 }
 
@@ -31,12 +35,15 @@ func (nl NoneLeaderMetricRunnable) NeedLeaderElection() bool {
 	return false
 }
 
-func (nl NoneLeaderMetricRunnable) Start(_ context.Context) error {
+func (nl NoneLeaderMetricRunnable) Start(ctx context.Context) error {
+	logger := logr.FromContextOrDiscard(ctx)
 	m := metrics.LeaderRunningMetrics{Lease: nl.leaseName}
 	if nl.enableLeaderElection {
 		m.UnLead()
+		logger.Info("enable leader election, record none leader metrics")
 	} else {
 		m.Lead()
+		logger.Info("disable leader election, record leader metrics")
 	}
 	return nil
 }
