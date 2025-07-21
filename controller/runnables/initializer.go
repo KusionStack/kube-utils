@@ -9,6 +9,7 @@ import (
 
 var runnable []manager.Runnable
 
+// InitializeRunnable initialize runnable for manager
 func InitializeRunnable(mgr manager.Manager, opts controllerruntime.Options) error {
 	// register leader metrics
 	metrics.RegisterLeaderRunningMetrics()
