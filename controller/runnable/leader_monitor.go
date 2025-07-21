@@ -1,4 +1,4 @@
-package runnables
+package runnable
 
 import (
 	"context"

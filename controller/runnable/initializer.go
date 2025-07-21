@@ -1,4 +1,4 @@
-package runnables
+package runnable
 
 import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
