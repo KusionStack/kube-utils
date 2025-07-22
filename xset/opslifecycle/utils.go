@@ -29,17 +29,23 @@ import (
 	"kusionstack.io/kube-utils/xset/api"
 )
 
+type UpdateFunc func(object client.Object) (bool, error)
+
+func IsServiceAvailable(m api.LifeCycleLabelManager, target client.Object) bool {
+	_, exists := target.GetLabels()[m.Get(api.ServiceAvailableLabel)]
+	return exists
+}
+
 // IDToLabelsMap returns a map of pod id to labels map and a map of operation type to number of pods.
-func IDToLabelsMap(target client.Object) (map[string]map[string]string, map[string]int, error) {
+func IDToLabelsMap(m *LabelManagerImpl, target client.Object) (map[string]map[string]string, map[string]int, error) {
 	idToLabelsMap := map[string]map[string]string{}
 	typeToNumsMap := map[string]int{}
 
 	ids := sets.String{}
 	labels := target.GetLabels()
 	for k := range labels {
-		if strings.HasPrefix(k, TargetOperatingLabelPrefix) ||
-			strings.HasPrefix(k, TargetOperateLabelPrefix) ||
-			strings.HasPrefix(k, TargetOperatedLabelPrefix) {
+		if strings.HasPrefix(k, m.Get(api.OperatingLabelPrefix)) ||
+			strings.HasPrefix(k, m.Get(api.OperateLabelPrefix)) {
 			s := strings.Split(k, "/")
 			if len(s) < 2 {
 				return nil, nil, fmt.Errorf("invalid label %s", k)
@@ -49,21 +55,11 @@ func IDToLabelsMap(target client.Object) (map[string]map[string]string, map[stri
 	}
 
 	for id := range ids {
-		for _, val := range []string{TargetOperationTypeLabelPrefix, TargetDoneOperationTypeLabelPrefix} {
-			operationType, ok := labels[fmt.Sprintf("%s/%s", val, id)]
-			if !ok {
-				continue
-			}
-
-			if _, ok := typeToNumsMap[operationType]; !ok {
-				typeToNumsMap[operationType] = 1
-			} else {
-				typeToNumsMap[operationType] += 1
-			}
-			break
+		if operationType, ok := labels[fmt.Sprintf("%s/%s", m.Get(api.OperationTypeLabelPrefix), id)]; ok {
+			typeToNumsMap[operationType] += 1
 		}
 
-		for _, prefix := range WellKnownLabelPrefixesWithID {
+		for _, prefix := range m.wellKnownLabelPrefixesWithID {
 			label := fmt.Sprintf("%s/%s", prefix, id)
 			value, ok := labels[label]
 			if !ok {
@@ -82,16 +78,16 @@ func IDToLabelsMap(target client.Object) (map[string]map[string]string, map[stri
 }
 
 // NumOfLifecycleOnTarget returns the nums of lifecycles on pod
-func NumOfLifecycleOnTarget(target client.Object) (int, error) {
+func NumOfLifecycleOnTarget(m *LabelManagerImpl, target client.Object) (int, error) {
 	if target == nil {
 		return 0, nil
 	}
-	newIDToLabelsMap, _, err := IDToLabelsMap(target)
+	newIDToLabelsMap, _, err := IDToLabelsMap(m, target)
 	return len(newIDToLabelsMap), err
 }
 
-var WhenBeginDelete api.UpdateFunc = func(obj client.Object) (bool, error) {
-	return AddLabel(obj, TargetPreparingDeleteLabel, strconv.FormatInt(time.Now().UnixNano(), 10)), nil
+func WhenBeginDelete(m api.LifeCycleLabelManager, obj client.Object) (bool, error) {
+	return AddLabel(obj, m.Get(api.PreparingDeleteLabel), strconv.FormatInt(time.Now().UnixNano(), 10)), nil
 }
 
 func AddLabel(po client.Object, k, v string) bool {
@@ -109,21 +105,21 @@ func AddLabel(po client.Object, k, v string) bool {
 
 // IsDuringOps decides whether the Target is during ops or not
 // DuringOps means the Target's OpsLifecycle phase is in or after PreCheck phase and before Finish phase.
-func IsDuringOps(adapter api.LifecycleAdapter, obj client.Object) bool {
-	_, hasID := checkOperatingID(adapter, obj)
-	_, hasType := checkOperationType(adapter, obj)
+func IsDuringOps(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) bool {
+	_, hasID := checkOperatingID(m, adapter, obj)
+	_, hasType := checkOperationType(m, adapter, obj)
 
 	return hasID && hasType
 }
 
 // Begin is used for an CRD Operator to begin a lifecycle
-func Begin(c client.Client, adapter api.LifecycleAdapter, obj client.Object, updateFunc ...api.UpdateFunc) (updated bool, err error) {
+func Begin(m api.LifeCycleLabelManager, c client.Client, adapter api.LifecycleAdapter, obj client.Object, updateFuncs ...UpdateFunc) (updated bool, err error) {
 	if obj.GetLabels() == nil {
 		obj.SetLabels(map[string]string{})
 	}
 
-	operatingID, hasID := checkOperatingID(adapter, obj)
-	operationType, hasType := checkOperationType(adapter, obj)
+	operatingID, hasID := checkOperatingID(m, adapter, obj)
+	operationType, hasType := checkOperationType(m, adapter, obj)
 	var needUpdate bool
 
 	// ensure operatingID and operationType
@@ -134,7 +130,7 @@ func Begin(c client.Client, adapter api.LifecycleAdapter, obj client.Object, upd
 		}
 	} else {
 		// check another id/type = this.type
-		currentTypeIDs := queryByOperationType(adapter, obj)
+		currentTypeIDs := queryByOperationType(m, adapter, obj)
 		if currentTypeIDs != nil && currentTypeIDs.Len() > 0 && !adapter.AllowMultiType() {
 			err = fmt.Errorf("operationType %s exists: %v", adapter.GetType(), currentTypeIDs)
 			return updated, err
@@ -142,15 +138,15 @@ func Begin(c client.Client, adapter api.LifecycleAdapter, obj client.Object, upd
 
 		if !hasID {
 			needUpdate = true
-			setOperatingID(adapter, obj)
+			setOperatingID(m, adapter, obj)
 		}
 		if !hasType {
 			needUpdate = true
-			setOperationType(adapter, obj)
+			setOperationType(m, adapter, obj)
 		}
 	}
 
-	updated, err = DefaultUpdateAll(obj, append(updateFunc, adapter.WhenBegin)...)
+	updated, err = DefaultUpdateAll(obj, append(updateFuncs, adapter.WhenBegin)...)
 	if err != nil {
 		return updated, err
 	}
@@ -164,24 +160,24 @@ func Begin(c client.Client, adapter api.LifecycleAdapter, obj client.Object, upd
 }
 
 // BeginWithCleaningOld is used for an CRD Operator to begin a lifecycle with cleaning the old lifecycle
-func BeginWithCleaningOld(c client.Client, adapter api.LifecycleAdapter, obj client.Object, updateFunc ...api.UpdateFunc) (updated bool, err error) {
-	if targetInUpdateLifecycle, err := IsLifecycleOnTarget(adapter.GetID(), obj); err != nil {
+func BeginWithCleaningOld(m api.LifeCycleLabelManager, c client.Client, adapter api.LifecycleAdapter, obj client.Object, updateFunc ...UpdateFunc) (updated bool, err error) {
+	if targetInUpdateLifecycle, err := IsLifecycleOnTarget(m, adapter.GetID(), obj); err != nil {
 		return false, fmt.Errorf("fail to check %s TargetOpsLifecycle on Target %s/%s: %w", adapter.GetID(), obj.GetNamespace(), obj.GetName(), err)
 	} else if targetInUpdateLifecycle {
-		if err := Undo(c, adapter, obj); err != nil {
+		if err := Undo(m, c, adapter, obj); err != nil {
 			return false, err
 		}
 	}
-	return Begin(c, adapter, obj, updateFunc...)
+	return Begin(m, c, adapter, obj, updateFunc...)
 }
 
 // AllowOps is used to check whether the TargetOpsLifecycle phase is in UPGRADE to do following operations.
-func AllowOps(adapter api.LifecycleAdapter, operationDelaySeconds int32, obj client.Object) (requeueAfter *time.Duration, allow bool) {
-	if !IsDuringOps(adapter, obj) {
+func AllowOps(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, operationDelaySeconds int32, obj client.Object) (requeueAfter *time.Duration, allow bool) {
+	if !IsDuringOps(m, adapter, obj) {
 		return nil, false
 	}
 
-	startedTimestampStr, started := checkOperate(adapter, obj)
+	startedTimestampStr, started := checkOperate(m, adapter, obj)
 	if !started || operationDelaySeconds <= 0 {
 		return nil, started
 	}
@@ -203,9 +199,9 @@ func AllowOps(adapter api.LifecycleAdapter, operationDelaySeconds int32, obj cli
 }
 
 // Finish is used for an CRD Operator to finish a lifecycle
-func Finish(c client.Client, adapter api.LifecycleAdapter, obj client.Object, updateFuncs ...api.UpdateFunc) (updated bool, err error) {
-	operatingID, hasID := checkOperatingID(adapter, obj)
-	operationType, hasType := checkOperationType(adapter, obj)
+func Finish(m api.LifeCycleLabelManager, c client.Client, adapter api.LifecycleAdapter, obj client.Object, updateFuncs ...UpdateFunc) (updated bool, err error) {
+	operatingID, hasID := checkOperatingID(m, adapter, obj)
+	operationType, hasType := checkOperationType(m, adapter, obj)
 
 	if hasType && operationType != adapter.GetType() {
 		return false, fmt.Errorf("operatingID %s has invalid operationType %s", operatingID, operationType)
@@ -214,7 +210,7 @@ func Finish(c client.Client, adapter api.LifecycleAdapter, obj client.Object, up
 	var needUpdate bool
 	if hasID || hasType {
 		needUpdate = true
-		deleteOperatingID(adapter, obj)
+		deleteOperatingID(m, adapter, obj)
 	}
 
 	updated, err = DefaultUpdateAll(obj, append(updateFuncs, adapter.WhenFinish)...)
@@ -230,67 +226,66 @@ func Finish(c client.Client, adapter api.LifecycleAdapter, obj client.Object, up
 }
 
 // Undo is used for an CRD Operator to undo a lifecycle
-func Undo(c client.Client, adapter api.LifecycleAdapter, obj client.Object) error {
-	setUndo(adapter, obj)
+func Undo(m api.LifeCycleLabelManager, c client.Client, adapter api.LifecycleAdapter, obj client.Object) error {
+	setUndo(m, adapter, obj)
 	return c.Update(context.Background(), obj)
 }
 
-func checkOperatingID(adapter api.LifecycleAdapter, obj client.Object) (val string, ok bool) {
-	labelID := fmt.Sprintf("%s/%s", TargetOperatingLabelPrefix, adapter.GetID())
+func checkOperatingID(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) (val string, ok bool) {
+	labelID := fmt.Sprintf("%s/%s", m.Get(api.OperatingLabelPrefix), adapter.GetID())
 	_, ok = obj.GetLabels()[labelID]
 	return adapter.GetID(), ok
 }
 
-func checkOperationType(adapter api.LifecycleAdapter, obj client.Object) (val api.OperationType, ok bool) {
-	labelType := fmt.Sprintf("%s/%s", TargetOperationTypeLabelPrefix, adapter.GetID())
+func checkOperationType(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) (val api.OperationType, ok bool) {
+	labelType := fmt.Sprintf("%s/%s", m.Get(api.OperationTypeLabelPrefix), adapter.GetID())
 	labelVal := obj.GetLabels()[labelType]
 	val = api.OperationType(labelVal)
 	return val, val == adapter.GetType()
 }
 
-func checkOperate(adapter api.LifecycleAdapter, obj client.Object) (val string, ok bool) {
-	labelOperate := fmt.Sprintf("%s/%s", TargetOperateLabelPrefix, adapter.GetID())
+func checkOperate(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) (val string, ok bool) {
+	labelOperate := fmt.Sprintf("%s/%s", m.Get(api.OperateLabelPrefix), adapter.GetID())
 	val, ok = obj.GetLabels()[labelOperate]
 	return
 }
 
-func setOperatingID(adapter api.LifecycleAdapter, obj client.Object) {
-	labelID := fmt.Sprintf("%s/%s", TargetOperatingLabelPrefix, adapter.GetID())
+func setOperatingID(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) {
+	labelID := fmt.Sprintf("%s/%s", m.Get(api.OperatingLabelPrefix), adapter.GetID())
 	obj.GetLabels()[labelID] = fmt.Sprintf("%d", time.Now().UnixNano())
 	return
 }
 
-func setOperationType(adapter api.LifecycleAdapter, obj client.Object) {
-	labelType := fmt.Sprintf("%s/%s", TargetOperationTypeLabelPrefix, adapter.GetID())
+func setOperationType(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) {
+	labelType := fmt.Sprintf("%s/%s", m.Get(api.OperationTypeLabelPrefix), adapter.GetID())
 	obj.GetLabels()[labelType] = string(adapter.GetType())
 	return
 }
 
-// setOperate only for test
-func setOperate(adapter api.LifecycleAdapter, obj client.Object) {
-	labelOperate := fmt.Sprintf("%s/%s", TargetOperateLabelPrefix, adapter.GetID())
-	now := time.Now().UnixNano()
-	obj.GetLabels()[labelOperate] = strconv.FormatInt(now, 10)
+// setOperate only for test, expected to be called by adapter
+func setOperate(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) {
+	labelOperate := fmt.Sprintf("%s/%s", m.Get(api.OperateLabelPrefix), adapter.GetID())
+	obj.GetLabels()[labelOperate] = fmt.Sprintf("%d", time.Now().UnixNano())
 	return
 }
 
-func setUndo(adapter api.LifecycleAdapter, obj client.Object) {
-	labelUndo := fmt.Sprintf("%s/%s", TargetUndoOperationTypeLabelPrefix, adapter.GetID())
+func setUndo(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) {
+	labelUndo := fmt.Sprintf("%s/%s", m.Get(api.UndoOperationTypeLabelPrefix), adapter.GetID())
 	obj.GetLabels()[labelUndo] = string(adapter.GetType())
 }
 
-func deleteOperatingID(adapter api.LifecycleAdapter, obj client.Object) {
-	labelID := fmt.Sprintf("%s/%s", TargetOperatingLabelPrefix, adapter.GetID())
+func deleteOperatingID(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) {
+	labelID := fmt.Sprintf("%s/%s", m.Get(api.OperatingLabelPrefix), adapter.GetID())
 	delete(obj.GetLabels(), labelID)
 	return
 }
 
-func queryByOperationType(adapter api.LifecycleAdapter, obj client.Object) sets.String {
+func queryByOperationType(m api.LifeCycleLabelManager, adapter api.LifecycleAdapter, obj client.Object) sets.String {
 	res := sets.String{}
 	valType := adapter.GetType()
 
 	for k, v := range obj.GetLabels() {
-		if strings.HasPrefix(k, TargetOperationTypeLabelPrefix) && v == string(valType) {
+		if strings.HasPrefix(k, m.Get(api.OperationTypeLabelPrefix)) && v == string(valType) {
 			res.Insert(k)
 		}
 	}
@@ -298,7 +293,24 @@ func queryByOperationType(adapter api.LifecycleAdapter, obj client.Object) sets.
 	return res
 }
 
-func DefaultUpdateAll(target client.Object, updateFuncs ...api.UpdateFunc) (updated bool, err error) {
+func IsLifecycleOnTarget(m api.LifeCycleLabelManager, operatingID string, target client.Object) (bool, error) {
+	if target == nil {
+		return false, fmt.Errorf("nil target")
+	}
+
+	labels := target.GetLabels()
+	if labels == nil {
+		return false, nil
+	}
+
+	if val, ok := labels[fmt.Sprintf("%s/%s", m.Get(api.OperatingLabelPrefix), operatingID)]; ok {
+		return val != "", nil
+	}
+
+	return false, nil
+}
+
+func DefaultUpdateAll(target client.Object, updateFuncs ...UpdateFunc) (updated bool, err error) {
 	for _, updateFunc := range updateFuncs {
 		ok, updateErr := updateFunc(target)
 		if updateErr != nil {
@@ -307,21 +319,4 @@ func DefaultUpdateAll(target client.Object, updateFuncs ...api.UpdateFunc) (upda
 		updated = updated || ok
 	}
 	return updated, nil
-}
-
-func IsLifecycleOnTarget(operatingID string, target client.Object) (bool, error) {
-	if target == nil {
-		return false, fmt.Errorf("nil Target")
-	}
-
-	labels := target.GetLabels()
-	if labels == nil {
-		return false, nil
-	}
-
-	if val, ok := labels[fmt.Sprintf("%s/%s", TargetOperatingLabelPrefix, operatingID)]; ok {
-		return val != "", nil
-	}
-
-	return false, nil
 }

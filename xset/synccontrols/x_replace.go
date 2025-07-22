@@ -143,7 +143,6 @@ func (r *RealSyncControl) replaceOriginTargets(
 			ownedIDs[newTargetContext.ID].Remove(resourcecontexts.JustCreateContextDataKey)
 		}
 		newTarget.GetLabels()[TargetReplacePairOriginName] = originTarget.GetName()
-		newTarget.GetLabels()[opslifecycle.TargetCreatingLabel] = strconv.FormatInt(time.Now().UnixNano(), 10)
 		newTargetContext.Put(resourcecontexts.RevisionContextDataKey, replaceRevision.GetName())
 
 		if newCreatedTarget, err := r.xControl.CreateTarget(ctx, newTarget); err == nil {
@@ -199,7 +198,7 @@ func (r *RealSyncControl) dealReplaceTargets(targets []client.Object) (needRepla
 		}
 
 		// origin target is about to scaleIn, skip replace
-		if opslifecycle.IsDuringOps(r.scaleInLifecycleAdapter, target) {
+		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, target) {
 			continue
 		}
 
@@ -232,12 +231,12 @@ func (r *RealSyncControl) dealReplaceTargets(targets []client.Object) (needRepla
 				needCleanLabels = append(needCleanLabels, TargetReplacePairOriginName)
 			} else if originTarget.GetLabels()[TargetReplaceIndicationLabelKey] == "" {
 				// replace canceled, delete replace new target if new target is not service available
-				if _, exist := targetLabels[opslifecycle.TargetServiceAvailableLabel]; !exist {
+				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleMgr, target); !serviceAvailable {
 					needDeleteTargets = append(needDeleteTargets, target)
 				}
 			} else if !replaceByUpdate {
 				// not replace update, delete origin target when new created target is service available
-				if _, serviceAvailable := targetLabels[opslifecycle.TargetServiceAvailableLabel]; serviceAvailable {
+				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleMgr, target); serviceAvailable {
 					needDeleteTargets = append(needDeleteTargets, originTarget)
 				}
 			}

@@ -41,6 +41,8 @@ var (
 	TargetOrphanedIndicateLabelKey = "xset.kusionstack.io/orphaned"
 )
 
+// XSet annotations
 var (
+	// LastTargetStatusAnnotationKey is used to attach last target status on target
 	LastTargetStatusAnnotationKey = "xset.kusionstack.io/last-target-status"
 )

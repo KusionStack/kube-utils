@@ -24,7 +24,9 @@ import (
 
 var _ api.LifecycleAdapter = &DefaultUpdateLifecycleAdapter{}
 
-type DefaultUpdateLifecycleAdapter struct{}
+type DefaultUpdateLifecycleAdapter struct {
+	LabelManager api.LifeCycleLabelManager
+}
 
 func (d *DefaultUpdateLifecycleAdapter) GetID() string {
 	return "xset"
@@ -39,7 +41,7 @@ func (d *DefaultUpdateLifecycleAdapter) AllowMultiType() bool {
 }
 
 func (d *DefaultUpdateLifecycleAdapter) WhenBegin(target client.Object) (bool, error) {
-	setOperate(d, target)
+	setOperate(d.LabelManager, d, target)
 	return true, nil
 }
 
@@ -49,7 +51,9 @@ func (d *DefaultUpdateLifecycleAdapter) WhenFinish(target client.Object) (bool, 
 
 var _ api.LifecycleAdapter = &DefaultScaleInLifecycleAdapter{}
 
-type DefaultScaleInLifecycleAdapter struct{}
+type DefaultScaleInLifecycleAdapter struct {
+	LabelManager api.LifeCycleLabelManager
+}
 
 func (d *DefaultScaleInLifecycleAdapter) GetID() string {
 	return "xset"
@@ -64,7 +68,7 @@ func (d *DefaultScaleInLifecycleAdapter) AllowMultiType() bool {
 }
 
 func (d *DefaultScaleInLifecycleAdapter) WhenBegin(target client.Object) (bool, error) {
-	setOperate(d, target)
+	setOperate(d.LabelManager, d, target)
 	return true, nil
 }
 

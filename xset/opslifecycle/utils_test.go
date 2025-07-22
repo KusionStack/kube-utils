@@ -55,6 +55,7 @@ func TestLifecycle(t *testing.T) {
 
 	a := &mockAdapter{id: "id-1", operationType: "type-1"}
 	b := &mockAdapter{id: "id-2", operationType: "type-1"}
+	mgr := NewLabelManager(nil)
 
 	inputs := []struct {
 		hasOperating, hasConflictID bool
@@ -73,7 +74,7 @@ func TestLifecycle(t *testing.T) {
 		{
 			hasConflictID: true,
 			started:       false,
-			err:           fmt.Errorf("operationType %s exists: %v", a.GetType(), sets.NewString(fmt.Sprintf("%s/%s", TargetOperationTypeLabelPrefix, b.GetID()))),
+			err:           fmt.Errorf("operationType %s exists: %v", a.GetType(), sets.NewString(fmt.Sprintf("%s/%s", mgr.Get(api.OperationTypeLabelPrefix), b.GetID()))),
 		},
 		{
 			hasConflictID: true,
@@ -97,34 +98,34 @@ func TestLifecycle(t *testing.T) {
 		g.Expect(c.Create(context.TODO(), target)).Should(gomega.Succeed())
 
 		if input.hasOperating {
-			setOperatingID(a, target)
-			setOperationType(a, target)
+			setOperatingID(mgr, a, target)
+			setOperationType(mgr, a, target)
 			a.WhenBegin(target)
 		}
 
 		if input.hasConflictID {
-			setOperatingID(b, target)
-			setOperationType(b, target)
+			setOperatingID(mgr, b, target)
+			setOperationType(mgr, b, target)
 		}
 
-		_, err := Begin(c, a, target)
+		_, err := Begin(mgr, c, a, target)
 		g.Expect(reflect.DeepEqual(err, input.err)).Should(gomega.BeTrue())
 		if err != nil {
 			continue
 		}
 		g.Expect(target.Labels[mockLabelKey]).Should(gomega.BeEquivalentTo(mockLabelValue))
 
-		setOperate(a, target)
-		started, err := Begin(c, a, target)
+		setOperate(mgr, a, target)
+		started, err := Begin(mgr, c, a, target)
 		g.Expect(err).ShouldNot(gomega.HaveOccurred())
 		g.Expect(started).Should(gomega.BeTrue())
-		g.Expect(IsDuringOps(a, target)).Should(gomega.BeTrue())
+		g.Expect(IsDuringOps(mgr, a, target)).Should(gomega.BeTrue())
 
-		finished, err := Finish(c, a, target)
+		finished, err := Finish(mgr, c, a, target)
 		g.Expect(err).ShouldNot(gomega.HaveOccurred())
 		g.Expect(finished).Should(gomega.BeTrue())
 		g.Expect(target.Labels[mockLabelKey]).Should(gomega.BeEquivalentTo(""))
-		g.Expect(IsDuringOps(a, target)).Should(gomega.BeFalse())
+		g.Expect(IsDuringOps(mgr, a, target)).Should(gomega.BeFalse())
 	}
 }
 

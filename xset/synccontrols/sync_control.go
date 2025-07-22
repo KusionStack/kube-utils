@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -62,13 +61,17 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xControl xcontrol.TargetControl,
 	cacheExpectation *expectations.CacheExpectation,
 ) SyncControl {
+	lifeCycleLabelManager := xsetController.GetLifeCycleLabelManager()
+	if lifeCycleLabelManager == nil {
+		lifeCycleLabelManager = opslifecycle.NewLabelManager(nil)
+	}
 	scaleInOpsLicecycleAdapter := xsetController.GetScaleInOpsLifecycleAdapter()
 	if scaleInOpsLicecycleAdapter == nil {
-		scaleInOpsLicecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{}
+		scaleInOpsLicecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{LabelManager: lifeCycleLabelManager}
 	}
 	updateLifecycleAdapter := xsetController.GetUpdateOpsLifecycleAdapter()
 	if updateLifecycleAdapter == nil {
-		updateLifecycleAdapter = &opslifecycle.DefaultUpdateLifecycleAdapter{}
+		updateLifecycleAdapter = &opslifecycle.DefaultUpdateLifecycleAdapter{LabelManager: lifeCycleLabelManager}
 	}
 
 	xMeta := xsetController.XMeta()
@@ -82,6 +85,7 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 		targetControl:  xControl,
 		recorder:       reconcileMixIn.Recorder,
 
+		opsLifecycleMgr:         lifeCycleLabelManager,
 		scaleInLifecycleAdapter: scaleInOpsLicecycleAdapter,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
 		cacheExpectation:        cacheExpectation,
@@ -197,8 +201,8 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			ToDelete:  toDelete,
 			ToExclude: toExclude,
 
-			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.scaleInLifecycleAdapter, target),
-			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateLifecycleAdapter, target),
+			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, target),
+			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.updateLifecycleAdapter, target),
 		})
 
 		if id >= 0 {
@@ -437,17 +441,10 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				// scale out new Targets with updatedRevision
 				// TODO use cache
 				target, err := NewTargetFrom(r.xsetController, xsetObject, revision, availableIDContext.ID)
-
-				labels := target.GetLabels()
-				if availableIDContext.Data[resourcecontexts.JustCreateContextDataKey] == "true" {
-					labels[opslifecycle.TargetCreatingLabel] = strconv.FormatInt(time.Now().UnixNano(), 10)
-				} else {
-					labels[opslifecycle.TargetCompletingLabel] = strconv.FormatInt(time.Now().UnixNano(), 10)
-				}
-
 				if err != nil {
 					return fmt.Errorf("fail to new Target from revision %s: %w", revision.GetName(), err)
 				}
+
 				newTarget := target.DeepCopyObject().(client.Object)
 				logger.V(1).Info("try to create Target with revision of "+r.xsetGVK.Kind, "revision", revision.GetName())
 				if target, err = r.xControl.CreateTarget(ctx, newTarget); err != nil {
@@ -495,7 +492,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			// trigger TargetOpsLifecycle with scaleIn OperationType
 			logger.V(1).Info("try to begin TargetOpsLifecycle for scaling in Target in XSet", "wrapper", ObjectKeyString(object))
 			// todo switch to x opslifecycle
-			if updated, err := opslifecycle.Begin(r.Client, r.scaleInLifecycleAdapter, object); err != nil {
+			if updated, err := opslifecycle.Begin(r.updateConfig.opsLifecycleMgr, r.Client, r.scaleInLifecycleAdapter, object); err != nil {
 				return fmt.Errorf("fail to begin TargetOpsLifecycle for Scaling in Target %s/%s: %w", object.GetNamespace(), object.GetName(), err)
 			} else if updated {
 				r.Recorder.Eventf(object, corev1.EventTypeNormal, "BeginScaleInLifecycle", "succeed to begin TargetOpsLifecycle for scaling in")
@@ -518,7 +515,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 		needUpdateContext := false
 		for i, targetWrapper := range targetsToScaleIn {
-			requeueAfter, allowed := opslifecycle.AllowOps(r.scaleInLifecycleAdapter, RealValue(spec.ScaleStrategy.OperationDelaySeconds), targetWrapper.Object)
+			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, RealValue(spec.ScaleStrategy.OperationDelaySeconds), targetWrapper.Object)
 			if !allowed && targetWrapper.Object.GetDeletionTimestamp() == nil {
 				r.Recorder.Eventf(targetWrapper.Object, corev1.EventTypeNormal, "TargetScaleInLifecycle", "Target is not allowed to scale in")
 				continue
@@ -589,7 +586,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	needUpdateTargetContext := false
 	for _, targetWrapper := range syncContext.activeTargets {
 		if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && contextDetail.Contains(resourcecontexts.ScaleInContextDataKey, "true") &&
-			!opslifecycle.IsDuringOps(r.scaleInLifecycleAdapter, targetWrapper) {
+			!opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, targetWrapper) {
 			needUpdateTargetContext = true
 			contextDetail.Remove(resourcecontexts.ScaleInContextDataKey)
 		}
@@ -639,7 +636,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 			continue
 		}
 
-		if opslifecycle.IsDuringOps(r.updateLifecycleAdapter, targetInfo) {
+		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.updateLifecycleAdapter, targetInfo) {
 			continue
 		}
 
@@ -759,8 +756,8 @@ func (r *RealSyncControl) CalculateStatus(ctx context.Context, instance api.XSet
 			updatedReplicas++
 		}
 
-		if opslifecycle.IsDuringOps(r.scaleInLifecycleAdapter, targetWrapper) ||
-			opslifecycle.IsDuringOps(r.updateLifecycleAdapter, targetWrapper) {
+		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, targetWrapper) ||
+			opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.updateLifecycleAdapter, targetWrapper) {
 			operatingReplicas++
 		}
 
