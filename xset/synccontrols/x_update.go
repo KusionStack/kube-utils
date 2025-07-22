@@ -91,7 +91,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 		spec := r.xsetController.GetXSetSpec(xsetObject)
 		// decide whether the TargetOpsLifecycle is during ops or not
 		updateInfo.IsDuringOps = target.IsDuringUpdateOps
-		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowOps = opslifecycle.AllowOps(r.updateLifecycleAdapter, RealValue(spec.UpdateStrategy.OperationDelaySeconds), target)
+		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowOps = opslifecycle.AllowOps(r.updateConfig.opsLifecycleMgr, r.updateLifecycleAdapter, RealValue(spec.UpdateStrategy.OperationDelaySeconds), target)
 
 		targetUpdateInfoList[i] = updateInfo
 	}
@@ -281,6 +281,7 @@ type UpdateConfig struct {
 	targetControl  xcontrol.TargetControl
 	recorder       record.EventRecorder
 
+	opsLifecycleMgr         api.LifeCycleLabelManager
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
 
@@ -314,9 +315,9 @@ func (u *GenericTargetUpdater) BeginUpdateTarget(_ context.Context, syncContext 
 		targetInfo := <-targetCh
 		u.recorder.Eventf(targetInfo.Object, corev1.EventTypeNormal, "TargetUpdateLifecycle", "try to begin TargetOpsLifecycle for updating Target of XSet")
 
-		if updated, err := opslifecycle.BeginWithCleaningOld(u.client, u.updateLifecycleAdapter, targetInfo.Object, func(obj client.Object) (bool, error) {
+		if updated, err := opslifecycle.BeginWithCleaningOld(u.opsLifecycleMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object, func(obj client.Object) (bool, error) {
 			if !targetInfo.OnlyMetadataChanged && !targetInfo.InPlaceUpdateSupport {
-				return opslifecycle.WhenBeginDelete(obj)
+				return opslifecycle.WhenBeginDelete(u.opsLifecycleMgr, obj)
 			}
 			return false, nil
 		}); err != nil {
@@ -403,7 +404,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(_ context.Context, candidat
 }
 
 func (u *GenericTargetUpdater) FinishUpdateTarget(_ context.Context, targetInfo *targetUpdateInfo) error {
-	if updated, err := opslifecycle.Finish(u.client, u.updateLifecycleAdapter, targetInfo.Object); err != nil {
+	if updated, err := opslifecycle.Finish(u.opsLifecycleMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object); err != nil {
 		return fmt.Errorf("failed to finish TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 	} else if updated {
 		// add an expectation for this target update, before next reconciling
@@ -659,7 +660,7 @@ func (u *replaceUpdateTargetUpdater) GetTargetUpdateFinishStatus(_ context.Conte
 		return
 	}
 
-	return isTargetUpdatedServiceAvailable(replaceNewTargetInfo)
+	return u.isTargetUpdatedServiceAvailable(replaceNewTargetInfo)
 }
 
 func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, targetInfo *targetUpdateInfo) error {
@@ -675,7 +676,7 @@ func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, tar
 	return nil
 }
 
-func isTargetUpdatedServiceAvailable(targetInfo *targetUpdateInfo) (finished bool, msg string, err error) {
+func (u *GenericTargetUpdater) isTargetUpdatedServiceAvailable(targetInfo *targetUpdateInfo) (finished bool, msg string, err error) {
 	if targetInfo.GetLabels() == nil {
 		return false, "no labels on target", nil
 	}
@@ -683,7 +684,7 @@ func isTargetUpdatedServiceAvailable(targetInfo *targetUpdateInfo) (finished boo
 		return false, "replace origin target", nil
 	}
 
-	if _, serviceAvailable := targetInfo.GetLabels()[opslifecycle.TargetServiceAvailableLabel]; serviceAvailable {
+	if serviceAvailable := opslifecycle.IsServiceAvailable(u.opsLifecycleMgr, targetInfo.Object); serviceAvailable {
 		return true, "", nil
 	}
 
