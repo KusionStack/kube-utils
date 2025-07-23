@@ -21,7 +21,7 @@ require (
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/kubectl v0.28.4
 	k8s.io/utils v0.0.0-20240102154912-e7106e64919e
-	kusionstack.io/kube-api v0.2.0
+	kusionstack.io/kube-api v0.6.6
 	sigs.k8s.io/controller-runtime v0.17.3
 )
 
@@ -31,6 +31,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/docker/distribution v2.8.2+incompatible // indirect
 	github.com/evanphx/json-patch v5.7.0+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-logr/zapr v1.2.4 // indirect
@@ -50,6 +51,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
+	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
@@ -120,6 +122,5 @@ replace (
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.22.2
 	k8s.io/system-validators => k8s.io/system-validators v1.5.0
 	k8s.io/utils => k8s.io/utils v0.0.0-20240102154912-e7106e64919e
-	kusionstack.io/kube-api => kusionstack.io/kube-api v0.2.0
 	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.10.3
 )
