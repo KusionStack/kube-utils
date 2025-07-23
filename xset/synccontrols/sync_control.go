@@ -65,9 +65,9 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	if lifeCycleLabelManager == nil {
 		lifeCycleLabelManager = opslifecycle.NewLabelManager(nil)
 	}
-	scaleInOpsLicecycleAdapter := xsetController.GetScaleInOpsLifecycleAdapter()
-	if scaleInOpsLicecycleAdapter == nil {
-		scaleInOpsLicecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{LabelManager: lifeCycleLabelManager}
+	scaleInOpsLifecycleAdapter := xsetController.GetScaleInOpsLifecycleAdapter()
+	if scaleInOpsLifecycleAdapter == nil {
+		scaleInOpsLifecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{LabelManager: lifeCycleLabelManager}
 	}
 	updateLifecycleAdapter := xsetController.GetUpdateOpsLifecycleAdapter()
 	if updateLifecycleAdapter == nil {
@@ -86,7 +86,7 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 		recorder:       reconcileMixIn.Recorder,
 
 		opsLifecycleMgr:         lifeCycleLabelManager,
-		scaleInLifecycleAdapter: scaleInOpsLicecycleAdapter,
+		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
 		cacheExpectation:        cacheExpectation,
 		targetGVK:               targetGVK,
@@ -101,7 +101,7 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 		xsetGVK:          xsetGVK,
 		targetGVK:        targetGVK,
 
-		scaleInLifecycleAdapter: scaleInOpsLicecycleAdapter,
+		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
 	}
 }

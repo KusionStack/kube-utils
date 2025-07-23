@@ -17,20 +17,22 @@
 package opslifecycle
 
 import (
+	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
+
 	"kusionstack.io/kube-utils/xset/api"
 )
 
 // OpsLifecycle default labels
 var (
-	defaultOperatingLabelPrefix         = "operating.opslifecycle.kusionstack.io"
-	defaultOperationTypeLabelPrefix     = "operation-type.opslifecycle.kusionstack.io"
-	defaultOperateLabelPrefix           = "operate.opslifecycle.kusionstack.io"
-	defaultUndoOperationTypeLabelPrefix = "undo-operation-type.opslifecycle.kusionstack.io"
-	defaultServiceAvailableLabel        = "opslifecycle.kusionstack.io/service-available"
-	defaultPreparingDeleteLabel         = "opslifecycle.kusionstack.io/preparing-to-delete"
+	defaultOperatingLabelPrefix         = appsv1alpha1.PodOperatingLabelPrefix
+	defaultOperationTypeLabelPrefix     = appsv1alpha1.PodOperationTypeLabelPrefix
+	defaultOperateLabelPrefix           = appsv1alpha1.PodOperateLabelPrefix
+	defaultUndoOperationTypeLabelPrefix = appsv1alpha1.PodUndoOperationTypeLabelPrefix
+	defaultServiceAvailableLabel        = appsv1alpha1.PodServiceAvailableLabel
+	defaultPreparingDeleteLabel         = appsv1alpha1.PodPreparingDeleteLabel
 )
 
-var defaultLables = map[api.OperationLabelEnum]string{
+var defaultLabels = map[api.OperationLabelEnum]string{
 	api.OperatingLabelPrefix:         defaultOperatingLabelPrefix,
 	api.OperationTypeLabelPrefix:     defaultOperationTypeLabelPrefix,
 	api.OperateLabelPrefix:           defaultOperateLabelPrefix,
@@ -46,7 +48,7 @@ type LabelManagerImpl struct {
 
 func NewLabelManager(overwrite map[api.OperationLabelEnum]string) api.LifeCycleLabelManager {
 	labelKeys := make(map[api.OperationLabelEnum]string)
-	for k, v := range defaultLables {
+	for k, v := range defaultLabels {
 		labelKeys[k] = v
 	}
 	if len(overwrite) > 0 {
@@ -55,7 +57,7 @@ func NewLabelManager(overwrite map[api.OperationLabelEnum]string) api.LifeCycleL
 		}
 	}
 
-	wellKnownLabelPrefilxesWithID := []string{
+	wellKnownLabelPrefixesWithID := []string{
 		labelKeys[api.OperatingLabelPrefix],
 		labelKeys[api.OperationTypeLabelPrefix],
 		labelKeys[api.UndoOperationTypeLabelPrefix],
@@ -63,7 +65,7 @@ func NewLabelManager(overwrite map[api.OperationLabelEnum]string) api.LifeCycleL
 	}
 	return &LabelManagerImpl{
 		labels:                       labelKeys,
-		wellKnownLabelPrefixesWithID: wellKnownLabelPrefilxesWithID,
+		wellKnownLabelPrefixesWithID: wellKnownLabelPrefixesWithID,
 	}
 }
 
