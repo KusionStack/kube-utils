@@ -256,7 +256,8 @@ func (e *CacheExpectation) deletionObserved(gvk schema.GroupVersionKind, namespa
 		}
 		err = e.reader.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, cObj)
 		if err == nil {
-			return false
+			// treat object as deleted if it has a deletion timestamp
+			return cObj.GetDeletionTimestamp() != nil
 		}
 		return errors.IsNotFound(err)
 	}
