@@ -51,10 +51,10 @@ type ResourceContext interface {
 
 type RealResourceContext struct {
 	client.Client
-	cacheExpectations *expectations.CacheExpectations
+	cacheExpectations expectations.CacheExpectationsInterface
 }
 
-func NewRealResourceContext(c client.Client, cacheExpectations *expectations.CacheExpectations) ResourceContext {
+func NewRealResourceContext(c client.Client, cacheExpectations expectations.CacheExpectationsInterface) ResourceContext {
 	return &RealResourceContext{
 		Client:            c,
 		cacheExpectations: cacheExpectations,

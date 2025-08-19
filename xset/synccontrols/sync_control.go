@@ -61,7 +61,7 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xsetController api.XSetController,
 	xControl xcontrol.TargetControl,
 	resourceContexts resourcecontexts.ResourceContext,
-	cacheExpectations *expectations.CacheExpectations,
+	cacheExpectations expectations.CacheExpectationsInterface,
 ) SyncControl {
 	lifeCycleLabelManager := xsetController.GetLifeCycleLabelManager()
 	if lifeCycleLabelManager == nil {
@@ -122,7 +122,7 @@ type RealSyncControl struct {
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
 
-	cacheExpectations *expectations.CacheExpectations
+	cacheExpectations expectations.CacheExpectationsInterface
 	xsetGVK           schema.GroupVersionKind
 	targetGVK         schema.GroupVersionKind
 }

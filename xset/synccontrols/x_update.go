@@ -287,7 +287,7 @@ type UpdateConfig struct {
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
 
-	cacheExpectations *expectations.CacheExpectations
+	cacheExpectations expectations.CacheExpectationsInterface
 	targetGVK         schema.GroupVersionKind
 }
 
