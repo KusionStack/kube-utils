@@ -66,8 +66,11 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 	xsetGVK := xsetMeta.GroupVersionKind()
 	targetMeta := xsetController.XMeta()
 
-	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
 	targetControl, err := xcontrol.NewTargetControl(reconcilerMixin, xsetController)
+	if err != nil {
+		return err
+	}
+	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
 	resourceContexts := resourcecontexts.NewRealResourceContext(reconcilerMixin.Client, cacheExpectations)
 	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, resourceContexts, cacheExpectations)
 	revisionControl := history.NewRevisionControl(reconcilerMixin.Client, reconcilerMixin.Client)
