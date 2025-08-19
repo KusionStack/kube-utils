@@ -171,5 +171,5 @@ func (r *RealSyncControl) reclaimScaleStrategy(ctx context.Context, deletedTarge
 	}); err != nil {
 		return err
 	}
-	return r.cacheExpectation.ExpectUpdation(r.xsetGVK, xsetObject.GetNamespace(), xsetObject.GetName(), xsetObject.GetResourceVersion())
+	return r.cacheExpectations.ExpectUpdation(r.xsetGVK, xsetObject.GetNamespace(), xsetObject.GetName(), xsetObject.GetResourceVersion())
 }

@@ -35,6 +35,7 @@ import (
 	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	clientutil "kusionstack.io/kube-utils/client"
 	"kusionstack.io/kube-utils/controller/expectations"
 	"kusionstack.io/kube-utils/controller/merge"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
@@ -279,14 +280,15 @@ type UpdateConfig struct {
 	xsetController api.XSetController
 	client         client.Client
 	targetControl  xcontrol.TargetControl
+	resourContexts resourcecontexts.ResourceContext
 	recorder       record.EventRecorder
 
 	opsLifecycleMgr         api.LifeCycleLabelManager
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
 
-	cacheExpectation *expectations.CacheExpectation
-	targetGVK        schema.GroupVersionKind
+	cacheExpectations *expectations.CacheExpectations
+	targetGVK         schema.GroupVersionKind
 }
 
 type TargetUpdater interface {
@@ -324,7 +326,7 @@ func (u *GenericTargetUpdater) BeginUpdateTarget(_ context.Context, syncContext 
 			return fmt.Errorf("fail to begin TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 		} else if updated {
 			// add an expectation for this target update, before next reconciling
-			if err := u.cacheExpectation.ExpectUpdation(u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
+			if err := u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
 				return err
 			}
 		}
@@ -396,7 +398,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(_ context.Context, candidat
 	if needUpdateContext {
 		u.recorder.Eventf(u.OwnerObject, corev1.EventTypeNormal, "UpdateToTargetContext", "try to update ResourceContext for XSet")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return resourcecontexts.UpdateToTargetContext(u.xsetController, u.client, u.cacheExpectation, u.OwnerObject, ownedIDs)
+			return u.resourContexts.UpdateToTargetContext(u.xsetController, u.OwnerObject, ownedIDs)
 		})
 		return recordedRequeueAfter, err
 	}
@@ -408,7 +410,7 @@ func (u *GenericTargetUpdater) FinishUpdateTarget(_ context.Context, targetInfo 
 		return fmt.Errorf("failed to finish TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 	} else if updated {
 		// add an expectation for this target update, before next reconciling
-		if err := u.cacheExpectation.ExpectUpdation(u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
+		if err := u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
 			return err
 		}
 		u.recorder.Eventf(targetInfo.Object,

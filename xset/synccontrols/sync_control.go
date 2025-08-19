@@ -35,6 +35,7 @@ import (
 	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	clientutil "kusionstack.io/kube-utils/client"
 	"kusionstack.io/kube-utils/controller/expectations"
 	"kusionstack.io/kube-utils/controller/mixin"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
@@ -59,7 +60,8 @@ type SyncControl interface {
 func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xsetController api.XSetController,
 	xControl xcontrol.TargetControl,
-	cacheExpectation *expectations.CacheExpectation,
+	resourceContexts resourcecontexts.ResourceContext,
+	cacheExpectations *expectations.CacheExpectations,
 ) SyncControl {
 	lifeCycleLabelManager := xsetController.GetLifeCycleLabelManager()
 	if lifeCycleLabelManager == nil {
@@ -83,23 +85,25 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 		xsetController: xsetController,
 		client:         reconcileMixIn.Client,
 		targetControl:  xControl,
+		resourContexts: resourceContexts,
 		recorder:       reconcileMixIn.Recorder,
 
 		opsLifecycleMgr:         lifeCycleLabelManager,
 		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
-		cacheExpectation:        cacheExpectation,
+		cacheExpectations:       cacheExpectations,
 		targetGVK:               targetGVK,
 	}
 	return &RealSyncControl{
 		ReconcilerMixin: *reconcileMixIn,
 		xsetController:  xsetController,
+		resourContexts:  resourceContexts,
 		xControl:        xControl,
 
-		updateConfig:     updateConfig,
-		cacheExpectation: cacheExpectation,
-		xsetGVK:          xsetGVK,
-		targetGVK:        targetGVK,
+		updateConfig:      updateConfig,
+		cacheExpectations: cacheExpectations,
+		xsetGVK:           xsetGVK,
+		targetGVK:         targetGVK,
 
 		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
@@ -112,14 +116,15 @@ type RealSyncControl struct {
 	mixin.ReconcilerMixin
 	xControl       xcontrol.TargetControl
 	xsetController api.XSetController
+	resourContexts resourcecontexts.ResourceContext
 
 	updateConfig            *UpdateConfig
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
 
-	cacheExpectation *expectations.CacheExpectation
-	xsetGVK          schema.GroupVersionKind
-	targetGVK        schema.GroupVersionKind
+	cacheExpectations *expectations.CacheExpectations
+	xsetGVK           schema.GroupVersionKind
+	targetGVK         schema.GroupVersionKind
 }
 
 // SyncTargets is used to parse targetWrappers and reclaim Target instance ID
@@ -145,7 +150,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	// get owned IDs
 	var ownedIDs map[int]*appsv1alpha1.ContextDetail
 	if err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		ownedIDs, err = resourcecontexts.AllocateID(r.xsetController, r.Client, r.cacheExpectation, instance, syncContext.UpdatedRevision.GetName(), int(RealValue(xspec.Replicas)))
+		ownedIDs, err = r.resourContexts.AllocateID(r.xsetController, instance, syncContext.UpdatedRevision.GetName(), int(RealValue(xspec.Replicas)))
 		syncContext.OwnedIds = ownedIDs
 		return err
 	}); err != nil {
@@ -419,7 +424,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			}
 
 			// find IDs and their contexts which have not been used by owned Targets
-			availableContext := resourcecontexts.ExtractAvailableContexts(diff, syncContext.OwnedIds, targetInstanceIDSet)
+			availableContext := r.resourContexts.ExtractAvailableContexts(diff, syncContext.OwnedIds, targetInstanceIDSet)
 			needUpdateContext := atomic.Bool{}
 			succCount, err := controllerutils.SlowStartBatch(len(availableContext), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) (err error) {
 				availableIDContext := availableContext[i]
@@ -451,12 +456,12 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 					return err
 				}
 				// add an expectation for this target creation, before next reconciling
-				return r.cacheExpectation.ExpectCreation(r.targetGVK, target.GetNamespace(), target.GetName())
+				return r.cacheExpectations.ExpectCreation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName())
 			})
 			if needUpdateContext.Load() {
 				logger.V(1).Info("try to update ResourceContext for XSet after scaling out")
 				if updateContextErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-					return resourcecontexts.UpdateToTargetContext(r.xsetController, r.Client, r.cacheExpectation, xsetObject, syncContext.OwnedIds)
+					return r.resourContexts.UpdateToTargetContext(r.xsetController, xsetObject, syncContext.OwnedIds)
 				}); updateContextErr != nil {
 					err = errors.Join(updateContextErr, err)
 				}
@@ -497,7 +502,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			} else if updated {
 				r.Recorder.Eventf(object, corev1.EventTypeNormal, "BeginScaleInLifecycle", "succeed to begin TargetOpsLifecycle for scaling in")
 				// add an expectation for this wrapper creation, before next reconciling
-				if err := r.cacheExpectation.ExpectUpdation(r.targetGVK, object.GetNamespace(), object.GetName(), object.GetResourceVersion()); err != nil {
+				if err := r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, object.GetNamespace(), object.GetName(), object.GetResourceVersion()); err != nil {
 					return err
 				}
 			}
@@ -547,7 +552,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		if needUpdateContext {
 			logger.V(1).Info("try to update ResourceContext for XSet when scaling in Target")
 			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				return resourcecontexts.UpdateToTargetContext(r.xsetController, r.Client, r.cacheExpectation, xsetObject, syncContext.OwnedIds)
+				return r.resourContexts.UpdateToTargetContext(r.xsetController, xsetObject, syncContext.OwnedIds)
 			}); err != nil {
 				AddOrUpdateCondition(syncContext.NewStatus, api.XSetScale, err, "ScaleInFailed", fmt.Sprintf("failed to update Context for scaling in: %s", err))
 				return scaling, recordedRequeueAfter, err
@@ -595,7 +600,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	if needUpdateTargetContext {
 		logger.V(1).Info("try to update ResourceContext for XSet after scaling")
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return resourcecontexts.UpdateToTargetContext(r.xsetController, r.Client, r.cacheExpectation, xsetObject, syncContext.OwnedIds)
+			return r.resourContexts.UpdateToTargetContext(r.xsetController, xsetObject, syncContext.OwnedIds)
 		}); err != nil {
 			return scaling, recordedRequeueAfter, fmt.Errorf("fail to reset ResourceContext: %w", err)
 		}
@@ -807,7 +812,7 @@ func (r *RealSyncControl) getAvailableTargetIDs(
 	ownedIDs := syncContext.OwnedIds
 	currentIDs := syncContext.CurrentIDs
 
-	availableContexts := resourcecontexts.ExtractAvailableContexts(want, ownedIDs, currentIDs)
+	availableContexts := r.resourContexts.ExtractAvailableContexts(want, ownedIDs, currentIDs)
 	if len(availableContexts) >= want {
 		return availableContexts, ownedIDs, nil
 	}
@@ -817,13 +822,13 @@ func (r *RealSyncControl) getAvailableTargetIDs(
 	var newOwnedIDs map[int]*appsv1alpha1.ContextDetail
 	var err error
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		newOwnedIDs, err = resourcecontexts.AllocateID(r.xsetController, r.Client, r.cacheExpectation, instance, syncContext.UpdatedRevision.GetName(), len(ownedIDs)+diff)
+		newOwnedIDs, err = r.resourContexts.AllocateID(r.xsetController, instance, syncContext.UpdatedRevision.GetName(), len(ownedIDs)+diff)
 		return err
 	}); err != nil {
 		return nil, ownedIDs, fmt.Errorf("fail to allocate IDs using context when include Targets: %w", err)
 	}
 
-	return resourcecontexts.ExtractAvailableContexts(want, newOwnedIDs, currentIDs), newOwnedIDs, nil
+	return r.resourContexts.ExtractAvailableContexts(want, newOwnedIDs, currentIDs), newOwnedIDs, nil
 }
 
 // reclaimOwnedIDs delete and reclaim unused IDs
@@ -859,7 +864,7 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 		logger := r.Logger.WithValues(r.xsetGVK.Kind, ObjectKeyString(xset))
 		logger.V(1).Info("try to update ResourceContext for XSet when sync")
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return resourcecontexts.UpdateToTargetContext(r.xsetController, r.Client, r.cacheExpectation, xset, ownedIDs)
+			return r.resourContexts.UpdateToTargetContext(r.xsetController, xset, ownedIDs)
 		}); err != nil {
 			return fmt.Errorf("fail to update ResourceContext when reclaiming IDs: %w", err)
 		}
