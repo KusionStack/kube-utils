@@ -459,7 +459,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				return r.cacheExpectations.ExpectCreation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName())
 			})
 			if needUpdateContext.Load() {
-				logger.V(1).Info("try to update ResourceContextControl for XSet after scaling out")
+				logger.V(1).Info("try to update ResourceContext for XSet after scaling out")
 				if updateContextErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 					return r.resourContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 				}); updateContextErr != nil {
@@ -550,7 +550,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 		// mark these Targets to scalingIn
 		if needUpdateContext {
-			logger.V(1).Info("try to update ResourceContextControl for XSet when scaling in Target")
+			logger.V(1).Info("try to update ResourceContext for XSet when scaling in Target")
 			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				return r.resourContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 			}); err != nil {
@@ -598,7 +598,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	}
 
 	if needUpdateTargetContext {
-		logger.V(1).Info("try to update ResourceContextControl for XSet after scaling")
+		logger.V(1).Info("try to update ResourceContext for XSet after scaling")
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			return r.resourContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 		}); err != nil {
@@ -864,7 +864,7 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 
 	if needUpdateContext {
 		logger := r.Logger.WithValues(r.xsetGVK.Kind, ObjectKeyString(xset))
-		logger.V(1).Info("try to update ResourceContextControl for XSet when sync")
+		logger.V(1).Info("try to update ResourceContext for XSet when sync")
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			return r.resourContextControl.UpdateToTargetContext(ctx, xset, ownedIDs)
 		}); err != nil {

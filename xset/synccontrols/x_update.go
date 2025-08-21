@@ -395,7 +395,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 	}
 	// mark Target to use updated revision before updating it.
 	if needUpdateContext {
-		u.recorder.Eventf(u.OwnerObject, corev1.EventTypeNormal, "UpdateToTargetContext", "try to update ResourceContextControl for XSet")
+		u.recorder.Eventf(u.OwnerObject, corev1.EventTypeNormal, "UpdateToTargetContext", "try to update ResourceContext for XSet")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			return u.resourContextControl.UpdateToTargetContext(ctx, u.OwnerObject, ownedIDs)
 		})
