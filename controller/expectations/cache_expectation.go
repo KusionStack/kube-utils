@@ -182,16 +182,6 @@ func (e *CacheExpectation) Fulfilled() bool {
 	return satisfied
 }
 
-func (e *CacheExpectation) FulFilledFor(gvk schema.GroupVersionKind, namespace, name string) bool {
-	key := e.getKey(gvk, namespace, name)
-	item, ok, err := e.items.GetByKey(key)
-	if err != nil || !ok {
-		return true
-	}
-	eitem := item.(*CacheExpectationItem)
-	return eitem.Fulfilled()
-}
-
 func (e *CacheExpectation) ExpectCreation(gvk schema.GroupVersionKind, namespace, name string) error {
 	return e.expect(e.getKey(gvk, namespace, name), e.creationObserved(gvk, namespace, name))
 }
