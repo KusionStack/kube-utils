@@ -902,9 +902,9 @@ func BatchDelete(ctx context.Context, targetControl xcontrol.TargetControl, need
 	_, err := controllerutils.SlowStartBatch(len(needDeleteTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		target := needDeleteTargets[i]
 		if _, exist := target.GetLabels()[appsv1alpha1.PodDeletionIndicationLabelKey]; !exist {
-			patch := client.RawPatch(types.StrategicMergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%s":"%d"}}}`, appsv1alpha1.PodDeletionIndicationLabelKey, time.Now().UnixNano())))
+			patch := client.RawPatch(types.StrategicMergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%q":"%d"}}}`, appsv1alpha1.PodDeletionIndicationLabelKey, time.Now().UnixNano())))
 			if err := targetControl.PatchTarget(ctx, target, patch); err != nil {
-				return fmt.Errorf("failed to delete target when syncTargets %s/%s/%s", target.GetNamespace(), target.GetName(), err)
+				return fmt.Errorf("failed to delete target when syncTargets %s/%s/%w", target.GetNamespace(), target.GetName(), err)
 			}
 		}
 		return nil
