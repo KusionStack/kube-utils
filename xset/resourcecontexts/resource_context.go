@@ -170,7 +170,7 @@ func (r *RealResourceContextControl) UpdateToTargetContext(
 		}
 
 		if err := r.doCreateTargetContext(ctx, xSetObject, ownedIDs); err != nil {
-			return fmt.Errorf("fail to create ResourceContextControl %s/%s after not found: %w", xSetObject.GetNamespace(), contextName, err)
+			return fmt.Errorf("fail to create ResourceContext %s/%s after not found: %w", xSetObject.GetNamespace(), contextName, err)
 		}
 	}
 
