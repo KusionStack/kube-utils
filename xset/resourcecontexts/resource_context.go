@@ -44,8 +44,8 @@ const (
 )
 
 type ResourceContext interface {
-	AllocateID(xsetControl api.XSetController, instance api.XSetObject, defaultRevision string, replicas int) (map[int]*appsv1alpha1.ContextDetail, error)
-	UpdateToTargetContext(xsetController api.XSetController, instance api.XSetObject, ownedIDs map[int]*appsv1alpha1.ContextDetail) error
+	AllocateID(ctx context.Context, xsetControl api.XSetController, instance api.XSetObject, defaultRevision string, replicas int) (map[int]*appsv1alpha1.ContextDetail, error)
+	UpdateToTargetContext(ctx context.Context, xsetController api.XSetController, instance api.XSetObject, ownedIDs map[int]*appsv1alpha1.ContextDetail) error
 	ExtractAvailableContexts(diff int, ownedIDs map[int]*appsv1alpha1.ContextDetail, targetInstanceIDSet sets.Int) []*appsv1alpha1.ContextDetail
 }
 
@@ -61,12 +61,12 @@ func NewRealResourceContext(c client.Client, cacheExpectations expectations.Cach
 	}
 }
 
-func (r *RealResourceContext) AllocateID(xsetControl api.XSetController, instance api.XSetObject, defaultRevision string, replicas int,
+func (r *RealResourceContext) AllocateID(ctx context.Context, xsetControl api.XSetController, instance api.XSetObject, defaultRevision string, replicas int,
 ) (map[int]*appsv1alpha1.ContextDetail, error) {
 	contextName := getContextName(xsetControl, instance)
 	targetContext := &appsv1alpha1.ResourceContext{}
 	notFound := false
-	if err := r.Client.Get(context.TODO(), types.NamespacedName{Namespace: instance.GetNamespace(), Name: contextName}, targetContext); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: instance.GetNamespace(), Name: contextName}, targetContext); err != nil {
 		if !errors.IsNotFound(err) {
 			return nil, fmt.Errorf("fail to find ResourceContext %s/%s for owner %s: %s", instance.GetNamespace(), contextName, instance.GetName(), err.Error())
 		}
@@ -124,17 +124,17 @@ func (r *RealResourceContext) AllocateID(xsetControl api.XSetController, instanc
 	}
 
 	if notFound {
-		return ownedIDs, r.doCreateTargetContext(xsetControl, instance, ownedIDs)
+		return ownedIDs, r.doCreateTargetContext(ctx, xsetControl, instance, ownedIDs)
 	}
 
-	return ownedIDs, r.doUpdateTargetContext(xsetControl, instance, ownedIDs, targetContext)
+	return ownedIDs, r.doUpdateTargetContext(ctx, xsetControl, instance, ownedIDs, targetContext)
 }
 
-func (r *RealResourceContext) UpdateToTargetContext(xsetController api.XSetController, instance api.XSetObject, ownedIDs map[int]*appsv1alpha1.ContextDetail,
+func (r *RealResourceContext) UpdateToTargetContext(ctx context.Context, xsetController api.XSetController, instance api.XSetObject, ownedIDs map[int]*appsv1alpha1.ContextDetail,
 ) error {
 	contextName := getContextName(xsetController, instance)
 	targetContext := &appsv1alpha1.ResourceContext{}
-	if err := r.Client.Get(context.TODO(), types.NamespacedName{Namespace: instance.GetNamespace(), Name: contextName}, targetContext); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: instance.GetNamespace(), Name: contextName}, targetContext); err != nil {
 		if !errors.IsNotFound(err) {
 			return fmt.Errorf("fail to find ResourceContext %s/%s: %w", instance.GetNamespace(), contextName, err)
 		}
@@ -143,12 +143,12 @@ func (r *RealResourceContext) UpdateToTargetContext(xsetController api.XSetContr
 			return nil
 		}
 
-		if err := r.doCreateTargetContext(xsetController, instance, ownedIDs); err != nil {
+		if err := r.doCreateTargetContext(ctx, xsetController, instance, ownedIDs); err != nil {
 			return fmt.Errorf("fail to create ResourceContext %s/%s after not found: %w", instance.GetNamespace(), contextName, err)
 		}
 	}
 
-	return r.doUpdateTargetContext(xsetController, instance, ownedIDs, targetContext)
+	return r.doUpdateTargetContext(ctx, xsetController, instance, ownedIDs, targetContext)
 }
 
 func (r *RealResourceContext) ExtractAvailableContexts(diff int, ownedIDs map[int]*appsv1alpha1.ContextDetail, targetInstanceIDSet sets.Int) []*appsv1alpha1.ContextDetail {
@@ -173,7 +173,7 @@ func (r *RealResourceContext) ExtractAvailableContexts(diff int, ownedIDs map[in
 	return availableContexts
 }
 
-func (r *RealResourceContext) doCreateTargetContext(xsetController api.XSetController, instance api.XSetObject, ownerIDs map[int]*appsv1alpha1.ContextDetail) error {
+func (r *RealResourceContext) doCreateTargetContext(ctx context.Context, xsetController api.XSetController, instance api.XSetObject, ownerIDs map[int]*appsv1alpha1.ContextDetail) error {
 	contextName := getContextName(xsetController, instance)
 	targetContext := &appsv1alpha1.ResourceContext{
 		ObjectMeta: metav1.ObjectMeta{
@@ -186,20 +186,20 @@ func (r *RealResourceContext) doCreateTargetContext(xsetController api.XSetContr
 	}
 
 	setContextData(ownerIDs, targetContext)
-	return r.Client.Create(context.TODO(), targetContext)
+	return r.Client.Create(ctx, targetContext)
 }
 
-func (r *RealResourceContext) doUpdateTargetContext(xsetController api.XSetController, instance client.Object, ownedIDs map[int]*appsv1alpha1.ContextDetail, targetContext *appsv1alpha1.ResourceContext,
+func (r *RealResourceContext) doUpdateTargetContext(ctx context.Context, xsetController api.XSetController, xsetObject client.Object, ownedIDs map[int]*appsv1alpha1.ContextDetail, targetContext *appsv1alpha1.ResourceContext,
 ) error {
 	// store all IDs crossing all workload
 	existingIDs := map[int]*appsv1alpha1.ContextDetail{}
 
 	// add other collaset targetContexts only if context pool enabled
-	spec := xsetController.GetXSetSpec(instance)
+	spec := xsetController.GetXSetSpec(xsetObject)
 	if spec.ScaleStrategy.Context != "" {
 		for i := range targetContext.Spec.Contexts {
 			detail := targetContext.Spec.Contexts[i]
-			if detail.Contains(OwnerContextKey, instance.GetName()) {
+			if detail.Contains(OwnerContextKey, xsetObject.GetName()) {
 				continue
 			}
 			existingIDs[detail.ID] = &detail
@@ -212,9 +212,9 @@ func (r *RealResourceContext) doUpdateTargetContext(xsetController api.XSetContr
 
 	// delete TargetContext if it is empty
 	if len(existingIDs) == 0 {
-		err := r.Client.Delete(context.TODO(), targetContext)
+		err := r.Client.Delete(ctx, targetContext)
 		if err != nil {
-			if err := r.cacheExpectations.ExpectDeletion(clientutil.ObjectKeyString(instance), resourceContextGVK, targetContext.Namespace, targetContext.Name); err != nil {
+			if err := r.cacheExpectations.ExpectDeletion(clientutil.ObjectKeyString(xsetObject), resourceContextGVK, targetContext.Namespace, targetContext.Name); err != nil {
 				return err
 			}
 		}
@@ -223,9 +223,9 @@ func (r *RealResourceContext) doUpdateTargetContext(xsetController api.XSetContr
 	}
 
 	setContextData(existingIDs, targetContext)
-	err := r.Client.Update(context.TODO(), targetContext)
+	err := r.Client.Update(ctx, targetContext)
 	if err != nil {
-		if err := r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(instance), resourceContextGVK, targetContext.Namespace, targetContext.Name, targetContext.ResourceVersion); err != nil {
+		if err := r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(xsetObject), resourceContextGVK, targetContext.Namespace, targetContext.Name, targetContext.ResourceVersion); err != nil {
 			return err
 		}
 	}
