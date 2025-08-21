@@ -570,7 +570,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			}
 
 			r.Recorder.Eventf(xsetObject, corev1.EventTypeNormal, "TargetDeleted", "succeed to scale in Target %s/%s", target.GetNamespace(), target.GetName())
-			return nil
+			return r.cacheExpectations.ExpectDeletion(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName())
 		})
 		scaling = scaling || succCount > 0
 
@@ -900,7 +900,14 @@ func targetDuringReplace(target client.Object) bool {
 // BatchDelete try to trigger target deletion by to-delete label
 func BatchDelete(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error {
 	_, err := controllerutils.SlowStartBatch(len(needDeleteTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
-		return targetControl.DeleteTarget(ctx, needDeleteTargets[i])
+		target := needDeleteTargets[i]
+		if _, exist := target.GetLabels()[appsv1alpha1.PodDeletionIndicationLabelKey]; !exist {
+			patch := client.RawPatch(types.StrategicMergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%s":"%d"}}}`, appsv1alpha1.PodDeletionIndicationLabelKey, time.Now().UnixNano())))
+			if err := targetControl.PatchTarget(ctx, target, patch); err != nil {
+				return fmt.Errorf("failed to delete target when syncTargets %s/%s/%s", target.GetNamespace(), target.GetName(), err)
+			}
+		}
+		return nil
 	})
 	return err
 }

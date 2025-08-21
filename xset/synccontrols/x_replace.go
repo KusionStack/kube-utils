@@ -32,6 +32,7 @@ import (
 	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	clientutil "kusionstack.io/kube-utils/client"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
@@ -158,6 +159,7 @@ func (r *RealSyncControl) replaceOriginTargets(
 			if err = r.xControl.PatchTarget(ctx, originTarget, patch); err != nil {
 				return fmt.Errorf("fail to update origin target %s/%s pair label %s when updating by replaceUpdate: %s", originTarget.GetNamespace(), originTarget.GetName(), newCreatedTarget.GetName(), err.Error())
 			}
+			return r.cacheExpectations.ExpectCreation(clientutil.ObjectKeyString(instance), r.targetGVK, newTarget.GetNamespace(), newTarget.GetName())
 		} else {
 			r.Recorder.Eventf(originTarget,
 				corev1.EventTypeNormal,
@@ -169,7 +171,6 @@ func (r *RealSyncControl) replaceOriginTargets(
 				err.Error())
 			return err
 		}
-		return nil
 	})
 
 	return successCount, err
