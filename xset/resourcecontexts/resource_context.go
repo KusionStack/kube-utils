@@ -90,7 +90,7 @@ func (r *RealResourceContextControl) AllocateID(
 	notFound := false
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: xsetObject.GetNamespace(), Name: contextName}, targetContext); err != nil {
 		if !errors.IsNotFound(err) {
-			return nil, fmt.Errorf("fail to find ResourceContextControl %s/%s for owner %s: %s", xsetObject.GetNamespace(), contextName, xsetObject.GetName(), err.Error())
+			return nil, fmt.Errorf("fail to find ResourceContext %s/%s for owner %s: %s", xsetObject.GetNamespace(), contextName, xsetObject.GetName(), err.Error())
 		}
 
 		notFound = true
@@ -162,7 +162,7 @@ func (r *RealResourceContextControl) UpdateToTargetContext(
 	targetContext := r.resourceContextController.NewResourceContext()
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: xSetObject.GetNamespace(), Name: contextName}, targetContext); err != nil {
 		if !errors.IsNotFound(err) {
-			return fmt.Errorf("fail to find ResourceContextControl %s/%s: %w", xSetObject.GetNamespace(), contextName, err)
+			return fmt.Errorf("fail to find ResourceContext %s/%s: %w", xSetObject.GetNamespace(), contextName, err)
 		}
 
 		if len(ownedIDs) == 0 {
