@@ -61,10 +61,6 @@ func NewxCacheExpectations(reader client.Reader, scheme *runtime.Scheme, clock c
 	}
 }
 
-func (r *CacheExpectations) CreateExpectations(controllerKey string) (*CacheExpectation, error) {
-	return r.initExpectations(controllerKey)
-}
-
 // GetExpectations returns the ControlleeExpectations of the given controller.
 func (r *CacheExpectations) GetExpectations(controllerKey string) (*CacheExpectation, bool, error) {
 	exp, exists, err := r.GetByKey(controllerKey)
