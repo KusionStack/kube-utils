@@ -602,7 +602,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			return r.resourContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 		}); err != nil {
-			return scaling, recordedRequeueAfter, fmt.Errorf("fail to reset ResourceContextControl: %w", err)
+			return scaling, recordedRequeueAfter, fmt.Errorf("fail to reset ResourceContext: %w", err)
 		}
 	}
 
