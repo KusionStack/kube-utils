@@ -150,7 +150,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	// get owned IDs
 	var ownedIDs map[int]*appsv1alpha1.ContextDetail
 	if err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		ownedIDs, err = r.resourContexts.AllocateID(r.xsetController, instance, syncContext.UpdatedRevision.GetName(), int(RealValue(xspec.Replicas)))
+		ownedIDs, err = r.resourContexts.AllocateID(ctx, r.xsetController, instance, syncContext.UpdatedRevision.GetName(), int(RealValue(xspec.Replicas)))
 		syncContext.OwnedIds = ownedIDs
 		return err
 	}); err != nil {
@@ -220,7 +220,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	if len(toExcludeTargetNames) > 0 || len(toIncludeTargetNames) > 0 {
 		var availableContexts []*appsv1alpha1.ContextDetail
 		var getErr error
-		availableContexts, ownedIDs, getErr = r.getAvailableTargetIDs(len(toIncludeTargetNames), instance, syncContext)
+		availableContexts, ownedIDs, getErr = r.getAvailableTargetIDs(ctx, len(toIncludeTargetNames), instance, syncContext)
 		if getErr != nil {
 			return false, getErr
 		}
@@ -232,7 +232,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	}
 
 	// reclaim Target ID which is (1) during ScalingIn, (2) ExcludeTargets
-	err = r.reclaimOwnedIDs(false, instance, idToReclaim, ownedIDs, syncContext.CurrentIDs)
+	err = r.reclaimOwnedIDs(ctx, false, instance, idToReclaim, ownedIDs, syncContext.CurrentIDs)
 	if err != nil {
 		r.Recorder.Eventf(instance, corev1.EventTypeWarning, "ReclaimOwnedIDs", "reclaim target contexts with error: %s", err.Error())
 		return false, err
@@ -362,7 +362,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 	if len(needReplaceOriginTargets) > 0 {
 		var availableContexts []*appsv1alpha1.ContextDetail
 		var getErr error
-		availableContexts, syncContext.OwnedIds, getErr = r.getAvailableTargetIDs(len(needReplaceOriginTargets), xsetObject, syncContext)
+		availableContexts, syncContext.OwnedIds, getErr = r.getAvailableTargetIDs(ctx, len(needReplaceOriginTargets), xsetObject, syncContext)
 		if getErr != nil {
 			return getErr
 		}
@@ -375,7 +375,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 	}
 
 	// reclaim Target ID which is ReplaceOriginTarget
-	if err := r.reclaimOwnedIDs(needUpdateContext, xsetObject, idToReclaim, syncContext.OwnedIds, syncContext.CurrentIDs); err != nil {
+	if err := r.reclaimOwnedIDs(ctx, needUpdateContext, xsetObject, idToReclaim, syncContext.OwnedIds, syncContext.CurrentIDs); err != nil {
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "ReclaimOwnedIDs", "reclaim target contexts with error: %s", err.Error())
 		return err
 	}
@@ -461,7 +461,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			if needUpdateContext.Load() {
 				logger.V(1).Info("try to update ResourceContext for XSet after scaling out")
 				if updateContextErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-					return r.resourContexts.UpdateToTargetContext(r.xsetController, xsetObject, syncContext.OwnedIds)
+					return r.resourContexts.UpdateToTargetContext(ctx, r.xsetController, xsetObject, syncContext.OwnedIds)
 				}); updateContextErr != nil {
 					err = errors.Join(updateContextErr, err)
 				}
@@ -552,7 +552,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		if needUpdateContext {
 			logger.V(1).Info("try to update ResourceContext for XSet when scaling in Target")
 			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				return r.resourContexts.UpdateToTargetContext(r.xsetController, xsetObject, syncContext.OwnedIds)
+				return r.resourContexts.UpdateToTargetContext(ctx, r.xsetController, xsetObject, syncContext.OwnedIds)
 			}); err != nil {
 				AddOrUpdateCondition(syncContext.NewStatus, api.XSetScale, err, "ScaleInFailed", fmt.Sprintf("failed to update Context for scaling in: %s", err))
 				return scaling, recordedRequeueAfter, err
@@ -600,7 +600,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	if needUpdateTargetContext {
 		logger.V(1).Info("try to update ResourceContext for XSet after scaling")
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return r.resourContexts.UpdateToTargetContext(r.xsetController, xsetObject, syncContext.OwnedIds)
+			return r.resourContexts.UpdateToTargetContext(ctx, r.xsetController, xsetObject, syncContext.OwnedIds)
 		}); err != nil {
 			return scaling, recordedRequeueAfter, fmt.Errorf("fail to reset ResourceContext: %w", err)
 		}
@@ -742,7 +742,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	return updating || succCount > 0, recordedRequeueAfter, err
 }
 
-func (r *RealSyncControl) CalculateStatus(ctx context.Context, instance api.XSetObject, syncContext *SyncContext) *api.XSetStatus {
+func (r *RealSyncControl) CalculateStatus(_ context.Context, instance api.XSetObject, syncContext *SyncContext) *api.XSetStatus {
 	newStatus := syncContext.NewStatus
 	newStatus.ObservedGeneration = instance.GetGeneration()
 
@@ -805,6 +805,7 @@ func (r *RealSyncControl) CalculateStatus(ctx context.Context, instance api.XSet
 
 // getAvailableTargetIDs try to extract and re-allocate want available IDs.
 func (r *RealSyncControl) getAvailableTargetIDs(
+	ctx context.Context,
 	want int,
 	instance api.XSetObject,
 	syncContext *SyncContext,
@@ -822,7 +823,7 @@ func (r *RealSyncControl) getAvailableTargetIDs(
 	var newOwnedIDs map[int]*appsv1alpha1.ContextDetail
 	var err error
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		newOwnedIDs, err = r.resourContexts.AllocateID(r.xsetController, instance, syncContext.UpdatedRevision.GetName(), len(ownedIDs)+diff)
+		newOwnedIDs, err = r.resourContexts.AllocateID(ctx, r.xsetController, instance, syncContext.UpdatedRevision.GetName(), len(ownedIDs)+diff)
 		return err
 	}); err != nil {
 		return nil, ownedIDs, fmt.Errorf("fail to allocate IDs using context when include Targets: %w", err)
@@ -833,6 +834,7 @@ func (r *RealSyncControl) getAvailableTargetIDs(
 
 // reclaimOwnedIDs delete and reclaim unused IDs
 func (r *RealSyncControl) reclaimOwnedIDs(
+	ctx context.Context,
 	needUpdateContext bool,
 	xset api.XSetObject,
 	idToReclaim sets.Int,
@@ -864,7 +866,7 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 		logger := r.Logger.WithValues(r.xsetGVK.Kind, ObjectKeyString(xset))
 		logger.V(1).Info("try to update ResourceContext for XSet when sync")
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return r.resourContexts.UpdateToTargetContext(r.xsetController, xset, ownedIDs)
+			return r.resourContexts.UpdateToTargetContext(ctx, r.xsetController, xset, ownedIDs)
 		}); err != nil {
 			return fmt.Errorf("fail to update ResourceContext when reclaiming IDs: %w", err)
 		}

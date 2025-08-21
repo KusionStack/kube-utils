@@ -44,8 +44,8 @@ const (
 )
 
 type ResourceContext interface {
-	AllocateID(ctx context.Context, xsetControl api.XSetController, instance api.XSetObject, defaultRevision string, replicas int) (map[int]*appsv1alpha1.ContextDetail, error)
-	UpdateToTargetContext(ctx context.Context, xsetController api.XSetController, instance api.XSetObject, ownedIDs map[int]*appsv1alpha1.ContextDetail) error
+	AllocateID(ctx context.Context, xsetControl api.XSetController, xsetObject api.XSetObject, defaultRevision string, replicas int) (map[int]*appsv1alpha1.ContextDetail, error)
+	UpdateToTargetContext(ctx context.Context, xsetController api.XSetController, xsetObject api.XSetObject, ownedIDs map[int]*appsv1alpha1.ContextDetail) error
 	ExtractAvailableContexts(diff int, ownedIDs map[int]*appsv1alpha1.ContextDetail, targetInstanceIDSet sets.Int) []*appsv1alpha1.ContextDetail
 }
 
@@ -61,29 +61,29 @@ func NewRealResourceContext(c client.Client, cacheExpectations expectations.Cach
 	}
 }
 
-func (r *RealResourceContext) AllocateID(ctx context.Context, xsetControl api.XSetController, instance api.XSetObject, defaultRevision string, replicas int,
+func (r *RealResourceContext) AllocateID(ctx context.Context, xsetControl api.XSetController, xsetObject api.XSetObject, defaultRevision string, replicas int,
 ) (map[int]*appsv1alpha1.ContextDetail, error) {
-	contextName := getContextName(xsetControl, instance)
+	contextName := getContextName(xsetControl, xsetObject)
 	targetContext := &appsv1alpha1.ResourceContext{}
 	notFound := false
-	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: instance.GetNamespace(), Name: contextName}, targetContext); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: xsetObject.GetNamespace(), Name: contextName}, targetContext); err != nil {
 		if !errors.IsNotFound(err) {
-			return nil, fmt.Errorf("fail to find ResourceContext %s/%s for owner %s: %s", instance.GetNamespace(), contextName, instance.GetName(), err.Error())
+			return nil, fmt.Errorf("fail to find ResourceContext %s/%s for owner %s: %s", xsetObject.GetNamespace(), contextName, xsetObject.GetName(), err.Error())
 		}
 
 		notFound = true
-		targetContext.Namespace = instance.GetNamespace()
+		targetContext.Namespace = xsetObject.GetNamespace()
 		targetContext.Name = contextName
 	}
 
-	xspec := xsetControl.GetXSetSpec(instance)
+	xspec := xsetControl.GetXSetSpec(xsetObject)
 	// store all the IDs crossing Multiple workload
 	existingIDs := map[int]*appsv1alpha1.ContextDetail{}
 	// only store the IDs belonging to this owner
 	ownedIDs := map[int]*appsv1alpha1.ContextDetail{}
 	for i := range targetContext.Spec.Contexts {
 		detail := &targetContext.Spec.Contexts[i]
-		if detail.Contains(OwnerContextKey, instance.GetName()) {
+		if detail.Contains(OwnerContextKey, xsetObject.GetName()) {
 			ownedIDs[detail.ID] = detail
 			existingIDs[detail.ID] = detail
 		} else if xspec.ScaleStrategy.Context != "" {
@@ -114,7 +114,7 @@ func (r *RealResourceContext) AllocateID(ctx context.Context, xsetControl api.XS
 			ID: candidateID,
 			// TODO choose just create targets' revision according to scaleStrategy
 			Data: map[string]string{
-				OwnerContextKey:          instance.GetName(),
+				OwnerContextKey:          xsetObject.GetName(),
 				RevisionContextDataKey:   defaultRevision,
 				JustCreateContextDataKey: "true",
 			},
@@ -124,31 +124,31 @@ func (r *RealResourceContext) AllocateID(ctx context.Context, xsetControl api.XS
 	}
 
 	if notFound {
-		return ownedIDs, r.doCreateTargetContext(ctx, xsetControl, instance, ownedIDs)
+		return ownedIDs, r.doCreateTargetContext(ctx, xsetControl, xsetObject, ownedIDs)
 	}
 
-	return ownedIDs, r.doUpdateTargetContext(ctx, xsetControl, instance, ownedIDs, targetContext)
+	return ownedIDs, r.doUpdateTargetContext(ctx, xsetControl, xsetObject, ownedIDs, targetContext)
 }
 
-func (r *RealResourceContext) UpdateToTargetContext(ctx context.Context, xsetController api.XSetController, instance api.XSetObject, ownedIDs map[int]*appsv1alpha1.ContextDetail,
+func (r *RealResourceContext) UpdateToTargetContext(ctx context.Context, xsetController api.XSetController, xSetObject api.XSetObject, ownedIDs map[int]*appsv1alpha1.ContextDetail,
 ) error {
-	contextName := getContextName(xsetController, instance)
+	contextName := getContextName(xsetController, xSetObject)
 	targetContext := &appsv1alpha1.ResourceContext{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: instance.GetNamespace(), Name: contextName}, targetContext); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: xSetObject.GetNamespace(), Name: contextName}, targetContext); err != nil {
 		if !errors.IsNotFound(err) {
-			return fmt.Errorf("fail to find ResourceContext %s/%s: %w", instance.GetNamespace(), contextName, err)
+			return fmt.Errorf("fail to find ResourceContext %s/%s: %w", xSetObject.GetNamespace(), contextName, err)
 		}
 
 		if len(ownedIDs) == 0 {
 			return nil
 		}
 
-		if err := r.doCreateTargetContext(ctx, xsetController, instance, ownedIDs); err != nil {
-			return fmt.Errorf("fail to create ResourceContext %s/%s after not found: %w", instance.GetNamespace(), contextName, err)
+		if err := r.doCreateTargetContext(ctx, xsetController, xSetObject, ownedIDs); err != nil {
+			return fmt.Errorf("fail to create ResourceContext %s/%s after not found: %w", xSetObject.GetNamespace(), contextName, err)
 		}
 	}
 
-	return r.doUpdateTargetContext(ctx, xsetController, instance, ownedIDs, targetContext)
+	return r.doUpdateTargetContext(ctx, xsetController, xSetObject, ownedIDs, targetContext)
 }
 
 func (r *RealResourceContext) ExtractAvailableContexts(diff int, ownedIDs map[int]*appsv1alpha1.ContextDetail, targetInstanceIDSet sets.Int) []*appsv1alpha1.ContextDetail {
@@ -173,11 +173,11 @@ func (r *RealResourceContext) ExtractAvailableContexts(diff int, ownedIDs map[in
 	return availableContexts
 }
 
-func (r *RealResourceContext) doCreateTargetContext(ctx context.Context, xsetController api.XSetController, instance api.XSetObject, ownerIDs map[int]*appsv1alpha1.ContextDetail) error {
-	contextName := getContextName(xsetController, instance)
+func (r *RealResourceContext) doCreateTargetContext(ctx context.Context, xsetController api.XSetController, xSetObject api.XSetObject, ownerIDs map[int]*appsv1alpha1.ContextDetail) error {
+	contextName := getContextName(xsetController, xSetObject)
 	targetContext := &appsv1alpha1.ResourceContext{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: instance.GetNamespace(),
+			Namespace: xSetObject.GetNamespace(),
 			Name:      contextName,
 		},
 		Spec: appsv1alpha1.ResourceContextSpec{

@@ -141,7 +141,7 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 		}
 		if controllerutil.ContainsFinalizer(instance, r.finalizerName) {
 			// reclaim owner IDs in ResourceContext
-			if err := r.resourceContexts.UpdateToTargetContext(r.XSetController, instance, nil); err != nil {
+			if err := r.resourceContexts.UpdateToTargetContext(ctx, r.XSetController, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
 			if err := clientutil.RemoveFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName); err != nil {
