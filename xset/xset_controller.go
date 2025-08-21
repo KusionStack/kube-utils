@@ -53,10 +53,11 @@ type xSetCommonReconciler struct {
 	xsetGVK        schema.GroupVersionKind
 
 	// reconcile logic helpers
-	cacheExpectation *expectations.CacheExpectation
-	targetControl    xcontrol.TargetControl
-	syncControl      synccontrols.SyncControl
-	revisionManager  history.HistoryManager
+	cacheExpectations *expectations.CacheExpectations
+	targetControl     xcontrol.TargetControl
+	syncControl       synccontrols.SyncControl
+	revisionManager   history.HistoryManager
+	resourceContexts  resourcecontexts.ResourceContext
 }
 
 func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error {
@@ -65,28 +66,28 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 	xsetGVK := xsetMeta.GroupVersionKind()
 	targetMeta := xsetController.XMeta()
 
-	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
-	cacheExpectation, err := cacheExpectations.CreateExpectations(xsetController.ControllerName())
+	targetControl, err := xcontrol.NewTargetControl(reconcilerMixin, xsetController)
 	if err != nil {
-		return fmt.Errorf("failed to get expectations: %s", err.Error())
+		return err
 	}
-
-	targetControl, err := xcontrol.NewTargetControl(reconcilerMixin, xsetController, cacheExpectation)
-	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, cacheExpectation)
+	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
+	resourceContexts := resourcecontexts.NewRealResourceContext(reconcilerMixin.Client, cacheExpectations)
+	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, resourceContexts, cacheExpectations)
 	revisionControl := history.NewRevisionControl(reconcilerMixin.Client, reconcilerMixin.Client)
 	revisionOwner := revisionowner.NewRevisionOwner(xsetController, targetControl)
 	revisionManager := history.NewHistoryManager(revisionControl, revisionOwner)
 
 	reconciler := &xSetCommonReconciler{
-		targetControl:    targetControl,
-		ReconcilerMixin:  *reconcilerMixin,
-		XSetController:   xsetController,
-		meta:             xsetController.XSetMeta(),
-		finalizerName:    xsetController.FinalizerName(),
-		syncControl:      syncControl,
-		revisionManager:  revisionManager,
-		cacheExpectation: cacheExpectation,
-		xsetGVK:          xsetGVK,
+		targetControl:     targetControl,
+		ReconcilerMixin:   *reconcilerMixin,
+		XSetController:    xsetController,
+		meta:              xsetController.XSetMeta(),
+		finalizerName:     xsetController.FinalizerName(),
+		syncControl:       syncControl,
+		revisionManager:   revisionManager,
+		resourceContexts:  resourceContexts,
+		cacheExpectations: cacheExpectations,
+		xsetGVK:           xsetGVK,
 	}
 
 	c, err := controller.New(xsetController.ControllerName(), mgr, controller.Options{
@@ -123,11 +124,12 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 		}
 
 		logger.Info("object deleted")
-		return ctrl.Result{}, r.cacheExpectation.ExpectDeletion(r.xsetGVK, req.Namespace, req.Name)
+		r.cacheExpectations.DeleteExpectations(req.String())
+		return ctrl.Result{}, nil
 	}
 
 	// if cacheExpectation not fulfilled, shortcut this reconciling till informer cache is updated.
-	if satisfied := r.cacheExpectation.FulFilledFor(r.xsetGVK, req.Namespace, req.Name); !satisfied {
+	if satisfied := r.cacheExpectations.SatisfiedExpectations(req.String()); !satisfied {
 		logger.Info("not satisfied to reconcile")
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
@@ -139,7 +141,7 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 		}
 		if controllerutil.ContainsFinalizer(instance, r.finalizerName) {
 			// reclaim owner IDs in ResourceContext
-			if err := resourcecontexts.UpdateToTargetContext(r.XSetController, r.Client, r.cacheExpectation, instance, nil); err != nil {
+			if err := r.resourceContexts.UpdateToTargetContext(ctx, r.XSetController, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
 			if err := clientutil.RemoveFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName); err != nil {
@@ -219,7 +221,7 @@ func (r *xSetCommonReconciler) updateStatus(ctx context.Context, instance api.XS
 	if err := r.Client.Status().Update(ctx, instance); err != nil {
 		return fmt.Errorf("fail to update status of %s: %s", instance.GetName(), err.Error())
 	}
-	return r.cacheExpectation.ExpectUpdation(r.xsetGVK, instance.GetNamespace(), instance.GetName(), instance.GetResourceVersion())
+	return r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(instance), r.xsetGVK, instance.GetNamespace(), instance.GetName(), instance.GetResourceVersion())
 }
 
 func requeueResult(requeueTime *time.Duration) reconcile.Result {

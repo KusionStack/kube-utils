@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"kusionstack.io/kube-utils/controller/expectations"
 	"kusionstack.io/kube-utils/controller/mixin"
 	refmanagerutil "kusionstack.io/kube-utils/controller/refmanager"
 	"kusionstack.io/kube-utils/xset/api"
@@ -53,12 +52,11 @@ type targetControl struct {
 	client client.Client
 	schema *runtime.Scheme
 
-	xsetController   api.XSetController
-	xGVK             schema.GroupVersionKind
-	cacheExpectation *expectations.CacheExpectation
+	xsetController api.XSetController
+	xGVK           schema.GroupVersionKind
 }
 
-func NewTargetControl(mixin *mixin.ReconcilerMixin, xsetController api.XSetController, cacheExpectation *expectations.CacheExpectation) (TargetControl, error) {
+func NewTargetControl(mixin *mixin.ReconcilerMixin, xsetController api.XSetController) (TargetControl, error) {
 	if err := setUpCache(mixin.Cache, xsetController); err != nil {
 		return nil, err
 	}
@@ -66,11 +64,10 @@ func NewTargetControl(mixin *mixin.ReconcilerMixin, xsetController api.XSetContr
 	xMeta := xsetController.XMeta()
 	gvk := xMeta.GroupVersionKind()
 	return &targetControl{
-		client:           mixin.Client,
-		schema:           mixin.Scheme,
-		xsetController:   xsetController,
-		xGVK:             gvk,
-		cacheExpectation: cacheExpectation,
+		client:         mixin.Client,
+		schema:         mixin.Scheme,
+		xsetController: xsetController,
+		xGVK:           gvk,
 	}, nil
 }
 
@@ -108,33 +105,20 @@ func (r *targetControl) GetFilteredTargets(ctx context.Context, selector *metav1
 func (r *targetControl) CreateTarget(ctx context.Context, target client.Object) (client.Object, error) {
 	if err := r.client.Create(ctx, target); err != nil {
 		return nil, fmt.Errorf("failed to create target: %s", err.Error())
-	} else {
-		return target, r.cacheExpectation.ExpectCreation(r.xGVK, target.GetNamespace(), target.GetName())
 	}
+	return target, nil
 }
 
 func (r *targetControl) DeleteTarget(ctx context.Context, target client.Object) error {
-	if err := r.client.Delete(ctx, target); err != nil {
-		return fmt.Errorf("failed to delete target: %s", err.Error())
-	} else {
-		return r.cacheExpectation.ExpectDeletion(r.xGVK, target.GetNamespace(), target.GetName())
-	}
+	return r.client.Delete(ctx, target)
 }
 
 func (r *targetControl) UpdateTarget(ctx context.Context, target client.Object) error {
-	if err := r.client.Update(ctx, target); err != nil {
-		return fmt.Errorf("failed to update target: %s", err.Error())
-	} else {
-		return r.cacheExpectation.ExpectUpdation(r.xGVK, target.GetNamespace(), target.GetName(), target.GetResourceVersion())
-	}
+	return r.client.Update(ctx, target)
 }
 
 func (r *targetControl) PatchTarget(ctx context.Context, target client.Object, patch client.Patch) error {
-	if err := r.client.Patch(ctx, target, patch); err != nil {
-		return fmt.Errorf("failed to patch target: %s", err.Error())
-	} else {
-		return r.cacheExpectation.ExpectUpdation(r.xGVK, target.GetNamespace(), target.GetName(), target.GetResourceVersion())
-	}
+	return r.client.Patch(ctx, target, patch)
 }
 
 func (r *targetControl) OrphanTarget(xset api.XSetObject, target client.Object) error {
@@ -155,7 +139,7 @@ func (r *targetControl) OrphanTarget(xset api.XSetObject, target client.Object) 
 		return fmt.Errorf("failed to orphan target: %s", err.Error())
 	}
 
-	return r.cacheExpectation.ExpectUpdation(r.xGVK, target.GetNamespace(), target.GetName(), target.GetResourceVersion())
+	return nil
 }
 
 func (r *targetControl) AdoptTarget(xset api.XSetObject, target client.Object) error {
@@ -175,7 +159,7 @@ func (r *targetControl) AdoptTarget(xset api.XSetObject, target client.Object) e
 		return fmt.Errorf("failed to adopt target: %s", err.Error())
 	}
 
-	return r.cacheExpectation.ExpectUpdation(r.xGVK, target.GetNamespace(), target.GetName(), target.GetResourceVersion())
+	return nil
 }
 
 func (r *targetControl) getTargets(candidates []client.Object, selector *metav1.LabelSelector, xset api.XSetObject) ([]client.Object, error) {

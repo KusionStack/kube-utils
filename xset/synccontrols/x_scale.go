@@ -27,6 +27,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 
+	clientutil "kusionstack.io/kube-utils/client"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
@@ -171,5 +172,5 @@ func (r *RealSyncControl) reclaimScaleStrategy(ctx context.Context, deletedTarge
 	}); err != nil {
 		return err
 	}
-	return r.cacheExpectation.ExpectUpdation(r.xsetGVK, xsetObject.GetNamespace(), xsetObject.GetName(), xsetObject.GetResourceVersion())
+	return r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(xsetObject), r.xsetGVK, xsetObject.GetNamespace(), xsetObject.GetName(), xsetObject.GetResourceVersion())
 }

@@ -35,6 +35,7 @@ import (
 	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	clientutil "kusionstack.io/kube-utils/client"
 	"kusionstack.io/kube-utils/controller/expectations"
 	"kusionstack.io/kube-utils/controller/merge"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
@@ -279,14 +280,15 @@ type UpdateConfig struct {
 	xsetController api.XSetController
 	client         client.Client
 	targetControl  xcontrol.TargetControl
+	resourContexts resourcecontexts.ResourceContext
 	recorder       record.EventRecorder
 
 	opsLifecycleMgr         api.LifeCycleLabelManager
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
 
-	cacheExpectation *expectations.CacheExpectation
-	targetGVK        schema.GroupVersionKind
+	cacheExpectations expectations.CacheExpectationsInterface
+	targetGVK         schema.GroupVersionKind
 }
 
 type TargetUpdater interface {
@@ -324,7 +326,7 @@ func (u *GenericTargetUpdater) BeginUpdateTarget(_ context.Context, syncContext 
 			return fmt.Errorf("fail to begin TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 		} else if updated {
 			// add an expectation for this target update, before next reconciling
-			if err := u.cacheExpectation.ExpectUpdation(u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
+			if err := u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
 				return err
 			}
 		}
@@ -342,7 +344,7 @@ func (u *GenericTargetUpdater) BeginUpdateTarget(_ context.Context, syncContext 
 	return updating, nil
 }
 
-func (u *GenericTargetUpdater) FilterAllowOpsTargets(_ context.Context, candidates []*targetUpdateInfo, ownedIDs map[int]*appsv1alpha1.ContextDetail, _ *SyncContext, targetCh chan *targetUpdateInfo) (*time.Duration, error) {
+func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candidates []*targetUpdateInfo, ownedIDs map[int]*appsv1alpha1.ContextDetail, _ *SyncContext, targetCh chan *targetUpdateInfo) (*time.Duration, error) {
 	var recordedRequeueAfter *time.Duration
 	needUpdateContext := false
 	for i := range candidates {
@@ -396,7 +398,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(_ context.Context, candidat
 	if needUpdateContext {
 		u.recorder.Eventf(u.OwnerObject, corev1.EventTypeNormal, "UpdateToTargetContext", "try to update ResourceContext for XSet")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return resourcecontexts.UpdateToTargetContext(u.xsetController, u.client, u.cacheExpectation, u.OwnerObject, ownedIDs)
+			return u.resourContexts.UpdateToTargetContext(ctx, u.xsetController, u.OwnerObject, ownedIDs)
 		})
 		return recordedRequeueAfter, err
 	}
@@ -408,7 +410,7 @@ func (u *GenericTargetUpdater) FinishUpdateTarget(_ context.Context, targetInfo 
 		return fmt.Errorf("failed to finish TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 	} else if updated {
 		// add an expectation for this target update, before next reconciling
-		if err := u.cacheExpectation.ExpectUpdation(u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
+		if err := u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
 			return err
 		}
 		u.recorder.Eventf(targetInfo.Object,
@@ -490,39 +492,25 @@ func (u *inPlaceIfPossibleUpdater) UpgradeTarget(ctx context.Context, targetInfo
 		// if target template changes only include metadata or support in-place update, just apply these changes to target directly
 		if err := u.targetControl.UpdateTarget(ctx, targetInfo.UpdatedTarget); err != nil {
 			return fmt.Errorf("fail to update Target %s/%s when updating by in-place: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
-		} else {
-			targetInfo.Object = targetInfo.UpdatedTarget
-			u.recorder.Eventf(targetInfo.Object,
-				corev1.EventTypeNormal,
-				"UpdateTarget",
-				"succeed to update Target %s/%s to from revision %s to revision %s by in-place",
-				targetInfo.GetNamespace(), targetInfo.GetName(),
-				targetInfo.CurrentRevision.GetName(),
-				targetInfo.UpdateRevision.GetName())
 		}
+		targetInfo.Object = targetInfo.UpdatedTarget
+		u.recorder.Eventf(targetInfo.Object,
+			corev1.EventTypeNormal,
+			"UpdateTarget",
+			"succeed to update Target %s/%s to from revision %s to revision %s by in-place",
+			targetInfo.GetNamespace(), targetInfo.GetName(),
+			targetInfo.CurrentRevision.GetName(),
+			targetInfo.UpdateRevision.GetName())
+		return u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.Object.GetNamespace(), targetInfo.Object.GetName(), targetInfo.Object.GetResourceVersion())
 	} else {
 		// if target has changes not in-place supported, recreate it
 		return u.GenericTargetUpdater.RecreateTarget(ctx, targetInfo)
 	}
-	return nil
 }
 
 func (u *GenericTargetUpdater) RecreateTarget(ctx context.Context, targetInfo *targetUpdateInfo) error {
 	if err := u.targetControl.DeleteTarget(ctx, targetInfo.Object); err != nil {
 		return fmt.Errorf("fail to delete Target %s/%s when updating by recreate: %v", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
-	}
-
-	id, err := GetInstanceID(targetInfo.Object)
-	if err != nil {
-		return fmt.Errorf("fail to get instance id for target %s/%s: %v", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
-	}
-
-	newObj, err := NewTargetFrom(u.xsetController, u.OwnerObject, targetInfo.UpdateRevision, id)
-	if err != nil {
-		return fmt.Errorf("fail to build Target from updated revision %s: %v", targetInfo.UpdateRevision.GetName(), err.Error())
-	}
-	if _, err := u.targetControl.CreateTarget(ctx, newObj); err != nil {
-		return fmt.Errorf("fail to create Target %s/%s when updating by recreate: %v", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 	}
 
 	u.recorder.Eventf(targetInfo.Object,
