@@ -28,9 +28,9 @@ type XSetController interface {
 	XSetMeta() metav1.TypeMeta
 	XMeta() metav1.TypeMeta
 
-	EmptyXSetObject() XSetObject
-	EmptyXObject() client.Object
-	EmptyXObjectList() client.ObjectList
+	NewXSetObject() XSetObject
+	NewXObject() client.Object
+	NewXObjectList() client.ObjectList
 	GetXObjectFromRevision(revision *appsv1.ControllerRevision) (client.Object, error)
 
 	GetXSetSpec(object XSetObject) *XSetSpec

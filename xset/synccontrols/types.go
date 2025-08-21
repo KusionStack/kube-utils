@@ -21,7 +21,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"kusionstack.io/kube-utils/xset/api"
@@ -39,7 +38,7 @@ type SyncContext struct {
 	replacingMap   map[string]*targetWrapper
 
 	CurrentIDs sets.Int
-	OwnedIds   map[int]*appsv1alpha1.ContextDetail
+	OwnedIds   map[int]*api.ContextDetail
 
 	NewStatus *api.XSetStatus
 }
@@ -48,7 +47,7 @@ type targetWrapper struct {
 	// parameters must be set during creation
 	client.Object
 	ID            int
-	ContextDetail *appsv1alpha1.ContextDetail
+	ContextDetail *api.ContextDetail
 	PlaceHolder   bool
 
 	ToDelete  bool

@@ -29,14 +29,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
-	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutil "kusionstack.io/kube-utils/client"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
-	"kusionstack.io/kube-utils/xset/resourcecontexts"
 )
 
 const (
@@ -44,7 +42,7 @@ const (
 	ReplaceOriginTargetIDContextDataKey = "ReplaceOriginTargetID"
 )
 
-func (r *RealSyncControl) cleanReplaceTargetLabels(ctx context.Context, needCleanLabelTargets []client.Object, targetsNeedCleanLabels [][]string, ownedIDs map[int]*appsv1alpha1.ContextDetail, currentIDs sets.Int) (bool, sets.Int, error) {
+func (r *RealSyncControl) cleanReplaceTargetLabels(ctx context.Context, needCleanLabelTargets []client.Object, targetsNeedCleanLabels [][]string, ownedIDs map[int]*api.ContextDetail, currentIDs sets.Int) (bool, sets.Int, error) {
 	needUpdateContext := false
 	needDeleteTargetsIDs := sets.Int{}
 	mapOriginToNewTargetContext := mapReplaceOriginToNewTargetContext(ownedIDs)
@@ -108,8 +106,8 @@ func (r *RealSyncControl) replaceOriginTargets(
 	instance api.XSetObject,
 	syncContext *SyncContext,
 	needReplaceOriginTargets []client.Object,
-	ownedIDs map[int]*appsv1alpha1.ContextDetail,
-	availableContexts []*appsv1alpha1.ContextDetail,
+	ownedIDs map[int]*api.ContextDetail,
+	availableContexts []*api.ContextDetail,
 ) (int, error) {
 	mapNewToOriginTargetContext := mapReplaceNewToOriginTargetContext(ownedIDs)
 	successCount, err := controllerutils.SlowStartBatch(len(needReplaceOriginTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
@@ -125,7 +123,7 @@ func (r *RealSyncControl) replaceOriginTargets(
 		}
 		// add instance id and replace pair label
 		var instanceId string
-		var newTargetContext *appsv1alpha1.ContextDetail
+		var newTargetContext *api.ContextDetail
 		if contextDetail, exist := mapNewToOriginTargetContext[originTargetId]; exist && contextDetail != nil {
 			newTargetContext = contextDetail
 			// reuse targetContext ID if pair-relation exists
@@ -141,10 +139,10 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTarget.GetLabels()[TargetInstanceIDLabelKey] = instanceId
 			ownedIDs[originTargetId].Put(ReplaceNewTargetIDContextDataKey, instanceId)
 			ownedIDs[newTargetContext.ID].Put(ReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
-			ownedIDs[newTargetContext.ID].Remove(resourcecontexts.JustCreateContextDataKey)
+			ownedIDs[newTargetContext.ID].Remove(r.resourContextControl.GetContextKey(api.EnumJustCreateContextDataKey))
 		}
 		newTarget.GetLabels()[TargetReplacePairOriginName] = originTarget.GetName()
-		newTargetContext.Put(resourcecontexts.RevisionContextDataKey, replaceRevision.GetName())
+		newTargetContext.Put(r.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey), replaceRevision.GetName())
 
 		if newCreatedTarget, err := r.xControl.CreateTarget(ctx, newTarget); err == nil {
 			r.Recorder.Eventf(originTarget,
@@ -372,8 +370,8 @@ func classifyTargetReplacingMapping(targetWrappers []*targetWrapper) map[string]
 	return replaceTargetMapping
 }
 
-func mapReplaceNewToOriginTargetContext(ownedIDs map[int]*appsv1alpha1.ContextDetail) map[int]*appsv1alpha1.ContextDetail {
-	mapNewToOriginTargetContext := make(map[int]*appsv1alpha1.ContextDetail)
+func mapReplaceNewToOriginTargetContext(ownedIDs map[int]*api.ContextDetail) map[int]*api.ContextDetail {
+	mapNewToOriginTargetContext := make(map[int]*api.ContextDetail)
 	for id, contextDetail := range ownedIDs {
 		if val, exist := contextDetail.Data[ReplaceNewTargetIDContextDataKey]; exist {
 			newTargetId, _ := strconv.ParseInt(val, 10, 32)
@@ -388,8 +386,8 @@ func mapReplaceNewToOriginTargetContext(ownedIDs map[int]*appsv1alpha1.ContextDe
 	return mapNewToOriginTargetContext
 }
 
-func mapReplaceOriginToNewTargetContext(ownedIDs map[int]*appsv1alpha1.ContextDetail) map[int]*appsv1alpha1.ContextDetail {
-	mapOriginToNewTargetContext := make(map[int]*appsv1alpha1.ContextDetail)
+func mapReplaceOriginToNewTargetContext(ownedIDs map[int]*api.ContextDetail) map[int]*api.ContextDetail {
+	mapOriginToNewTargetContext := make(map[int]*api.ContextDetail)
 	for id, contextDetail := range ownedIDs {
 		if val, exist := contextDetail.Data[ReplaceOriginTargetIDContextDataKey]; exist {
 			originTargetId, _ := strconv.ParseInt(val, 10, 32)

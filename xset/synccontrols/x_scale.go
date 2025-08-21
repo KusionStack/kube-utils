@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/retry"
-	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 
 	clientutil "kusionstack.io/kube-utils/client"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
@@ -112,7 +111,7 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 }
 
 // doIncludeExcludeTargets do real include and exclude for targets which are allowed to in/exclude
-func (r *RealSyncControl) doIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, excludeTargets, includeTargets []string, availableContexts []*appsv1alpha1.ContextDetail) error {
+func (r *RealSyncControl) doIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, excludeTargets, includeTargets []string, availableContexts []*api.ContextDetail) error {
 	var excludeErrs, includeErrs []error
 	_, _ = controllerutils.SlowStartBatch(len(excludeTargets), controllerutils.SlowStartInitialBatchSize, false, func(idx int, _ error) (err error) {
 		defer func() { excludeErrs = append(excludeErrs, err) }()
@@ -127,7 +126,7 @@ func (r *RealSyncControl) doIncludeExcludeTargets(ctx context.Context, xset api.
 
 // excludeTarget try to exclude a target from xset
 func (r *RealSyncControl) excludeTarget(ctx context.Context, xsetObject api.XSetObject, targetName string) error {
-	target := r.xsetController.EmptyXObject()
+	target := r.xsetController.NewXObject()
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: xsetObject.GetNamespace(), Name: targetName}, target); err != nil {
 		return err
 	}
@@ -138,7 +137,7 @@ func (r *RealSyncControl) excludeTarget(ctx context.Context, xsetObject api.XSet
 
 // includeTarget try to include a target into xset
 func (r *RealSyncControl) includeTarget(ctx context.Context, xsetObject api.XSetObject, targetName, instanceId string) error {
-	target := r.xsetController.EmptyXObject()
+	target := r.xsetController.NewXObject()
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: xsetObject.GetNamespace(), Name: targetName}, target); err != nil {
 		return err
 	}
