@@ -25,7 +25,7 @@ import (
 
 type ResourceContextObject client.Object
 
-// ResourceContextAdapter is used to adapt the resource context
+// ResourceContextAdapter is used to adapt the resource context api
 type ResourceContextAdapter interface {
 	ResourceContextMeta() metav1.TypeMeta
 	GetResourceContextSpec(object ResourceContextObject) *ResourceContextSpec
