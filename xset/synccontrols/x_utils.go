@@ -24,7 +24,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"kusionstack.io/kube-utils/xset/api"
@@ -64,7 +63,7 @@ func NewTargetFrom(setController api.XSetController, owner api.XSetObject, revis
 	labels := targetObj.GetLabels()
 	labels[TargetInstanceIDLabelKey] = fmt.Sprintf("%d", id)
 	labels[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
-	controlByKusionStack(targetObj)
+	controlByXSet(setController, targetObj)
 
 	for _, fn := range updateFuncs {
 		if err := fn(targetObj); err != nil {
@@ -171,12 +170,29 @@ func filterOutCondition(conditions []metav1.Condition, condType string) []metav1
 	return newConditions
 }
 
-func controlByKusionStack(obj client.Object) {
+func controlByXSet(setController api.XSetController, obj client.Object) {
 	if obj.GetLabels() == nil {
 		obj.SetLabels(map[string]string{})
 	}
-
-	if v, ok := obj.GetLabels()[v1alpha1.ControlledByKusionStackLabelKey]; !ok || v != "true" {
-		obj.GetLabels()[v1alpha1.ControlledByKusionStackLabelKey] = "true"
+	controlLabel := setController.GetXSetControllerLabelManager()
+	if controlLabel == nil {
+		controlLabel = NewXSetControllerLabelManager()
 	}
+
+	if v, ok := obj.GetLabels()[controlLabel.Get(api.EnumXSetControlledLabel)]; !ok || v != "true" {
+		obj.GetLabels()[controlLabel.Get(api.EnumXSetControlledLabel)] = "true"
+	}
+}
+func IsControlledByXSet(setController api.XSetController, obj client.Object) bool {
+	if obj.GetLabels() == nil {
+		return false
+	}
+
+	controlLabel := setController.GetXSetControllerLabelManager()
+	if controlLabel == nil {
+		controlLabel = NewXSetControllerLabelManager()
+	}
+
+	v, ok := obj.GetLabels()[controlLabel.Get(api.EnumXSetControlledLabel)]
+	return ok && v == "true"
 }

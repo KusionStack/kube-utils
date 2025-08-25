@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -139,10 +140,10 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTarget.GetLabels()[TargetInstanceIDLabelKey] = instanceId
 			ownedIDs[originTargetId].Put(ReplaceNewTargetIDContextDataKey, instanceId)
 			ownedIDs[newTargetContext.ID].Put(ReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
-			r.resourContextControl.Remove(ownedIDs[newTargetContext.ID], api.EnumJustCreateContextDataKey)
+			r.resourceContextControl.Remove(ownedIDs[newTargetContext.ID], api.EnumJustCreateContextDataKey)
 		}
 		newTarget.GetLabels()[TargetReplacePairOriginName] = originTarget.GetName()
-		r.resourContextControl.Put(newTargetContext, api.EnumRevisionContextDataKey, replaceRevision.GetName())
+		r.resourceContextControl.Put(newTargetContext, api.EnumRevisionContextDataKey, replaceRevision.GetName())
 
 		if newCreatedTarget, err := r.xControl.CreateTarget(ctx, newTarget); err == nil {
 			r.Recorder.Eventf(originTarget,
@@ -174,7 +175,9 @@ func (r *RealSyncControl) replaceOriginTargets(
 	return successCount, err
 }
 
-func (r *RealSyncControl) dealReplaceTargets(targets []client.Object) (needReplaceTargets, needCleanLabelTargets []client.Object, targetNeedCleanLabels [][]string, needDeleteTargets []client.Object) {
+func (r *RealSyncControl) dealReplaceTargets(targets []client.Object, logger logr.Logger) (
+	needReplaceTargets, needCleanLabelTargets []client.Object, targetNeedCleanLabels [][]string, needDeleteTargets []client.Object,
+) {
 	targetInstanceIdMap := make(map[string]client.Object)
 	targetNameMap := make(map[string]client.Object)
 
@@ -197,7 +200,8 @@ func (r *RealSyncControl) dealReplaceTargets(targets []client.Object) (needRepla
 		}
 
 		// origin target is about to scaleIn, skip replace
-		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, target) {
+		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, target) {
+			logger.Info("dealReplaceTargets", "target is during scaleIn ops lifecycle, skip replacing", target.GetName())
 			continue
 		}
 
@@ -230,12 +234,12 @@ func (r *RealSyncControl) dealReplaceTargets(targets []client.Object) (needRepla
 				needCleanLabels = append(needCleanLabels, TargetReplacePairOriginName)
 			} else if originTarget.GetLabels()[TargetReplaceIndicationLabelKey] == "" {
 				// replace canceled, delete replace new target if new target is not service available
-				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleMgr, target); !serviceAvailable {
+				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); !serviceAvailable {
 					needDeleteTargets = append(needDeleteTargets, target)
 				}
 			} else if !replaceByUpdate {
 				// not replace update, delete origin target when new created target is service available
-				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleMgr, target); serviceAvailable {
+				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); serviceAvailable {
 					needDeleteTargets = append(needDeleteTargets, originTarget)
 				}
 			}

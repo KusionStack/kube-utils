@@ -40,6 +40,7 @@ type XSetController interface {
 	SetXSetStatus(object XSetObject, status *XSetStatus)
 
 	GetLifeCycleLabelManager() LifeCycleLabelManager
+	GetXSetControllerLabelManager() XSetControllerLabelManager
 	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
 	GetUpdateOpsLifecycleAdapter() LifecycleAdapter
 	GetResourceContextAdapter() ResourceContextAdapter
