@@ -61,7 +61,7 @@ func (r *RealSyncControl) getTargetsToDelete(filteredTargets []*targetWrapper, r
 				continue
 			}
 			// when scaleIn origin Target, newTarget should be deleted if not service available
-			if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); !serviceAvailable {
+			if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleMgr, target); !serviceAvailable {
 				needDeleteTargets = append(needDeleteTargets, replacePairTarget)
 			}
 		}

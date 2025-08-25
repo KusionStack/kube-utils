@@ -29,9 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -116,19 +114,6 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController, resou
 	if err := c.Watch(&source.Kind{Type: xsetController.NewXObject()}, &handler.EnqueueRequestForOwner{
 		IsController: true,
 		OwnerType:    xsetController.NewXSetObject(),
-	}, predicate.Funcs{
-		CreateFunc: func(event event.CreateEvent) bool {
-			return synccontrols.IsControlledByXSet(xsetController, event.Object)
-		},
-		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			return synccontrols.IsControlledByXSet(xsetController, updateEvent.ObjectNew) || synccontrols.IsControlledByXSet(xsetController, updateEvent.ObjectOld)
-		},
-		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
-			return synccontrols.IsControlledByXSet(xsetController, deleteEvent.Object)
-		},
-		GenericFunc: func(genericEvent event.GenericEvent) bool {
-			return synccontrols.IsControlledByXSet(xsetController, genericEvent.Object)
-		},
 	}); err != nil {
 		return fmt.Errorf("failed to watch %s: %s", targetMeta.Kind, err.Error())
 	}
