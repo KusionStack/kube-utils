@@ -72,7 +72,7 @@ func NewTargetControl(mixin *mixin.ReconcilerMixin, xsetController api.XSetContr
 }
 
 func (r *targetControl) GetFilteredTargets(ctx context.Context, selector *metav1.LabelSelector, owner api.XSetObject) ([]client.Object, error) {
-	targetList := r.xsetController.EmptyXObjectList()
+	targetList := r.xsetController.NewXObjectList()
 	if err := r.client.List(ctx, targetList, &client.ListOptions{
 		Namespace:     owner.GetNamespace(),
 		FieldSelector: fields.OneTermEqualSelector(FieldIndexOwnerRefUID, string(owner.GetUID())),
@@ -188,7 +188,7 @@ func (r *targetControl) getTargets(candidates []client.Object, selector *metav1.
 }
 
 func setUpCache(cache cache.Cache, controller api.XSetController) error {
-	if err := cache.IndexField(context.TODO(), controller.EmptyXObject(), FieldIndexOwnerRefUID, func(object client.Object) []string {
+	if err := cache.IndexField(context.TODO(), controller.NewXObject(), FieldIndexOwnerRefUID, func(object client.Object) []string {
 		ownerRef := metav1.GetControllerOf(object)
 		if ownerRef == nil || ownerRef.Kind != controller.XSetMeta().Kind {
 			return nil

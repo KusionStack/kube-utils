@@ -38,6 +38,7 @@ import (
 	"kusionstack.io/kube-utils/controller/history"
 	"kusionstack.io/kube-utils/controller/mixin"
 	"kusionstack.io/kube-utils/xset/api"
+	"kusionstack.io/kube-utils/xset/api/validation"
 	"kusionstack.io/kube-utils/xset/resourcecontexts"
 	"kusionstack.io/kube-utils/xset/revisionowner"
 	"kusionstack.io/kube-utils/xset/synccontrols"
@@ -53,17 +54,25 @@ type xSetCommonReconciler struct {
 	xsetGVK        schema.GroupVersionKind
 
 	// reconcile logic helpers
-	cacheExpectations *expectations.CacheExpectations
-	targetControl     xcontrol.TargetControl
-	syncControl       synccontrols.SyncControl
-	revisionManager   history.HistoryManager
-	resourceContexts  resourcecontexts.ResourceContext
+	cacheExpectations      *expectations.CacheExpectations
+	targetControl          xcontrol.TargetControl
+	syncControl            synccontrols.SyncControl
+	revisionManager        history.HistoryManager
+	resourceContextControl resourcecontexts.ResourceContextControl
 }
 
 func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error {
+	// TODO: validate xsetController
+	resourceContextAdapter, err := getAndValidateResourceContextAdapter(xsetController)
+	if err != nil {
+		return err
+	}
+
 	reconcilerMixin := mixin.NewReconcilerMixin(xsetController.ControllerName(), mgr)
 	xsetMeta := xsetController.XSetMeta()
 	xsetGVK := xsetMeta.GroupVersionKind()
+	resourceContextMeta := resourceContextAdapter.ResourceContextMeta()
+	resourceContextGVK := resourceContextMeta.GroupVersionKind()
 	targetMeta := xsetController.XMeta()
 
 	targetControl, err := xcontrol.NewTargetControl(reconcilerMixin, xsetController)
@@ -71,23 +80,23 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 		return err
 	}
 	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
-	resourceContexts := resourcecontexts.NewRealResourceContext(reconcilerMixin.Client, cacheExpectations)
-	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, resourceContexts, cacheExpectations)
+	resourceContextControl := resourcecontexts.NewRealResourceContextControl(reconcilerMixin.Client, xsetController, resourceContextAdapter, resourceContextGVK, cacheExpectations)
+	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, resourceContextControl, cacheExpectations)
 	revisionControl := history.NewRevisionControl(reconcilerMixin.Client, reconcilerMixin.Client)
 	revisionOwner := revisionowner.NewRevisionOwner(xsetController, targetControl)
 	revisionManager := history.NewHistoryManager(revisionControl, revisionOwner)
 
 	reconciler := &xSetCommonReconciler{
-		targetControl:     targetControl,
-		ReconcilerMixin:   *reconcilerMixin,
-		XSetController:    xsetController,
-		meta:              xsetController.XSetMeta(),
-		finalizerName:     xsetController.FinalizerName(),
-		syncControl:       syncControl,
-		revisionManager:   revisionManager,
-		resourceContexts:  resourceContexts,
-		cacheExpectations: cacheExpectations,
-		xsetGVK:           xsetGVK,
+		targetControl:          targetControl,
+		ReconcilerMixin:        *reconcilerMixin,
+		XSetController:         xsetController,
+		meta:                   xsetController.XSetMeta(),
+		finalizerName:          xsetController.FinalizerName(),
+		syncControl:            syncControl,
+		revisionManager:        revisionManager,
+		resourceContextControl: resourceContextControl,
+		cacheExpectations:      cacheExpectations,
+		xsetGVK:                xsetGVK,
 	}
 
 	c, err := controller.New(xsetController.ControllerName(), mgr, controller.Options{
@@ -98,13 +107,13 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 		return fmt.Errorf("failed to create controller: %s", err.Error())
 	}
 
-	if err := c.Watch(&source.Kind{Type: xsetController.EmptyXSetObject()}, &handler.EnqueueRequestForObject{}); err != nil {
+	if err := c.Watch(&source.Kind{Type: xsetController.NewXSetObject()}, &handler.EnqueueRequestForObject{}); err != nil {
 		return fmt.Errorf("failed to watch %s: %s", xsetController.XSetMeta().Kind, err.Error())
 	}
 
-	if err := c.Watch(&source.Kind{Type: xsetController.EmptyXObject()}, &handler.EnqueueRequestForOwner{
+	if err := c.Watch(&source.Kind{Type: xsetController.NewXObject()}, &handler.EnqueueRequestForOwner{
 		IsController: true,
-		OwnerType:    xsetController.EmptyXSetObject(),
+		OwnerType:    xsetController.NewXSetObject(),
 	}); err != nil {
 		return fmt.Errorf("failed to watch %s: %s", targetMeta.Kind, err.Error())
 	}
@@ -112,11 +121,22 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 	return nil
 }
 
+func getAndValidateResourceContextAdapter(xsetController api.XSetController) (api.ResourceContextAdapter, error) {
+	resourceContextAdapter := xsetController.GetResourceContextAdapter()
+	if resourceContextAdapter == nil {
+		resourceContextAdapter = &resourcecontexts.DefaultResourceContextAdapter{}
+	}
+	if err := validation.ValidateResourceContextAdapter(resourceContextAdapter); err != nil {
+		return nil, err
+	}
+	return resourceContextAdapter, nil
+}
+
 func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	kind := r.meta.Kind
 	key := req.String()
 	logger := r.Logger.WithValues(kind, key)
-	instance := r.XSetController.EmptyXSetObject()
+	instance := r.XSetController.NewXSetObject()
 	if err := r.Client.Get(ctx, req.NamespacedName, instance); err != nil {
 		if !apierrors.IsNotFound(err) {
 			logger.Error(err, "failed to find object")
@@ -140,8 +160,8 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 			return ctrl.Result{}, err
 		}
 		if controllerutil.ContainsFinalizer(instance, r.finalizerName) {
-			// reclaim owner IDs in ResourceContext
-			if err := r.resourceContexts.UpdateToTargetContext(ctx, r.XSetController, instance, nil); err != nil {
+			// reclaim owner IDs in ResourceContextControl
+			if err := r.resourceContextControl.UpdateToTargetContext(ctx, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
 			if err := clientutil.RemoveFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName); err != nil {
@@ -208,12 +228,12 @@ func (r *xSetCommonReconciler) doSync(ctx context.Context, instance api.XSetObje
 }
 
 func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context, instance api.XSetObject) error {
-	xspec := r.XSetController.GetXSetSpec(instance)
-	targets, err := r.targetControl.GetFilteredTargets(ctx, xspec.Selector, instance)
+	xSetSpec := r.XSetController.GetXSetSpec(instance)
+	targets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
 	if err != nil {
 		return fmt.Errorf("fail to get filtered Targets: %s", err.Error())
 	}
-	return synccontrols.BatchDelete(ctx, r.targetControl, targets)
+	return synccontrols.BatchDeleteTargetByLabel(ctx, r.targetControl, targets)
 }
 
 func (r *xSetCommonReconciler) updateStatus(ctx context.Context, instance api.XSetObject, status *api.XSetStatus) error {

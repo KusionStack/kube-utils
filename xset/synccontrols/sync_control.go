@@ -60,7 +60,7 @@ type SyncControl interface {
 func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xsetController api.XSetController,
 	xControl xcontrol.TargetControl,
-	resourceContexts resourcecontexts.ResourceContext,
+	resourceContexts resourcecontexts.ResourceContextControl,
 	cacheExpectations expectations.CacheExpectationsInterface,
 ) SyncControl {
 	lifeCycleLabelManager := xsetController.GetLifeCycleLabelManager()
@@ -82,11 +82,11 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xsetGVK := xsetMeta.GroupVersionKind()
 
 	updateConfig := &UpdateConfig{
-		xsetController: xsetController,
-		client:         reconcileMixIn.Client,
-		targetControl:  xControl,
-		resourContexts: resourceContexts,
-		recorder:       reconcileMixIn.Recorder,
+		xsetController:       xsetController,
+		client:               reconcileMixIn.Client,
+		targetControl:        xControl,
+		resourContextControl: resourceContexts,
+		recorder:             reconcileMixIn.Recorder,
 
 		opsLifecycleMgr:         lifeCycleLabelManager,
 		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
@@ -95,10 +95,10 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 		targetGVK:               targetGVK,
 	}
 	return &RealSyncControl{
-		ReconcilerMixin: *reconcileMixIn,
-		xsetController:  xsetController,
-		resourContexts:  resourceContexts,
-		xControl:        xControl,
+		ReconcilerMixin:      *reconcileMixIn,
+		xsetController:       xsetController,
+		resourContextControl: resourceContexts,
+		xControl:             xControl,
 
 		updateConfig:      updateConfig,
 		cacheExpectations: cacheExpectations,
@@ -114,9 +114,9 @@ var _ SyncControl = &RealSyncControl{}
 
 type RealSyncControl struct {
 	mixin.ReconcilerMixin
-	xControl       xcontrol.TargetControl
-	xsetController api.XSetController
-	resourContexts resourcecontexts.ResourceContext
+	xControl             xcontrol.TargetControl
+	xsetController       api.XSetController
+	resourContextControl resourcecontexts.ResourceContextControl
 
 	updateConfig            *UpdateConfig
 	scaleInLifecycleAdapter api.LifecycleAdapter
@@ -148,9 +148,9 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	}
 
 	// get owned IDs
-	var ownedIDs map[int]*appsv1alpha1.ContextDetail
+	var ownedIDs map[int]*api.ContextDetail
 	if err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		ownedIDs, err = r.resourContexts.AllocateID(ctx, r.xsetController, instance, syncContext.UpdatedRevision.GetName(), int(RealValue(xspec.Replicas)))
+		ownedIDs, err = r.resourContextControl.AllocateID(ctx, instance, syncContext.UpdatedRevision.GetName(), int(RealValue(xspec.Replicas)))
 		syncContext.OwnedIds = ownedIDs
 		return err
 	}); err != nil {
@@ -186,7 +186,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 
 		if target.GetDeletionTimestamp() != nil {
 			// 1. Reclaim ID from Target which is scaling in and terminating.
-			if contextDetail, exist := ownedIDs[id]; exist && contextDetail.Contains(resourcecontexts.ScaleInContextDataKey, "true") {
+			if contextDetail, exist := ownedIDs[id]; exist && r.resourContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") {
 				idToReclaim.Insert(id)
 			}
 
@@ -218,7 +218,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	// do include exclude targets, and skip doSync() if succeeded
 	var inExSucceed bool
 	if len(toExcludeTargetNames) > 0 || len(toIncludeTargetNames) > 0 {
-		var availableContexts []*appsv1alpha1.ContextDetail
+		var availableContexts []*api.ContextDetail
 		var getErr error
 		availableContexts, ownedIDs, getErr = r.getAvailableTargetIDs(ctx, len(toIncludeTargetNames), instance, syncContext)
 		if getErr != nil {
@@ -313,7 +313,7 @@ func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset a
 	allowTargets = sets.String{}
 	notAllowTargets = sets.String{}
 	for i := range targetNames {
-		target := r.xsetController.EmptyXObject()
+		target := r.xsetController.NewXObject()
 		targetName := targetNames[i]
 		err = r.Client.Get(ctx, types.NamespacedName{Namespace: xset.GetNamespace(), Name: targetName}, target)
 		if apierrors.IsNotFound(err) {
@@ -345,7 +345,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(syncContext.FilteredTarget)
 
 	// delete origin targets for replace
-	err = BatchDelete(ctx, r.xControl, needDeleteTargets)
+	err = BatchDeleteTargetByLabel(ctx, r.xControl, needDeleteTargets)
 	if err != nil {
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "ReplaceTarget", "delete targets by label with error: %s", err.Error())
 		return err
@@ -360,7 +360,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 
 	// create new targets for need replace targets
 	if len(needReplaceOriginTargets) > 0 {
-		var availableContexts []*appsv1alpha1.ContextDetail
+		var availableContexts []*api.ContextDetail
 		var getErr error
 		availableContexts, syncContext.OwnedIds, getErr = r.getAvailableTargetIDs(ctx, len(needReplaceOriginTargets), xsetObject, syncContext)
 		if getErr != nil {
@@ -408,7 +408,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		// trigger delete targets indicated in ScaleStrategy.TargetToDelete by label
 		for _, targetWrapper := range syncContext.activeTargets {
 			if targetWrapper.ToDelete {
-				err := BatchDelete(ctx, r.xControl, []client.Object{targetWrapper.Object})
+				err := BatchDeleteTargetByLabel(ctx, r.xControl, []client.Object{targetWrapper.Object})
 				if err != nil {
 					return false, recordedRequeueAfter, err
 				}
@@ -424,18 +424,18 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			}
 
 			// find IDs and their contexts which have not been used by owned Targets
-			availableContext := r.resourContexts.ExtractAvailableContexts(diff, syncContext.OwnedIds, targetInstanceIDSet)
+			availableContext := r.resourContextControl.ExtractAvailableContexts(diff, syncContext.OwnedIds, targetInstanceIDSet)
 			needUpdateContext := atomic.Bool{}
 			succCount, err := controllerutils.SlowStartBatch(len(availableContext), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) (err error) {
 				availableIDContext := availableContext[i]
 				defer func() {
-					if decideContextRevision(availableIDContext, syncContext.UpdatedRevision, err == nil) {
+					if r.decideContextRevision(availableIDContext, syncContext.UpdatedRevision, err == nil) {
 						needUpdateContext.Store(true)
 					}
 				}()
 				// use revision recorded in Context
 				revision := syncContext.UpdatedRevision
-				if revisionName, exist := availableIDContext.Data[resourcecontexts.RevisionContextDataKey]; exist && revisionName != "" {
+				if revisionName, exist := r.resourContextControl.Get(availableIDContext, api.EnumRevisionContextDataKey); exist && revisionName != "" {
 					for i := range syncContext.Revisions {
 						if syncContext.Revisions[i].GetName() == revisionName {
 							revision = syncContext.Revisions[i]
@@ -461,7 +461,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			if needUpdateContext.Load() {
 				logger.V(1).Info("try to update ResourceContext for XSet after scaling out")
 				if updateContextErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-					return r.resourContexts.UpdateToTargetContext(ctx, r.xsetController, xsetObject, syncContext.OwnedIds)
+					return r.resourContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 				}); updateContextErr != nil {
 					err = errors.Join(updateContextErr, err)
 				}
@@ -536,9 +536,9 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			}
 
 			// if Target is allowed to operate or Target has already been deleted, promte to delete Target
-			if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && !contextDetail.Contains(resourcecontexts.ScaleInContextDataKey, "true") {
+			if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && !r.resourContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") {
 				needUpdateContext = true
-				contextDetail.Put(resourcecontexts.ScaleInContextDataKey, "true")
+				r.resourContextControl.Put(contextDetail, api.EnumScaleInContextDataKey, "true")
 			}
 
 			if targetWrapper.GetDeletionTimestamp() != nil {
@@ -552,7 +552,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		if needUpdateContext {
 			logger.V(1).Info("try to update ResourceContext for XSet when scaling in Target")
 			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				return r.resourContexts.UpdateToTargetContext(ctx, r.xsetController, xsetObject, syncContext.OwnedIds)
+				return r.resourContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 			}); err != nil {
 				AddOrUpdateCondition(syncContext.NewStatus, api.XSetScale, err, "ScaleInFailed", fmt.Sprintf("failed to update Context for scaling in: %s", err))
 				return scaling, recordedRequeueAfter, err
@@ -590,17 +590,17 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	// reset ContextDetail.ScalingIn, if there are Targets had its TargetOpsLifecycle reverted
 	needUpdateTargetContext := false
 	for _, targetWrapper := range syncContext.activeTargets {
-		if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && contextDetail.Contains(resourcecontexts.ScaleInContextDataKey, "true") &&
+		if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && r.resourContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") &&
 			!opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, targetWrapper) {
 			needUpdateTargetContext = true
-			contextDetail.Remove(resourcecontexts.ScaleInContextDataKey)
+			r.resourContextControl.Remove(contextDetail, api.EnumScaleInContextDataKey)
 		}
 	}
 
 	if needUpdateTargetContext {
 		logger.V(1).Info("try to update ResourceContext for XSet after scaling")
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return r.resourContexts.UpdateToTargetContext(ctx, r.xsetController, xsetObject, syncContext.OwnedIds)
+			return r.resourContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 		}); err != nil {
 			return scaling, recordedRequeueAfter, fmt.Errorf("fail to reset ResourceContext: %w", err)
 		}
@@ -809,27 +809,27 @@ func (r *RealSyncControl) getAvailableTargetIDs(
 	want int,
 	instance api.XSetObject,
 	syncContext *SyncContext,
-) ([]*appsv1alpha1.ContextDetail, map[int]*appsv1alpha1.ContextDetail, error) {
+) ([]*api.ContextDetail, map[int]*api.ContextDetail, error) {
 	ownedIDs := syncContext.OwnedIds
 	currentIDs := syncContext.CurrentIDs
 
-	availableContexts := r.resourContexts.ExtractAvailableContexts(want, ownedIDs, currentIDs)
+	availableContexts := r.resourContextControl.ExtractAvailableContexts(want, ownedIDs, currentIDs)
 	if len(availableContexts) >= want {
 		return availableContexts, ownedIDs, nil
 	}
 
 	diff := want - len(availableContexts)
 
-	var newOwnedIDs map[int]*appsv1alpha1.ContextDetail
+	var newOwnedIDs map[int]*api.ContextDetail
 	var err error
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		newOwnedIDs, err = r.resourContexts.AllocateID(ctx, r.xsetController, instance, syncContext.UpdatedRevision.GetName(), len(ownedIDs)+diff)
+		newOwnedIDs, err = r.resourContextControl.AllocateID(ctx, instance, syncContext.UpdatedRevision.GetName(), len(ownedIDs)+diff)
 		return err
 	}); err != nil {
 		return nil, ownedIDs, fmt.Errorf("fail to allocate IDs using context when include Targets: %w", err)
 	}
 
-	return r.resourContexts.ExtractAvailableContexts(want, newOwnedIDs, currentIDs), newOwnedIDs, nil
+	return r.resourContextControl.ExtractAvailableContexts(want, newOwnedIDs, currentIDs), newOwnedIDs, nil
 }
 
 // reclaimOwnedIDs delete and reclaim unused IDs
@@ -838,7 +838,7 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 	needUpdateContext bool,
 	xset api.XSetObject,
 	idToReclaim sets.Int,
-	ownedIDs map[int]*appsv1alpha1.ContextDetail,
+	ownedIDs map[int]*api.ContextDetail,
 	currentIDs sets.Int,
 ) error {
 	// TODO stateful case
@@ -848,7 +848,7 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 		if _, exist := currentIDs[id]; exist {
 			continue
 		}
-		if contextDetail.Contains(resourcecontexts.ScaleInContextDataKey, "true") {
+		if r.resourContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") {
 			idToReclaim.Insert(id)
 		}
 	}
@@ -866,9 +866,9 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 		logger := r.Logger.WithValues(r.xsetGVK.Kind, ObjectKeyString(xset))
 		logger.V(1).Info("try to update ResourceContext for XSet when sync")
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return r.resourContexts.UpdateToTargetContext(ctx, r.xsetController, xset, ownedIDs)
+			return r.resourContextControl.UpdateToTargetContext(ctx, xset, ownedIDs)
 		}); err != nil {
-			return fmt.Errorf("fail to update ResourceContext when reclaiming IDs: %w", err)
+			return fmt.Errorf("fail to update ResourceContextControl when reclaiming IDs: %w", err)
 		}
 	}
 	return nil
@@ -897,8 +897,8 @@ func targetDuringReplace(target client.Object) bool {
 	return replaceIndicate || replaceOriginTarget || replaceNewTarget
 }
 
-// BatchDelete try to trigger target deletion by to-delete label
-func BatchDelete(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error {
+// BatchDeleteTargetByLabel try to trigger target deletion by to-delete label
+func BatchDeleteTargetByLabel(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error {
 	_, err := controllerutils.SlowStartBatch(len(needDeleteTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		target := needDeleteTargets[i]
 		if _, exist := target.GetLabels()[appsv1alpha1.PodDeletionIndicationLabelKey]; !exist {
@@ -913,24 +913,24 @@ func BatchDelete(ctx context.Context, targetControl xcontrol.TargetControl, need
 }
 
 // decideContextRevision decides revision for 3 target create types: (1) just create, (2) upgrade by recreate, (3) delete and recreate
-func decideContextRevision(contextDetail *appsv1alpha1.ContextDetail, updatedRevision *appsv1.ControllerRevision, createSucceeded bool) bool {
+func (r *RealSyncControl) decideContextRevision(contextDetail *api.ContextDetail, updatedRevision *appsv1.ControllerRevision, createSucceeded bool) bool {
 	needUpdateContext := false
 	if !createSucceeded {
-		if contextDetail.Contains(resourcecontexts.JustCreateContextDataKey, "true") {
+		if r.resourContextControl.Contains(contextDetail, api.EnumJustCreateContextDataKey, "true") {
 			// TODO choose just create targets' revision according to scaleStrategy
-			contextDetail.Put(resourcecontexts.RevisionContextDataKey, updatedRevision.GetName())
-			delete(contextDetail.Data, resourcecontexts.TargetDecorationRevisionKey)
+			r.resourContextControl.Put(contextDetail, api.EnumRevisionContextDataKey, updatedRevision.GetName())
+			r.resourContextControl.Remove(contextDetail, api.EnumTargetDecorationRevisionKey)
 			needUpdateContext = true
-		} else if contextDetail.Contains(resourcecontexts.RecreateUpdateContextDataKey, "true") {
-			contextDetail.Put(resourcecontexts.RevisionContextDataKey, updatedRevision.GetName())
-			delete(contextDetail.Data, resourcecontexts.TargetDecorationRevisionKey)
+		} else if r.resourContextControl.Contains(contextDetail, api.EnumRecreateUpdateContextDataKey, "true") {
+			r.resourContextControl.Put(contextDetail, api.EnumRevisionContextDataKey, updatedRevision.GetName())
+			r.resourContextControl.Remove(contextDetail, api.EnumTargetDecorationRevisionKey)
 			needUpdateContext = true
 		}
 		// if target is delete and recreate, never change revisionKey
 	} else {
 		// TODO delete ID if create succeeded
-		contextDetail.Remove(resourcecontexts.JustCreateContextDataKey)
-		contextDetail.Remove(resourcecontexts.RecreateUpdateContextDataKey)
+		r.resourContextControl.Remove(contextDetail, api.EnumJustCreateContextDataKey)
+		r.resourContextControl.Remove(contextDetail, api.EnumRecreateUpdateContextDataKey)
 		needUpdateContext = true
 	}
 	return needUpdateContext

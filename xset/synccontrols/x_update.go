@@ -32,7 +32,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
-	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutil "kusionstack.io/kube-utils/client"
@@ -134,7 +133,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 			InPlaceUpdateSupport: true,
 			UpdateRevision:       syncContext.UpdatedRevision,
 		}
-		if revision, exist := target.ContextDetail.Data[resourcecontexts.RevisionContextDataKey]; exist &&
+		if revision, exist := r.resourContextControl.Get(target.ContextDetail, api.EnumRevisionContextDataKey); exist &&
 			revision == syncContext.UpdatedRevision.GetName() {
 			updateInfo.IsUpdatedRevision = true
 		}
@@ -277,11 +276,11 @@ func (o *orderByDefault) Less(i, j int) bool {
 }
 
 type UpdateConfig struct {
-	xsetController api.XSetController
-	client         client.Client
-	targetControl  xcontrol.TargetControl
-	resourContexts resourcecontexts.ResourceContext
-	recorder       record.EventRecorder
+	xsetController       api.XSetController
+	client               client.Client
+	targetControl        xcontrol.TargetControl
+	resourContextControl resourcecontexts.ResourceContextControl
+	recorder             record.EventRecorder
 
 	opsLifecycleMgr         api.LifeCycleLabelManager
 	scaleInLifecycleAdapter api.LifecycleAdapter
@@ -295,7 +294,7 @@ type TargetUpdater interface {
 	Setup(config *UpdateConfig, xset api.XSetObject)
 	FulfillTargetUpdatedInfo(ctx context.Context, revision *appsv1.ControllerRevision, targetUpdateInfo *targetUpdateInfo) error
 	BeginUpdateTarget(ctx context.Context, syncContext *SyncContext, targetCh chan *targetUpdateInfo) (bool, error)
-	FilterAllowOpsTargets(ctx context.Context, targetToUpdate []*targetUpdateInfo, ownedIDs map[int]*appsv1alpha1.ContextDetail, syncContext *SyncContext, targetCh chan *targetUpdateInfo) (*time.Duration, error)
+	FilterAllowOpsTargets(ctx context.Context, targetToUpdate []*targetUpdateInfo, ownedIDs map[int]*api.ContextDetail, syncContext *SyncContext, targetCh chan *targetUpdateInfo) (*time.Duration, error)
 	UpgradeTarget(ctx context.Context, targetInfo *targetUpdateInfo) error
 	GetTargetUpdateFinishStatus(ctx context.Context, targetUpdateInfo *targetUpdateInfo) (bool, string, error)
 	FinishUpdateTarget(ctx context.Context, targetInfo *targetUpdateInfo) error
@@ -344,7 +343,7 @@ func (u *GenericTargetUpdater) BeginUpdateTarget(_ context.Context, syncContext 
 	return updating, nil
 }
 
-func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candidates []*targetUpdateInfo, ownedIDs map[int]*appsv1alpha1.ContextDetail, _ *SyncContext, targetCh chan *targetUpdateInfo) (*time.Duration, error) {
+func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candidates []*targetUpdateInfo, ownedIDs map[int]*api.ContextDetail, _ *SyncContext, targetCh chan *targetUpdateInfo) (*time.Duration, error) {
 	var recordedRequeueAfter *time.Duration
 	needUpdateContext := false
 	for i := range candidates {
@@ -374,9 +373,9 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 			continue
 		}
 
-		if !ownedIDs[targetInfo.ID].Contains(resourcecontexts.RevisionContextDataKey, targetInfo.UpdateRevision.GetName()) {
+		if !u.resourContextControl.Contains(ownedIDs[targetInfo.ID], api.EnumRevisionContextDataKey, targetInfo.UpdateRevision.GetName()) {
 			needUpdateContext = true
-			ownedIDs[targetInfo.ID].Put(resourcecontexts.RevisionContextDataKey, targetInfo.UpdateRevision.GetName())
+			u.resourContextControl.Put(ownedIDs[targetInfo.ID], api.EnumRevisionContextDataKey, targetInfo.UpdateRevision.GetName())
 		}
 
 		spec := u.xsetController.GetXSetSpec(u.OwnerObject)
@@ -384,7 +383,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 		// mark targetContext "TargetRecreateUpgrade" if upgrade by recreate
 		isRecreateUpdatePolicy := spec.UpdateStrategy.UpdatePolicy == api.XSetRecreateTargetUpdateStrategyType
 		if (!targetInfo.OnlyMetadataChanged && !targetInfo.InPlaceUpdateSupport) || isRecreateUpdatePolicy {
-			ownedIDs[targetInfo.ID].Put(resourcecontexts.RecreateUpdateContextDataKey, "true")
+			u.resourContextControl.Put(ownedIDs[targetInfo.ID], api.EnumRecreateUpdateContextDataKey, "true")
 		}
 
 		if targetInfo.PlaceHolder {
@@ -398,7 +397,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 	if needUpdateContext {
 		u.recorder.Eventf(u.OwnerObject, corev1.EventTypeNormal, "UpdateToTargetContext", "try to update ResourceContext for XSet")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return u.resourContexts.UpdateToTargetContext(ctx, u.xsetController, u.OwnerObject, ownedIDs)
+			return u.resourContextControl.UpdateToTargetContext(ctx, u.OwnerObject, ownedIDs)
 		})
 		return recordedRequeueAfter, err
 	}
@@ -479,7 +478,7 @@ func (u *inPlaceIfPossibleUpdater) FulfillTargetUpdatedInfo(_ context.Context, r
 	}
 
 	newUpdatedTarget := targetUpdateInfo.targetWrapper.Object.DeepCopyObject().(client.Object)
-	if err = merge.ThreeWayMergeToTarget(currentTarget, UpdatedTarget, newUpdatedTarget, u.xsetController.EmptyXObject()); err != nil {
+	if err = merge.ThreeWayMergeToTarget(currentTarget, UpdatedTarget, newUpdatedTarget, u.xsetController.NewXObject()); err != nil {
 		return fmt.Errorf("fail to patch Target %s/%s: %v", targetUpdateInfo.GetNamespace(), targetUpdateInfo.GetName(), err.Error())
 	}
 	targetUpdateInfo.UpdatedTarget = newUpdatedTarget
@@ -604,7 +603,7 @@ func (u *replaceUpdateTargetUpdater) BeginUpdateTarget(ctx context.Context, sync
 	return succCount > 0, err
 }
 
-func (u *replaceUpdateTargetUpdater) FilterAllowOpsTargets(_ context.Context, candidates []*targetUpdateInfo, _ map[int]*appsv1alpha1.ContextDetail, _ *SyncContext, targetCh chan *targetUpdateInfo) (requeueAfter *time.Duration, err error) {
+func (u *replaceUpdateTargetUpdater) FilterAllowOpsTargets(_ context.Context, candidates []*targetUpdateInfo, _ map[int]*api.ContextDetail, _ *SyncContext, targetCh chan *targetUpdateInfo) (requeueAfter *time.Duration, err error) {
 	activeTargetToUpdate := filterOutPlaceHolderUpdateInfos(candidates)
 	for i, targetInfo := range activeTargetToUpdate {
 		if targetInfo.IsUpdatedRevision {
