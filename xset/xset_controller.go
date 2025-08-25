@@ -215,7 +215,7 @@ func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("fail to get filtered Targets: %s", err.Error())
 	}
-	return synccontrols.BatchDelete(ctx, r.targetControl, targets)
+	return synccontrols.BatchDeleteTargetByLabel(ctx, r.targetControl, targets)
 }
 
 func (r *xSetCommonReconciler) updateStatus(ctx context.Context, instance api.XSetObject, status *api.XSetStatus) error {

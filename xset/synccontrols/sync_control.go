@@ -345,7 +345,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(syncContext.FilteredTarget)
 
 	// delete origin targets for replace
-	err = BatchDelete(ctx, r.xControl, needDeleteTargets)
+	err = BatchDeleteTargetByLabel(ctx, r.xControl, needDeleteTargets)
 	if err != nil {
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "ReplaceTarget", "delete targets by label with error: %s", err.Error())
 		return err
@@ -408,7 +408,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		// trigger delete targets indicated in ScaleStrategy.TargetToDelete by label
 		for _, targetWrapper := range syncContext.activeTargets {
 			if targetWrapper.ToDelete {
-				err := BatchDelete(ctx, r.xControl, []client.Object{targetWrapper.Object})
+				err := BatchDeleteTargetByLabel(ctx, r.xControl, []client.Object{targetWrapper.Object})
 				if err != nil {
 					return false, recordedRequeueAfter, err
 				}
@@ -897,8 +897,8 @@ func targetDuringReplace(target client.Object) bool {
 	return replaceIndicate || replaceOriginTarget || replaceNewTarget
 }
 
-// BatchDelete try to trigger target deletion by to-delete label
-func BatchDelete(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error {
+// BatchDeleteTargetByLabel try to trigger target deletion by to-delete label
+func BatchDeleteTargetByLabel(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error {
 	_, err := controllerutils.SlowStartBatch(len(needDeleteTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		target := needDeleteTargets[i]
 		if _, exist := target.GetLabels()[appsv1alpha1.PodDeletionIndicationLabelKey]; !exist {
