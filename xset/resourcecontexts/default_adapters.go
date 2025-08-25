@@ -25,6 +25,7 @@ import (
 
 var _ api.ResourceContextAdapter = &DefaultResourceContextAdapter{}
 
+// DefaultResourceContextAdapter is the adapter to api apps.kusionstack.io.resourcecontexts
 type DefaultResourceContextAdapter struct{}
 
 func (*DefaultResourceContextAdapter) ResourceContextMeta() metav1.TypeMeta {

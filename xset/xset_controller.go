@@ -67,7 +67,6 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController, resou
 		return errors.New("xsetController is nil")
 	}
 	if resourceContextAdapter == nil {
-		// use default resource context controller from apps.kusionstack.io.resourcecontexts
 		resourceContextAdapter = &resourcecontexts.DefaultResourceContextAdapter{}
 	}
 
