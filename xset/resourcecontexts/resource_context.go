@@ -55,9 +55,9 @@ func NewRealResourceContextControl(
 	resourceContextGVK schema.GroupVersionKind,
 	cacheExpectations expectations.CacheExpectationsInterface,
 ) ResourceContextControl {
-	resourceContextKeys := resourceContextAdapter.GetContextKeyManager()
+	resourceContextKeys := resourceContextAdapter.GetContextKeys()
 	if resourceContextKeys == nil {
-		resourceContextKeys = DefaultResourceContextKeys
+		resourceContextKeys = defaultResourceContextKeys
 	}
 
 	return &RealResourceContextControl{

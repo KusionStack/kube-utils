@@ -38,6 +38,7 @@ import (
 	"kusionstack.io/kube-utils/controller/history"
 	"kusionstack.io/kube-utils/controller/mixin"
 	"kusionstack.io/kube-utils/xset/api"
+	"kusionstack.io/kube-utils/xset/api/validation"
 	"kusionstack.io/kube-utils/xset/resourcecontexts"
 	"kusionstack.io/kube-utils/xset/revisionowner"
 	"kusionstack.io/kube-utils/xset/synccontrols"
@@ -60,12 +61,11 @@ type xSetCommonReconciler struct {
 	resourceContextControl resourcecontexts.ResourceContextControl
 }
 
-func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController, resourceContextAdapter api.ResourceContextAdapter) error {
-	if xsetController == nil {
-		return errors.New("xsetController is nil")
-	}
-	if resourceContextAdapter == nil {
-		resourceContextAdapter = &resourcecontexts.DefaultResourceContextAdapter{}
+func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error {
+	// TODO: validate xsetController
+	resourceContextAdapter, err := getAndValidateResourceContextAdapter(xsetController)
+	if err != nil {
+		return err
 	}
 
 	reconcilerMixin := mixin.NewReconcilerMixin(xsetController.ControllerName(), mgr)
@@ -119,6 +119,17 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController, resou
 	}
 
 	return nil
+}
+
+func getAndValidateResourceContextAdapter(xsetController api.XSetController) (api.ResourceContextAdapter, error) {
+	resourceContextAdapter := xsetController.GetResourceContextAdapter()
+	if resourceContextAdapter == nil {
+		resourceContextAdapter = &resourcecontexts.DefaultResourceContextAdapter{}
+	}
+	if err := validation.ValidateResourceContextAdapter(resourceContextAdapter); err != nil {
+		return nil, err
+	}
+	return resourceContextAdapter, nil
 }
 
 func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {

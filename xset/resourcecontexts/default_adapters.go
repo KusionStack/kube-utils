@@ -25,7 +25,7 @@ import (
 
 var _ api.ResourceContextAdapter = &DefaultResourceContextAdapter{}
 
-var DefaultResourceContextKeys = map[api.ResourceContextKeyEnum]string{
+var defaultResourceContextKeys = map[api.ResourceContextKeyEnum]string{
 	api.EnumOwnerContextKey:              "Owner",
 	api.EnumRevisionContextDataKey:       "Revision",
 	api.EnumTargetDecorationRevisionKey:  "TargetDecorationRevisions",
@@ -69,8 +69,8 @@ func (*DefaultResourceContextAdapter) SetResourceContextSpec(spec *api.ResourceC
 	rc.Spec.Contexts = contexts
 }
 
-func (*DefaultResourceContextAdapter) GetContextKeyManager() map[api.ResourceContextKeyEnum]string {
-	return DefaultResourceContextKeys
+func (*DefaultResourceContextAdapter) GetContextKeys() map[api.ResourceContextKeyEnum]string {
+	return defaultResourceContextKeys
 }
 
 func (*DefaultResourceContextAdapter) NewResourceContext() api.ResourceContextObject {

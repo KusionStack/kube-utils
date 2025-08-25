@@ -30,13 +30,14 @@ type ResourceContextAdapter interface {
 	ResourceContextMeta() metav1.TypeMeta
 	GetResourceContextSpec(object ResourceContextObject) *ResourceContextSpec
 	SetResourceContextSpec(spec *ResourceContextSpec, object ResourceContextObject)
-	GetContextKeyManager() map[ResourceContextKeyEnum]string
+	GetContextKeys() map[ResourceContextKeyEnum]string
 	NewResourceContext() ResourceContextObject
 }
 
 // ResourceContextKeyEnum defines the key of resource context
 type ResourceContextKeyEnum int
 
+const EnumContextKeyNum = 6
 const (
 	EnumOwnerContextKey ResourceContextKeyEnum = iota
 	EnumRevisionContextDataKey

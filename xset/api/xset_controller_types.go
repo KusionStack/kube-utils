@@ -42,6 +42,7 @@ type XSetController interface {
 	GetLifeCycleLabelManager() LifeCycleLabelManager
 	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
 	GetUpdateOpsLifecycleAdapter() LifecycleAdapter
+	GetResourceContextAdapter() ResourceContextAdapter
 
 	CheckScheduled(object client.Object) bool
 	CheckReady(object client.Object) bool
