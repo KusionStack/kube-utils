@@ -197,7 +197,7 @@ func (r *RealSyncControl) dealReplaceTargets(targets []client.Object) (needRepla
 		}
 
 		// origin target is about to scaleIn, skip replace
-		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, target) {
+		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, target) {
 			continue
 		}
 
@@ -230,12 +230,12 @@ func (r *RealSyncControl) dealReplaceTargets(targets []client.Object) (needRepla
 				needCleanLabels = append(needCleanLabels, TargetReplacePairOriginName)
 			} else if originTarget.GetLabels()[TargetReplaceIndicationLabelKey] == "" {
 				// replace canceled, delete replace new target if new target is not service available
-				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleMgr, target); !serviceAvailable {
+				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); !serviceAvailable {
 					needDeleteTargets = append(needDeleteTargets, target)
 				}
 			} else if !replaceByUpdate {
 				// not replace update, delete origin target when new created target is service available
-				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleMgr, target); serviceAvailable {
+				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); serviceAvailable {
 					needDeleteTargets = append(needDeleteTargets, originTarget)
 				}
 			}

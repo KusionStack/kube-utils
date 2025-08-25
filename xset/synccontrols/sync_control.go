@@ -67,6 +67,10 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	if lifeCycleLabelManager == nil {
 		lifeCycleLabelManager = opslifecycle.NewLabelManager(nil)
 	}
+	xSetControllerLabelManager := xsetController.GetXSetControllerLabelManager()
+	if xSetControllerLabelManager == nil {
+		xSetControllerLabelManager = NewXSetControllerLabelManager()
+	}
 	scaleInOpsLifecycleAdapter := xsetController.GetScaleInOpsLifecycleAdapter()
 	if scaleInOpsLifecycleAdapter == nil {
 		scaleInOpsLifecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{LabelManager: lifeCycleLabelManager}
@@ -82,23 +86,24 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xsetGVK := xsetMeta.GroupVersionKind()
 
 	updateConfig := &UpdateConfig{
-		xsetController:       xsetController,
-		client:               reconcileMixIn.Client,
-		targetControl:        xControl,
-		resourContextControl: resourceContexts,
-		recorder:             reconcileMixIn.Recorder,
-
-		opsLifecycleMgr:         lifeCycleLabelManager,
+		xsetController:          xsetController,
+		client:                  reconcileMixIn.Client,
+		targetControl:           xControl,
+		resourceContextControl:  resourceContexts,
+		recorder:                reconcileMixIn.Recorder,
+		opsLifecycleLabelMgr:    lifeCycleLabelManager,
 		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
+		xSetControllerLabelMgr:  xSetControllerLabelManager,
 		cacheExpectations:       cacheExpectations,
 		targetGVK:               targetGVK,
 	}
 	return &RealSyncControl{
-		ReconcilerMixin:      *reconcileMixIn,
-		xsetController:       xsetController,
-		resourContextControl: resourceContexts,
-		xControl:             xControl,
+		ReconcilerMixin:        *reconcileMixIn,
+		xsetController:         xsetController,
+		xSetControllerLabelMgr: xSetControllerLabelManager,
+		resourContextControl:   resourceContexts,
+		xControl:               xControl,
 
 		updateConfig:      updateConfig,
 		cacheExpectations: cacheExpectations,
@@ -114,9 +119,10 @@ var _ SyncControl = &RealSyncControl{}
 
 type RealSyncControl struct {
 	mixin.ReconcilerMixin
-	xControl             xcontrol.TargetControl
-	xsetController       api.XSetController
-	resourContextControl resourcecontexts.ResourceContextControl
+	xControl               xcontrol.TargetControl
+	xsetController         api.XSetController
+	xSetControllerLabelMgr api.XSetControllerLabelManager
+	resourContextControl   resourcecontexts.ResourceContextControl
 
 	updateConfig            *UpdateConfig
 	scaleInLifecycleAdapter api.LifecycleAdapter
@@ -141,6 +147,8 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	if err != nil {
 		return false, fmt.Errorf("fail to get filtered Targets: %w", err)
 	}
+
+	// TODO list, adopt and retain pvcs pvcs (for pods)
 
 	toExcludeTargetNames, toIncludeTargetNames, err := r.dealIncludeExcludeTargets(ctx, instance, syncContext.FilteredTarget)
 	if err != nil {
@@ -175,7 +183,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			toDeleteTargetNames.Delete(xName)
 		}
 		if toExclude {
-			if targetDuringReplace(target) || toDelete {
+			if targetDuringReplace(r.xSetControllerLabelMgr, target) || toDelete {
 				// skip exclude until replace and toDelete done
 				toExcludeTargetNames.Delete(xName)
 			} else {
@@ -190,12 +198,14 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 				idToReclaim.Insert(id)
 			}
 
-			_, replaceIndicate := target.GetLabels()[TargetReplaceIndicationLabelKey]
+			_, replaceIndicate := target.GetLabels()[r.xSetControllerLabelMgr.Get(api.EnumXSetReplaceIndicationLabelKey)]
 			// 2. filter out Targets which are terminating and not replace indicate
 			if !replaceIndicate {
 				continue
 			}
 		}
+
+		// TODO delete unused pvcs (for pods)
 
 		targetWrappers = append(targetWrappers, targetWrapper{
 			Object:        target,
@@ -206,8 +216,8 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			ToDelete:  toDelete,
 			ToExclude: toExclude,
 
-			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, target),
-			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.updateLifecycleAdapter, target),
+			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, target),
+			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, target),
 		})
 
 		if id >= 0 {
@@ -293,9 +303,8 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "DupExIncludedTarget", "duplicated targets %s in both excluding and including sets", strings.Join(intersection.List(), ", "))
 	}
 
-	// seem no need to check allow ResourceExclude, since filterTargets already filter only owned targets
-	toExcludeTargets, notAllowedExcludeTargets, exErr := r.allowIncludeExcludeTargets(ctx, xsetObject, excludeTargetNames.List(), AllowResourceExclude)
-	toIncludeTargets, notAllowedIncludeTargets, inErr := r.allowIncludeExcludeTargets(ctx, xsetObject, includeTargetNames.List(), AllowResourceInclude)
+	toExcludeTargets, notAllowedExcludeTargets, exErr := r.allowIncludeExcludeTargets(ctx, xsetObject, excludeTargetNames.List(), AllowResourceExclude, r.xSetControllerLabelMgr)
+	toIncludeTargets, notAllowedIncludeTargets, inErr := r.allowIncludeExcludeTargets(ctx, xsetObject, includeTargetNames.List(), AllowResourceInclude, r.xSetControllerLabelMgr)
 	if notAllowedExcludeTargets.Len() > 0 {
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "ExcludeNotAllowed", fmt.Sprintf("targets [%v] are not allowed to exclude, please find out the reason from target's event", notAllowedExcludeTargets.List()))
 	}
@@ -306,10 +315,10 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 }
 
 // checkAllowFunc refers to AllowResourceExclude and AllowResourceInclude
-type checkAllowFunc func(obj metav1.Object, ownerName, ownerKind string) (bool, string)
+type checkAllowFunc func(obj metav1.Object, ownerName, ownerKind string, manager api.XSetControllerLabelManager) (bool, string)
 
 // allowIncludeExcludeTargets try to classify targetNames to allowedTargets and notAllowedTargets, using checkAllowFunc func
-func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, targetNames []string, fn checkAllowFunc) (allowTargets, notAllowTargets sets.String, err error) {
+func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, targetNames []string, fn checkAllowFunc, labelMgr api.XSetControllerLabelManager) (allowTargets, notAllowTargets sets.String, err error) {
 	allowTargets = sets.String{}
 	notAllowTargets = sets.String{}
 	for i := range targetNames {
@@ -325,7 +334,7 @@ func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset a
 		}
 
 		// check allowance for target
-		if allowed, reason := fn(target, xset.GetName(), xset.GetObjectKind().GroupVersionKind().Kind); !allowed {
+		if allowed, reason := fn(target, xset.GetName(), xset.GetObjectKind().GroupVersionKind().Kind, labelMgr); !allowed {
 			r.Recorder.Eventf(target, corev1.EventTypeWarning, "ExcludeIncludeNotAllowed",
 				fmt.Sprintf("target is not allowed to exclude/include from/to %s %s/%s: %s", r.xsetGVK.Kind, xset.GetNamespace(), xset.GetName(), reason))
 			notAllowTargets.Insert(targetName)
@@ -497,7 +506,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			// trigger TargetOpsLifecycle with scaleIn OperationType
 			logger.V(1).Info("try to begin TargetOpsLifecycle for scaling in Target in XSet", "wrapper", ObjectKeyString(object))
 			// todo switch to x opslifecycle
-			if updated, err := opslifecycle.Begin(r.updateConfig.opsLifecycleMgr, r.Client, r.scaleInLifecycleAdapter, object); err != nil {
+			if updated, err := opslifecycle.Begin(r.updateConfig.opsLifecycleLabelMgr, r.Client, r.scaleInLifecycleAdapter, object); err != nil {
 				return fmt.Errorf("fail to begin TargetOpsLifecycle for Scaling in Target %s/%s: %w", object.GetNamespace(), object.GetName(), err)
 			} else if updated {
 				r.Recorder.Eventf(object, corev1.EventTypeNormal, "BeginScaleInLifecycle", "succeed to begin TargetOpsLifecycle for scaling in")
@@ -520,7 +529,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 		needUpdateContext := false
 		for i, targetWrapper := range targetsToScaleIn {
-			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, RealValue(spec.ScaleStrategy.OperationDelaySeconds), targetWrapper.Object)
+			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, RealValue(spec.ScaleStrategy.OperationDelaySeconds), targetWrapper.Object)
 			if !allowed && targetWrapper.Object.GetDeletionTimestamp() == nil {
 				r.Recorder.Eventf(targetWrapper.Object, corev1.EventTypeNormal, "TargetScaleInLifecycle", "Target is not allowed to scale in")
 				continue
@@ -591,7 +600,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	needUpdateTargetContext := false
 	for _, targetWrapper := range syncContext.activeTargets {
 		if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && contextDetail.Contains(r.resourContextControl.GetContextKey(api.EnumScaleInContextDataKey), "true") &&
-			!opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, targetWrapper) {
+			!opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, targetWrapper) {
 			needUpdateTargetContext = true
 			contextDetail.Remove(r.resourContextControl.GetContextKey(api.EnumScaleInContextDataKey))
 		}
@@ -641,7 +650,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 			continue
 		}
 
-		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.updateLifecycleAdapter, targetInfo) {
+		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, targetInfo) {
 			continue
 		}
 
@@ -761,8 +770,8 @@ func (r *RealSyncControl) CalculateStatus(_ context.Context, instance api.XSetOb
 			updatedReplicas++
 		}
 
-		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, targetWrapper) ||
-			opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.updateLifecycleAdapter, targetWrapper) {
+		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, targetWrapper) ||
+			opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, targetWrapper) {
 			operatingReplicas++
 		}
 
@@ -886,14 +895,14 @@ func FilterOutActiveTargetWrappers(targets []targetWrapper) []*targetWrapper {
 	return filteredTargetWrappers
 }
 
-func targetDuringReplace(target client.Object) bool {
+func targetDuringReplace(labelMgr api.XSetControllerLabelManager, target client.Object) bool {
 	labels := target.GetLabels()
 	if labels == nil {
 		return false
 	}
-	_, replaceIndicate := labels[TargetReplaceIndicationLabelKey]
-	_, replaceOriginTarget := labels[TargetReplacePairNewId]
-	_, replaceNewTarget := labels[TargetReplacePairOriginName]
+	_, replaceIndicate := labels[labelMgr.Get(api.EnumXSetReplaceIndicationLabelKey)]
+	_, replaceOriginTarget := labels[labelMgr.Get(api.EnumXSetReplacePairOriginName)]
+	_, replaceNewTarget := labels[labelMgr.Get(api.EnumXSetReplacePairNewId)]
 	return replaceIndicate || replaceOriginTarget || replaceNewTarget
 }
 

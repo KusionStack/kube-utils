@@ -91,7 +91,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 		spec := r.xsetController.GetXSetSpec(xsetObject)
 		// decide whether the TargetOpsLifecycle is during ops or not
 		updateInfo.IsDuringOps = target.IsDuringUpdateOps
-		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowOps = opslifecycle.AllowOps(r.updateConfig.opsLifecycleMgr, r.updateLifecycleAdapter, RealValue(spec.UpdateStrategy.OperationDelaySeconds), target)
+		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowOps = opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, RealValue(spec.UpdateStrategy.OperationDelaySeconds), target)
 
 		targetUpdateInfoList[i] = updateInfo
 	}
@@ -276,15 +276,16 @@ func (o *orderByDefault) Less(i, j int) bool {
 }
 
 type UpdateConfig struct {
-	xsetController       api.XSetController
-	client               client.Client
-	targetControl        xcontrol.TargetControl
-	resourContextControl resourcecontexts.ResourceContextControl
-	recorder             record.EventRecorder
+	xsetController         api.XSetController
+	client                 client.Client
+	targetControl          xcontrol.TargetControl
+	resourceContextControl resourcecontexts.ResourceContextControl
+	recorder               record.EventRecorder
 
-	opsLifecycleMgr         api.LifeCycleLabelManager
+	opsLifecycleLabelMgr    api.LifeCycleLabelManager
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
+	xSetControllerLabelMgr  api.XSetControllerLabelManager
 
 	cacheExpectations expectations.CacheExpectationsInterface
 	targetGVK         schema.GroupVersionKind
@@ -316,9 +317,9 @@ func (u *GenericTargetUpdater) BeginUpdateTarget(_ context.Context, syncContext 
 		targetInfo := <-targetCh
 		u.recorder.Eventf(targetInfo.Object, corev1.EventTypeNormal, "TargetUpdateLifecycle", "try to begin TargetOpsLifecycle for updating Target of XSet")
 
-		if updated, err := opslifecycle.BeginWithCleaningOld(u.opsLifecycleMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object, func(obj client.Object) (bool, error) {
+		if updated, err := opslifecycle.BeginWithCleaningOld(u.opsLifecycleLabelMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object, func(obj client.Object) (bool, error) {
 			if !targetInfo.OnlyMetadataChanged && !targetInfo.InPlaceUpdateSupport {
-				return opslifecycle.WhenBeginDelete(u.opsLifecycleMgr, obj)
+				return opslifecycle.WhenBeginDelete(u.opsLifecycleLabelMgr, obj)
 			}
 			return false, nil
 		}); err != nil {
@@ -373,9 +374,9 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 			continue
 		}
 
-		if !ownedIDs[targetInfo.ID].Contains(u.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey), targetInfo.UpdateRevision.GetName()) {
+		if !ownedIDs[targetInfo.ID].Contains(u.resourceContextControl.GetContextKey(api.EnumRevisionContextDataKey), targetInfo.UpdateRevision.GetName()) {
 			needUpdateContext = true
-			ownedIDs[targetInfo.ID].Put(u.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey), targetInfo.UpdateRevision.GetName())
+			ownedIDs[targetInfo.ID].Put(u.resourceContextControl.GetContextKey(api.EnumRevisionContextDataKey), targetInfo.UpdateRevision.GetName())
 		}
 
 		spec := u.xsetController.GetXSetSpec(u.OwnerObject)
@@ -383,7 +384,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 		// mark targetContext "TargetRecreateUpgrade" if upgrade by recreate
 		isRecreateUpdatePolicy := spec.UpdateStrategy.UpdatePolicy == api.XSetRecreateTargetUpdateStrategyType
 		if (!targetInfo.OnlyMetadataChanged && !targetInfo.InPlaceUpdateSupport) || isRecreateUpdatePolicy {
-			ownedIDs[targetInfo.ID].Put(u.resourContextControl.GetContextKey(api.EnumRecreateUpdateContextDataKey), "true")
+			ownedIDs[targetInfo.ID].Put(u.resourceContextControl.GetContextKey(api.EnumRecreateUpdateContextDataKey), "true")
 		}
 
 		if targetInfo.PlaceHolder {
@@ -397,7 +398,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 	if needUpdateContext {
 		u.recorder.Eventf(u.OwnerObject, corev1.EventTypeNormal, "UpdateToTargetContext", "try to update ResourceContext for XSet")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return u.resourContextControl.UpdateToTargetContext(ctx, u.OwnerObject, ownedIDs)
+			return u.resourceContextControl.UpdateToTargetContext(ctx, u.OwnerObject, ownedIDs)
 		})
 		return recordedRequeueAfter, err
 	}
@@ -405,7 +406,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 }
 
 func (u *GenericTargetUpdater) FinishUpdateTarget(_ context.Context, targetInfo *targetUpdateInfo) error {
-	if updated, err := opslifecycle.Finish(u.opsLifecycleMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object); err != nil {
+	if updated, err := opslifecycle.Finish(u.opsLifecycleLabelMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object); err != nil {
 		return fmt.Errorf("failed to finish TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 	} else if updated {
 		// add an expectation for this target update, before next reconciling
@@ -671,7 +672,7 @@ func (u *GenericTargetUpdater) isTargetUpdatedServiceAvailable(targetInfo *targe
 		return false, "replace origin target", nil
 	}
 
-	if serviceAvailable := opslifecycle.IsServiceAvailable(u.opsLifecycleMgr, targetInfo.Object); serviceAvailable {
+	if serviceAvailable := opslifecycle.IsServiceAvailable(u.opsLifecycleLabelMgr, targetInfo.Object); serviceAvailable {
 		return true, "", nil
 	}
 

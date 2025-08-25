@@ -196,3 +196,19 @@ type XSetStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
+
+type XSetControllerLabelEnum int
+
+const (
+	EnumXSetControlledLabel XSetControllerLabelEnum = iota
+
+	EnumXSetReplaceIndicationLabelKey
+
+	EnumXSetReplacePairNewId
+
+	EnumXSetReplacePairOriginName
+)
+
+type XSetControllerLabelManager interface {
+	Get(labelType XSetControllerLabelEnum) string
+}
