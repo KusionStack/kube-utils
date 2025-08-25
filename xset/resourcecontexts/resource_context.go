@@ -52,7 +52,7 @@ type RealResourceContextControl struct {
 	client.Client
 	xsetController         api.XSetController
 	resourceContextAdapter api.ResourceContextAdapter
-	resourceContextKeyMgr  api.ResourceContextKeyManager
+	resourceContextKeys    map[api.ResourceContextKeyEnum]string
 	resourceContextGVK     schema.GroupVersionKind
 	cacheExpectations      expectations.CacheExpectationsInterface
 }
@@ -64,16 +64,16 @@ func NewRealResourceContextControl(
 	resourceContextGVK schema.GroupVersionKind,
 	cacheExpectations expectations.CacheExpectationsInterface,
 ) ResourceContextControl {
-	resourceContextKeyManager := resourceContextAdapter.GetContextKeyManager()
-	if resourceContextKeyManager == nil {
-		resourceContextKeyManager = NewResourceContextKeyManager()
+	resourceContextKeys := resourceContextAdapter.GetContextKeyManager()
+	if resourceContextKeys == nil {
+		resourceContextKeys = DefaultResourceContextKeys
 	}
 
 	return &RealResourceContextControl{
 		Client:                 c,
 		xsetController:         xsetController,
 		resourceContextAdapter: resourceContextAdapter,
-		resourceContextKeyMgr:  resourceContextKeyManager,
+		resourceContextKeys:    resourceContextKeys,
 		resourceContextGVK:     resourceContextGVK,
 		cacheExpectations:      cacheExpectations,
 	}
@@ -106,7 +106,7 @@ func (r *RealResourceContextControl) AllocateID(
 	resourceContextSpec := r.resourceContextAdapter.GetResourceContextSpec(targetContext)
 	for i := range resourceContextSpec.Contexts {
 		detail := &resourceContextSpec.Contexts[i]
-		if detail.Contains(r.resourceContextKeyMgr.Get(api.EnumOwnerContextKey), xsetObject.GetName()) {
+		if detail.Contains(r.GetContextKey(api.EnumOwnerContextKey), xsetObject.GetName()) {
 			ownedIDs[detail.ID] = detail
 			existingIDs[detail.ID] = detail
 		} else if xsetSpec.ScaleStrategy.Context != "" {
@@ -137,9 +137,9 @@ func (r *RealResourceContextControl) AllocateID(
 			ID: candidateID,
 			// TODO choose just create targets' revision according to scaleStrategy
 			Data: map[string]string{
-				r.resourceContextKeyMgr.Get(api.EnumOwnerContextKey):          xsetObject.GetName(),
-				r.resourceContextKeyMgr.Get(api.EnumRevisionContextDataKey):   defaultRevision,
-				r.resourceContextKeyMgr.Get(api.EnumJustCreateContextDataKey): "true",
+				r.GetContextKey(api.EnumOwnerContextKey):          xsetObject.GetName(),
+				r.GetContextKey(api.EnumRevisionContextDataKey):   defaultRevision,
+				r.GetContextKey(api.EnumJustCreateContextDataKey): "true",
 			},
 		}
 		existingIDs[candidateID] = detail
@@ -200,7 +200,7 @@ func (r *RealResourceContextControl) ExtractAvailableContexts(diff int, ownedIDs
 }
 
 func (r *RealResourceContextControl) GetContextKey(enum api.ResourceContextKeyEnum) string {
-	return r.resourceContextKeyMgr.Get(enum)
+	return r.resourceContextKeys[enum]
 }
 
 func (r *RealResourceContextControl) doCreateTargetContext(
@@ -236,7 +236,7 @@ func (r *RealResourceContextControl) doUpdateTargetContext(
 	// add other collaset targetContexts only if context pool enabled
 	xsetSpec := r.xsetController.GetXSetSpec(xsetObject)
 	resourceContextSpec := r.resourceContextAdapter.GetResourceContextSpec(targetContext)
-	ownerContextKey := r.resourceContextKeyMgr.Get(api.EnumOwnerContextKey)
+	ownerContextKey := r.GetContextKey(api.EnumOwnerContextKey)
 	if xsetSpec.ScaleStrategy.Context != "" {
 		for i := range resourceContextSpec.Contexts {
 			detail := resourceContextSpec.Contexts[i]

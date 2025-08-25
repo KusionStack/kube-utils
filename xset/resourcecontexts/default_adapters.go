@@ -25,6 +25,15 @@ import (
 
 var _ api.ResourceContextAdapter = &DefaultResourceContextAdapter{}
 
+var DefaultResourceContextKeys = map[api.ResourceContextKeyEnum]string{
+	api.EnumOwnerContextKey:              OwnerContextKey,
+	api.EnumRevisionContextDataKey:       RevisionContextDataKey,
+	api.EnumTargetDecorationRevisionKey:  TargetDecorationRevisionKey,
+	api.EnumJustCreateContextDataKey:     JustCreateContextDataKey,
+	api.EnumRecreateUpdateContextDataKey: RecreateUpdateContextDataKey,
+	api.EnumScaleInContextDataKey:        ScaleInContextDataKey,
+}
+
 // DefaultResourceContextAdapter is the adapter to api apps.kusionstack.io.resourcecontexts
 type DefaultResourceContextAdapter struct{}
 
@@ -60,33 +69,10 @@ func (*DefaultResourceContextAdapter) SetResourceContextSpec(spec *api.ResourceC
 	rc.Spec.Contexts = contexts
 }
 
-func (*DefaultResourceContextAdapter) GetContextKeyManager() api.ResourceContextKeyManager {
-	return NewResourceContextKeyManager()
+func (*DefaultResourceContextAdapter) GetContextKeyManager() map[api.ResourceContextKeyEnum]string {
+	return DefaultResourceContextKeys
 }
 
 func (*DefaultResourceContextAdapter) NewResourceContext() api.ResourceContextObject {
 	return &appsv1alpha1.ResourceContext{}
-}
-
-var defaultResourceContextKey = map[api.ResourceContextKeyEnum]string{
-	api.EnumOwnerContextKey:              OwnerContextKey,
-	api.EnumRevisionContextDataKey:       RevisionContextDataKey,
-	api.EnumTargetDecorationRevisionKey:  TargetDecorationRevisionKey,
-	api.EnumJustCreateContextDataKey:     JustCreateContextDataKey,
-	api.EnumRecreateUpdateContextDataKey: RecreateUpdateContextDataKey,
-	api.EnumScaleInContextDataKey:        ScaleInContextDataKey,
-}
-
-func NewResourceContextKeyManager() api.ResourceContextKeyManager {
-	return &resourceContextKeyManager{
-		m: defaultResourceContextKey,
-	}
-}
-
-type resourceContextKeyManager struct {
-	m map[api.ResourceContextKeyEnum]string
-}
-
-func (r *resourceContextKeyManager) Get(key api.ResourceContextKeyEnum) string {
-	return r.m[key]
 }

@@ -23,17 +23,6 @@ import (
 
 // +k8s:deepcopy-gen=file
 
-// ResourceContextSpec defines the desired state of ResourceContext
-type ResourceContextSpec struct {
-	Contexts []ContextDetail `json:"contexts,omitempty"`
-}
-
-// ContextDetail defines the details of target
-type ContextDetail struct {
-	ID   int               `json:"id"`
-	Data map[string]string `json:"data,omitempty"`
-}
-
 type ResourceContextObject client.Object
 
 // ResourceContextAdapter is used to adapt the resource context
@@ -41,13 +30,8 @@ type ResourceContextAdapter interface {
 	ResourceContextMeta() metav1.TypeMeta
 	GetResourceContextSpec(object ResourceContextObject) *ResourceContextSpec
 	SetResourceContextSpec(spec *ResourceContextSpec, object ResourceContextObject)
-	GetContextKeyManager() ResourceContextKeyManager
+	GetContextKeyManager() map[ResourceContextKeyEnum]string
 	NewResourceContext() ResourceContextObject
-}
-
-// ResourceContextKeyManager is used to manage the key of resource context
-type ResourceContextKeyManager interface {
-	Get(keyType ResourceContextKeyEnum) string
 }
 
 // ResourceContextKeyEnum defines the key of resource context
@@ -61,6 +45,17 @@ const (
 	EnumRecreateUpdateContextDataKey
 	EnumScaleInContextDataKey
 )
+
+// ResourceContextSpec defines the desired state of ResourceContext
+type ResourceContextSpec struct {
+	Contexts []ContextDetail `json:"contexts,omitempty"`
+}
+
+// ContextDetail defines the details of target
+type ContextDetail struct {
+	ID   int               `json:"id"`
+	Data map[string]string `json:"data,omitempty"`
+}
 
 // Contains is used to check whether the key-value pair in contained in Data.
 func (cd *ContextDetail) Contains(key, value string) bool {
