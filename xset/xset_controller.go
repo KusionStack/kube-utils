@@ -210,8 +210,8 @@ func (r *xSetCommonReconciler) doSync(ctx context.Context, instance api.XSetObje
 }
 
 func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context, instance api.XSetObject) error {
-	xspec := r.XSetController.GetXSetSpec(instance)
-	targets, err := r.targetControl.GetFilteredTargets(ctx, xspec.Selector, instance)
+	xSetSpec := r.XSetController.GetXSetSpec(instance)
+	targets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
 	if err != nil {
 		return fmt.Errorf("fail to get filtered Targets: %s", err.Error())
 	}
