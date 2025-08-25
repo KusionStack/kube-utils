@@ -32,15 +32,6 @@ import (
 	"kusionstack.io/kube-utils/xset/api"
 )
 
-const (
-	OwnerContextKey              = "Owner"
-	RevisionContextDataKey       = "Revision"
-	TargetDecorationRevisionKey  = "TargetDecorationRevisions"
-	JustCreateContextDataKey     = "TargetJustCreate"
-	RecreateUpdateContextDataKey = "TargetRecreateUpdate"
-	ScaleInContextDataKey        = "ScaleIn"
-)
-
 type ResourceContextControl interface {
 	AllocateID(ctx context.Context, xsetObject api.XSetObject, defaultRevision string, replicas int) (map[int]*api.ContextDetail, error)
 	UpdateToTargetContext(ctx context.Context, xsetObject api.XSetObject, ownedIDs map[int]*api.ContextDetail) error

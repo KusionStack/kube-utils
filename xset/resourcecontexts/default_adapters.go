@@ -26,12 +26,12 @@ import (
 var _ api.ResourceContextAdapter = &DefaultResourceContextAdapter{}
 
 var DefaultResourceContextKeys = map[api.ResourceContextKeyEnum]string{
-	api.EnumOwnerContextKey:              OwnerContextKey,
-	api.EnumRevisionContextDataKey:       RevisionContextDataKey,
-	api.EnumTargetDecorationRevisionKey:  TargetDecorationRevisionKey,
-	api.EnumJustCreateContextDataKey:     JustCreateContextDataKey,
-	api.EnumRecreateUpdateContextDataKey: RecreateUpdateContextDataKey,
-	api.EnumScaleInContextDataKey:        ScaleInContextDataKey,
+	api.EnumOwnerContextKey:              "Owner",
+	api.EnumRevisionContextDataKey:       "Revision",
+	api.EnumTargetDecorationRevisionKey:  "TargetDecorationRevisions",
+	api.EnumJustCreateContextDataKey:     "TargetJustCreate",
+	api.EnumRecreateUpdateContextDataKey: "TargetRecreateUpdate",
+	api.EnumScaleInContextDataKey:        "ScaleIn",
 }
 
 // DefaultResourceContextAdapter is the adapter to api apps.kusionstack.io.resourcecontexts
