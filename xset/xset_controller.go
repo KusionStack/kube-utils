@@ -61,6 +61,14 @@ type xSetCommonReconciler struct {
 }
 
 func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController, resourceContextController api.ResourceContextController) error {
+	if xsetController == nil {
+		return errors.New("xsetController is nil")
+	}
+	if resourceContextController == nil {
+		// use default resource context controller from apps.kusionstack.io.resourcecontexts
+		resourceContextController = &resourcecontexts.DefaultResourceContextController{}
+	}
+
 	reconcilerMixin := mixin.NewReconcilerMixin(xsetController.ControllerName(), mgr)
 	xsetMeta := xsetController.XSetMeta()
 	xsetGVK := xsetMeta.GroupVersionKind()
