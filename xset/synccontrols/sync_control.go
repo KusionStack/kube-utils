@@ -186,7 +186,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 
 		if target.GetDeletionTimestamp() != nil {
 			// 1. Reclaim ID from Target which is scaling in and terminating.
-			if contextDetail, exist := ownedIDs[id]; exist && contextDetail.Contains(r.resourContextControl.GetContextKey(api.EnumScaleInContextDataKey), "true") {
+			if contextDetail, exist := ownedIDs[id]; exist && r.resourContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") {
 				idToReclaim.Insert(id)
 			}
 
@@ -435,7 +435,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				}()
 				// use revision recorded in Context
 				revision := syncContext.UpdatedRevision
-				if revisionName, exist := availableIDContext.Data[r.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey)]; exist && revisionName != "" {
+				if revisionName, exist := r.resourContextControl.Get(availableIDContext, api.EnumRevisionContextDataKey); exist && revisionName != "" {
 					for i := range syncContext.Revisions {
 						if syncContext.Revisions[i].GetName() == revisionName {
 							revision = syncContext.Revisions[i]
@@ -536,9 +536,9 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			}
 
 			// if Target is allowed to operate or Target has already been deleted, promte to delete Target
-			if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && !contextDetail.Contains(r.resourContextControl.GetContextKey(api.EnumScaleInContextDataKey), "true") {
+			if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && !r.resourContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") {
 				needUpdateContext = true
-				contextDetail.Put(r.resourContextControl.GetContextKey(api.EnumScaleInContextDataKey), "true")
+				r.resourContextControl.Put(contextDetail, api.EnumScaleInContextDataKey, "true")
 			}
 
 			if targetWrapper.GetDeletionTimestamp() != nil {
@@ -590,10 +590,10 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	// reset ContextDetail.ScalingIn, if there are Targets had its TargetOpsLifecycle reverted
 	needUpdateTargetContext := false
 	for _, targetWrapper := range syncContext.activeTargets {
-		if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && contextDetail.Contains(r.resourContextControl.GetContextKey(api.EnumScaleInContextDataKey), "true") &&
+		if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && r.resourContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") &&
 			!opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleMgr, r.scaleInLifecycleAdapter, targetWrapper) {
 			needUpdateTargetContext = true
-			contextDetail.Remove(r.resourContextControl.GetContextKey(api.EnumScaleInContextDataKey))
+			r.resourContextControl.Remove(contextDetail, api.EnumScaleInContextDataKey)
 		}
 	}
 
@@ -848,7 +848,7 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 		if _, exist := currentIDs[id]; exist {
 			continue
 		}
-		if contextDetail.Contains(r.resourContextControl.GetContextKey(api.EnumScaleInContextDataKey), "true") {
+		if r.resourContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") {
 			idToReclaim.Insert(id)
 		}
 	}
@@ -916,21 +916,21 @@ func BatchDeleteTargetByLabel(ctx context.Context, targetControl xcontrol.Target
 func (r *RealSyncControl) decideContextRevision(contextDetail *api.ContextDetail, updatedRevision *appsv1.ControllerRevision, createSucceeded bool) bool {
 	needUpdateContext := false
 	if !createSucceeded {
-		if contextDetail.Contains(r.resourContextControl.GetContextKey(api.EnumJustCreateContextDataKey), "true") {
+		if r.resourContextControl.Contains(contextDetail, api.EnumJustCreateContextDataKey, "true") {
 			// TODO choose just create targets' revision according to scaleStrategy
-			contextDetail.Put(r.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey), updatedRevision.GetName())
-			delete(contextDetail.Data, r.resourContextControl.GetContextKey(api.EnumTargetDecorationRevisionKey))
+			r.resourContextControl.Put(contextDetail, api.EnumRevisionContextDataKey, updatedRevision.GetName())
+			r.resourContextControl.Remove(contextDetail, api.EnumTargetDecorationRevisionKey)
 			needUpdateContext = true
-		} else if contextDetail.Contains(r.resourContextControl.GetContextKey(api.EnumRecreateUpdateContextDataKey), "true") {
-			contextDetail.Put(r.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey), updatedRevision.GetName())
-			delete(contextDetail.Data, r.resourContextControl.GetContextKey(api.EnumTargetDecorationRevisionKey))
+		} else if r.resourContextControl.Contains(contextDetail, api.EnumRecreateUpdateContextDataKey, "true") {
+			r.resourContextControl.Put(contextDetail, api.EnumRevisionContextDataKey, updatedRevision.GetName())
+			r.resourContextControl.Remove(contextDetail, api.EnumTargetDecorationRevisionKey)
 			needUpdateContext = true
 		}
 		// if target is delete and recreate, never change revisionKey
 	} else {
 		// TODO delete ID if create succeeded
-		contextDetail.Remove(r.resourContextControl.GetContextKey(api.EnumJustCreateContextDataKey))
-		contextDetail.Remove(r.resourContextControl.GetContextKey(api.EnumRecreateUpdateContextDataKey))
+		r.resourContextControl.Remove(contextDetail, api.EnumJustCreateContextDataKey)
+		r.resourContextControl.Remove(contextDetail, api.EnumRecreateUpdateContextDataKey)
 		needUpdateContext = true
 	}
 	return needUpdateContext

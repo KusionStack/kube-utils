@@ -133,7 +133,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 			InPlaceUpdateSupport: true,
 			UpdateRevision:       syncContext.UpdatedRevision,
 		}
-		if revision, exist := target.ContextDetail.Data[r.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey)]; exist &&
+		if revision, exist := target.ContextDetail.Data[r.resourContextControl.Get(api.EnumRevisionContextDataKey)]; exist &&
 			revision == syncContext.UpdatedRevision.GetName() {
 			updateInfo.IsUpdatedRevision = true
 		}
@@ -373,9 +373,9 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 			continue
 		}
 
-		if !ownedIDs[targetInfo.ID].Contains(u.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey), targetInfo.UpdateRevision.GetName()) {
+		if !ownedIDs[targetInfo.ID].Contains(u.resourContextControl.Get(api.EnumRevisionContextDataKey), targetInfo.UpdateRevision.GetName()) {
 			needUpdateContext = true
-			ownedIDs[targetInfo.ID].Put(u.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey), targetInfo.UpdateRevision.GetName())
+			ownedIDs[targetInfo.ID].Put(u.resourContextControl.Get(api.EnumRevisionContextDataKey), targetInfo.UpdateRevision.GetName())
 		}
 
 		spec := u.xsetController.GetXSetSpec(u.OwnerObject)
@@ -383,7 +383,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 		// mark targetContext "TargetRecreateUpgrade" if upgrade by recreate
 		isRecreateUpdatePolicy := spec.UpdateStrategy.UpdatePolicy == api.XSetRecreateTargetUpdateStrategyType
 		if (!targetInfo.OnlyMetadataChanged && !targetInfo.InPlaceUpdateSupport) || isRecreateUpdatePolicy {
-			ownedIDs[targetInfo.ID].Put(u.resourContextControl.GetContextKey(api.EnumRecreateUpdateContextDataKey), "true")
+			ownedIDs[targetInfo.ID].Put(u.resourContextControl.Get(api.EnumRecreateUpdateContextDataKey), "true")
 		}
 
 		if targetInfo.PlaceHolder {

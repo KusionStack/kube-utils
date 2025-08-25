@@ -139,10 +139,10 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTarget.GetLabels()[TargetInstanceIDLabelKey] = instanceId
 			ownedIDs[originTargetId].Put(ReplaceNewTargetIDContextDataKey, instanceId)
 			ownedIDs[newTargetContext.ID].Put(ReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
-			ownedIDs[newTargetContext.ID].Remove(r.resourContextControl.GetContextKey(api.EnumJustCreateContextDataKey))
+			ownedIDs[newTargetContext.ID].Remove(r.resourContextControl.Get(api.EnumJustCreateContextDataKey))
 		}
 		newTarget.GetLabels()[TargetReplacePairOriginName] = originTarget.GetName()
-		newTargetContext.Put(r.resourContextControl.GetContextKey(api.EnumRevisionContextDataKey), replaceRevision.GetName())
+		newTargetContext.Put(r.resourContextControl.Get(api.EnumRevisionContextDataKey), replaceRevision.GetName())
 
 		if newCreatedTarget, err := r.xControl.CreateTarget(ctx, newTarget); err == nil {
 			r.Recorder.Eventf(originTarget,
