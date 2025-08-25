@@ -32,12 +32,12 @@ import (
 	"kusionstack.io/kube-utils/xset/api"
 )
 
-func GetInstanceID(xsetLabelMgr api.XSetLabelManager, target client.Object) (int, error) {
+func GetInstanceID(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, target client.Object) (int, error) {
 	if target.GetLabels() == nil {
 		return -1, fmt.Errorf("no labels found for instance ID")
 	}
 
-	instanceIdLabelKey := xsetLabelMgr.Label(api.EnumXSetInstanceIdLabel)
+	instanceIdLabelKey := xsetLabelAnnoMgr.Value(api.XInstanceIdLabelKey)
 	val, exist := target.GetLabels()[instanceIdLabelKey]
 	if !exist {
 		return -1, fmt.Errorf("failed to find instance ID label %s", instanceIdLabelKey)
@@ -52,7 +52,7 @@ func GetInstanceID(xsetLabelMgr api.XSetLabelManager, target client.Object) (int
 	return int(id), nil
 }
 
-func NewTargetFrom(setController api.XSetController, xsetLabelMgr api.XSetLabelManager, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
+func NewTargetFrom(setController api.XSetController, xsetLabelAnnoMgr api.XSetLabelAnnotationManager, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
 	targetObj, err := setController.GetXObjectFromRevision(revision)
 	if err != nil {
 		return nil, err
@@ -165,7 +165,7 @@ func filterOutCondition(conditions []metav1.Condition, condType string) []metav1
 	return newConditions
 }
 
-func controlByXSet(xsetLabelMgr api.XSetLabelManager, obj client.Object) {
+func controlByXSet(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, obj client.Object) {
 	if obj.GetLabels() == nil {
 		obj.SetLabels(map[string]string{})
 	}
@@ -174,12 +174,12 @@ func controlByXSet(xsetLabelMgr api.XSetLabelManager, obj client.Object) {
 	}
 }
 
-func IsControlledByXSet(xsetLabelManager api.XSetLabelManager, obj client.Object) bool {
+func IsControlledByXSet(xsetLabelManager api.XSetLabelAnnotationManager, obj client.Object) bool {
 	if obj.GetLabels() == nil {
 		return false
 	}
 
-	v, ok := xsetLabelManager.Get(obj.GetLabels(), api.EnumXSetControlledLabel)
+	v, ok := xsetLabelManager.Get(obj.GetLabels(), api.ControlledByXSetLabel)
 	return ok && v == "true"
 }
 
@@ -194,13 +194,12 @@ func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController
 	return patchErr
 }
 
-func CompareTarget(l, r client.Object,
-	checkReadyFunc func(object client.Object) bool,
-	getReadyTimeFunc func(object client.Object) *metav1.Time,
-) bool {
+func CompareTarget(l, r client.Object, checkReadyFunc func(object client.Object) (bool, *metav1.Time)) bool {
 	// If both targets are ready, the latest ready one is smaller
-	if checkReadyFunc(l) && checkReadyFunc(r) && !getReadyTimeFunc(l).Equal(getReadyTimeFunc(r)) {
-		return afterOrZero(getReadyTimeFunc(l), getReadyTimeFunc(r))
+	lReady, lReadyTime := checkReadyFunc(l)
+	rReady, rReadyTime := checkReadyFunc(r)
+	if lReady && rReady && !lReadyTime.Equal(rReadyTime) {
+		return afterOrZero(lReadyTime, rReadyTime)
 	}
 	// Empty creation time targets < newer targets < older targets
 	lCreationTime, rCreationTime := l.GetCreationTimestamp(), r.GetCreationTimestamp()

@@ -20,40 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type OperationLabelEnum int
-
-const (
-	// OperatingLabelPrefix indicates a target is under operation
-	// set by xset controller
-	OperatingLabelPrefix OperationLabelEnum = iota
-
-	// OperationTypeLabelPrefix indicates the type of operation
-	// set by xset controller
-	OperationTypeLabelPrefix
-
-	// OperateLabelPrefix indicates a target could start operation
-	// set by related opsLifecycle controller.
-	// xset controller will start operation only after this label is set
-	OperateLabelPrefix
-
-	// UndoOperationTypeLabelPrefix indicates a type of operation has been canceled.
-	// need to be handled by related opsLifecycle controller
-	UndoOperationTypeLabelPrefix
-
-	// ServiceAvailableLabel indicates a target is available for service.
-	// set by related opsLifecycle controller.
-	ServiceAvailableLabel
-
-	// PreparingDeleteLabel indicates a target is preparing to be deleted.
-	// set by xset controller,
-	// handle by related opsLifecycle controller if needed.
-	PreparingDeleteLabel
-)
-
-type LifeCycleLabelManager interface {
-	Get(labelType OperationLabelEnum) string
-}
-
 type OperationType string
 
 var (

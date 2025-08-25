@@ -47,7 +47,7 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 	}
 
 	// 1. select targets to delete in first round according to diff
-	sort.Sort(newActiveTargetsForDeletion(countedTargets, r.xsetController.CheckReady, r.xsetController.GetReadyTime))
+	sort.Sort(newActiveTargetsForDeletion(countedTargets, r.xsetController.CheckReadyTime))
 	if diff > len(countedTargets) {
 		diff = len(countedTargets)
 	}
@@ -57,7 +57,7 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 	for i, target := range countedTargets {
 		// find pods to be scaleIn out of diff, is allowed to ops
 		spec := r.xsetController.GetXSetSpec(xsetObject)
-		_, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
+		_, allowed := opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
 		if i >= diff && !allowed {
 			continue
 		}
@@ -84,20 +84,17 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 }
 
 type ActiveTargetsForDeletion struct {
-	targets          []*targetWrapper
-	checkReadyFunc   func(object client.Object) bool
-	getReadyTimeFunc func(object client.Object) *metav1.Time
+	targets        []*targetWrapper
+	checkReadyFunc func(object client.Object) (bool, *metav1.Time)
 }
 
 func newActiveTargetsForDeletion(
 	targets []*targetWrapper,
-	checkReadyFunc func(object client.Object) bool,
-	getReadyTimeFunc func(object client.Object) *metav1.Time,
+	checkReadyFunc func(object client.Object) (bool, *metav1.Time),
 ) *ActiveTargetsForDeletion {
 	return &ActiveTargetsForDeletion{
-		targets:          targets,
-		checkReadyFunc:   checkReadyFunc,
-		getReadyTimeFunc: getReadyTimeFunc,
+		targets:        targets,
+		checkReadyFunc: checkReadyFunc,
 	}
 }
 
@@ -123,7 +120,8 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 		return l.IsDuringScaleInOps
 	}
 
-	lReady, rReady := s.checkReadyFunc(l.Object), s.checkReadyFunc(r.Object)
+	lReady, _ := s.checkReadyFunc(l.Object)
+	rReady, _ := s.checkReadyFunc(r.Object)
 	if lReady != rReady {
 		return lReady
 	}
@@ -138,7 +136,7 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 	}
 
 	// TODO consider service available timestamps
-	return CompareTarget(l.Object, r.Object, s.checkReadyFunc, s.getReadyTimeFunc)
+	return CompareTarget(l.Object, r.Object, s.checkReadyFunc)
 }
 
 // doIncludeExcludeTargets do real include and exclude for targets which are allowed to in/exclude

@@ -25,12 +25,12 @@ import (
 )
 
 // AllowResourceExclude checks if pod or pvc is allowed to exclude
-func AllowResourceExclude(obj metav1.Object, ownerName, ownerKind string, manager api.XSetLabelManager) (bool, string) {
+func AllowResourceExclude(obj metav1.Object, ownerName, ownerKind string, manager api.XSetLabelAnnotationManager) (bool, string) {
 	labels := obj.GetLabels()
 	// not controlled by ks manager
 	if labels == nil {
 		return false, "object's label is empty"
-	} else if val, exist := manager.Get(labels, api.EnumXSetControlledLabel); !exist || val != "true" {
+	} else if val, exist := manager.Get(labels, api.ControlledByXSetLabel); !exist || val != "true" {
 		return false, "object is not controlled by kusionstack system"
 	}
 
@@ -42,14 +42,14 @@ func AllowResourceExclude(obj metav1.Object, ownerName, ownerKind string, manage
 }
 
 // AllowResourceInclude checks if pod or pvc is allowed to include
-func AllowResourceInclude(obj metav1.Object, ownerName, ownerKind string, manager api.XSetLabelManager) (bool, string) {
+func AllowResourceInclude(obj metav1.Object, ownerName, ownerKind string, manager api.XSetLabelAnnotationManager) (bool, string) {
 	labels := obj.GetLabels()
 	ownerRefs := obj.GetOwnerReferences()
 
 	// not controlled by ks manager
 	if labels == nil {
 		return false, "object's label is empty"
-	} else if val, exist := manager.Get(labels, api.EnumXSetControlledLabel); !exist || val != "true" {
+	} else if val, exist := manager.Get(labels, api.ControlledByXSetLabel); !exist || val != "true" {
 		return false, "object is not controlled by kusionstack system"
 	}
 

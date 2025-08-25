@@ -23,6 +23,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
+
+	"kusionstack.io/kube-utils/xset/api"
 )
 
 func TestAllowResourceExclude(t *testing.T) {
@@ -128,7 +130,7 @@ func TestAllowResourceExclude(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := AllowResourceExclude(tt.obj, ownerName, ownerKind, NewXSetControllerLabelManager())
+			got, got1 := AllowResourceExclude(tt.obj, ownerName, ownerKind, api.NewXSetLabelAnnotationManager())
 			if got != tt.allow {
 				t.Errorf("AllowResourceExclude() got = %v, want %v", got, tt.allow)
 			}
@@ -288,7 +290,7 @@ func TestAllowResourceInclude(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := AllowResourceInclude(tt.obj, ownerName, ownerKind, NewXSetControllerLabelManager())
+			got, got1 := AllowResourceInclude(tt.obj, ownerName, ownerKind, api.NewXSetLabelAnnotationManager())
 			if got != tt.allow {
 				t.Errorf("AllowResourceExclude() got = %v, want %v", got, tt.allow)
 			}
