@@ -62,19 +62,19 @@ type xSetCommonReconciler struct {
 	resourceContextControl resourcecontexts.ResourceContextControl
 }
 
-func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController, resourceContextController api.ResourceContextController) error {
+func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController, resourceContextAdapter api.ResourceContextAdapter) error {
 	if xsetController == nil {
 		return errors.New("xsetController is nil")
 	}
-	if resourceContextController == nil {
+	if resourceContextAdapter == nil {
 		// use default resource context controller from apps.kusionstack.io.resourcecontexts
-		resourceContextController = &resourcecontexts.DefaultResourceContextController{}
+		resourceContextAdapter = &resourcecontexts.DefaultResourceContextAdapter{}
 	}
 
 	reconcilerMixin := mixin.NewReconcilerMixin(xsetController.ControllerName(), mgr)
 	xsetMeta := xsetController.XSetMeta()
 	xsetGVK := xsetMeta.GroupVersionKind()
-	resourceContextMeta := resourceContextController.ResourceContextMeta()
+	resourceContextMeta := resourceContextAdapter.ResourceContextMeta()
 	resourceContextGVK := resourceContextMeta.GroupVersionKind()
 	targetMeta := xsetController.XMeta()
 
@@ -83,7 +83,7 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController, resou
 		return err
 	}
 	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
-	resourceContextControl := resourcecontexts.NewRealResourceContextControl(reconcilerMixin.Client, xsetController, resourceContextController, resourceContextGVK, cacheExpectations)
+	resourceContextControl := resourcecontexts.NewRealResourceContextControl(reconcilerMixin.Client, xsetController, resourceContextAdapter, resourceContextGVK, cacheExpectations)
 	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, resourceContextControl, cacheExpectations)
 	revisionControl := history.NewRevisionControl(reconcilerMixin.Client, reconcilerMixin.Client)
 	revisionOwner := revisionowner.NewRevisionOwner(xsetController, targetControl)

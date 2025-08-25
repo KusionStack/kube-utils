@@ -50,32 +50,32 @@ type ResourceContextControl interface {
 
 type RealResourceContextControl struct {
 	client.Client
-	xsetController            api.XSetController
-	resourceContextController api.ResourceContextController
-	resourceContextKeyManager api.ResourceContextKeyManager
-	resourceContextGVK        schema.GroupVersionKind
-	cacheExpectations         expectations.CacheExpectationsInterface
+	xsetController         api.XSetController
+	resourceContextAdapter api.ResourceContextAdapter
+	resourceContextKeyMgr  api.ResourceContextKeyManager
+	resourceContextGVK     schema.GroupVersionKind
+	cacheExpectations      expectations.CacheExpectationsInterface
 }
 
 func NewRealResourceContextControl(
 	c client.Client,
 	xsetController api.XSetController,
-	resourceContextController api.ResourceContextController,
+	resourceContextAdapter api.ResourceContextAdapter,
 	resourceContextGVK schema.GroupVersionKind,
 	cacheExpectations expectations.CacheExpectationsInterface,
 ) ResourceContextControl {
-	resourceContextKeyManager := resourceContextController.GetContextKeyManager()
+	resourceContextKeyManager := resourceContextAdapter.GetContextKeyManager()
 	if resourceContextKeyManager == nil {
 		resourceContextKeyManager = NewResourceContextKeyManager()
 	}
 
 	return &RealResourceContextControl{
-		Client:                    c,
-		xsetController:            xsetController,
-		resourceContextController: resourceContextController,
-		resourceContextKeyManager: resourceContextKeyManager,
-		resourceContextGVK:        resourceContextGVK,
-		cacheExpectations:         cacheExpectations,
+		Client:                 c,
+		xsetController:         xsetController,
+		resourceContextAdapter: resourceContextAdapter,
+		resourceContextKeyMgr:  resourceContextKeyManager,
+		resourceContextGVK:     resourceContextGVK,
+		cacheExpectations:      cacheExpectations,
 	}
 }
 
@@ -86,7 +86,7 @@ func (r *RealResourceContextControl) AllocateID(
 	replicas int,
 ) (map[int]*api.ContextDetail, error) {
 	contextName := getContextName(r.xsetController, xsetObject)
-	targetContext := r.resourceContextController.NewResourceContext()
+	targetContext := r.resourceContextAdapter.NewResourceContext()
 	notFound := false
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: xsetObject.GetNamespace(), Name: contextName}, targetContext); err != nil {
 		if !errors.IsNotFound(err) {
@@ -103,10 +103,10 @@ func (r *RealResourceContextControl) AllocateID(
 	existingIDs := map[int]*api.ContextDetail{}
 	// only store the IDs belonging to this owner
 	ownedIDs := map[int]*api.ContextDetail{}
-	resourceContextSpec := r.resourceContextController.GetResourceContextSpec(targetContext)
+	resourceContextSpec := r.resourceContextAdapter.GetResourceContextSpec(targetContext)
 	for i := range resourceContextSpec.Contexts {
 		detail := &resourceContextSpec.Contexts[i]
-		if detail.Contains(r.resourceContextKeyManager.Get(api.EnumOwnerContextKey), xsetObject.GetName()) {
+		if detail.Contains(r.resourceContextKeyMgr.Get(api.EnumOwnerContextKey), xsetObject.GetName()) {
 			ownedIDs[detail.ID] = detail
 			existingIDs[detail.ID] = detail
 		} else if xsetSpec.ScaleStrategy.Context != "" {
@@ -137,9 +137,9 @@ func (r *RealResourceContextControl) AllocateID(
 			ID: candidateID,
 			// TODO choose just create targets' revision according to scaleStrategy
 			Data: map[string]string{
-				r.resourceContextKeyManager.Get(api.EnumOwnerContextKey):          xsetObject.GetName(),
-				r.resourceContextKeyManager.Get(api.EnumRevisionContextDataKey):   defaultRevision,
-				r.resourceContextKeyManager.Get(api.EnumJustCreateContextDataKey): "true",
+				r.resourceContextKeyMgr.Get(api.EnumOwnerContextKey):          xsetObject.GetName(),
+				r.resourceContextKeyMgr.Get(api.EnumRevisionContextDataKey):   defaultRevision,
+				r.resourceContextKeyMgr.Get(api.EnumJustCreateContextDataKey): "true",
 			},
 		}
 		existingIDs[candidateID] = detail
@@ -159,7 +159,7 @@ func (r *RealResourceContextControl) UpdateToTargetContext(
 	ownedIDs map[int]*api.ContextDetail,
 ) error {
 	contextName := getContextName(r.xsetController, xSetObject)
-	targetContext := r.resourceContextController.NewResourceContext()
+	targetContext := r.resourceContextAdapter.NewResourceContext()
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: xSetObject.GetNamespace(), Name: contextName}, targetContext); err != nil {
 		if !errors.IsNotFound(err) {
 			return fmt.Errorf("fail to find ResourceContext %s/%s: %w", xSetObject.GetNamespace(), contextName, err)
@@ -200,7 +200,7 @@ func (r *RealResourceContextControl) ExtractAvailableContexts(diff int, ownedIDs
 }
 
 func (r *RealResourceContextControl) GetContextKey(enum api.ResourceContextKeyEnum) string {
-	return r.resourceContextKeyManager.Get(enum)
+	return r.resourceContextKeyMgr.Get(enum)
 }
 
 func (r *RealResourceContextControl) doCreateTargetContext(
@@ -209,7 +209,7 @@ func (r *RealResourceContextControl) doCreateTargetContext(
 	ownerIDs map[int]*api.ContextDetail,
 ) error {
 	contextName := getContextName(r.xsetController, xSetObject)
-	targetContext := r.resourceContextController.NewResourceContext()
+	targetContext := r.resourceContextAdapter.NewResourceContext()
 	targetContext.SetNamespace(xSetObject.GetNamespace())
 	targetContext.SetName(contextName)
 
@@ -217,7 +217,7 @@ func (r *RealResourceContextControl) doCreateTargetContext(
 	for i := range ownerIDs {
 		spec.Contexts = append(spec.Contexts, *ownerIDs[i])
 	}
-	r.resourceContextController.SetResourceContextSpec(spec, targetContext)
+	r.resourceContextAdapter.SetResourceContextSpec(spec, targetContext)
 	if err := r.Client.Create(ctx, targetContext); err != nil {
 		return err
 	}
@@ -235,8 +235,8 @@ func (r *RealResourceContextControl) doUpdateTargetContext(
 
 	// add other collaset targetContexts only if context pool enabled
 	xsetSpec := r.xsetController.GetXSetSpec(xsetObject)
-	resourceContextSpec := r.resourceContextController.GetResourceContextSpec(targetContext)
-	ownerContextKey := r.resourceContextKeyManager.Get(api.EnumOwnerContextKey)
+	resourceContextSpec := r.resourceContextAdapter.GetResourceContextSpec(targetContext)
+	ownerContextKey := r.resourceContextKeyMgr.Get(api.EnumOwnerContextKey)
 	if xsetSpec.ScaleStrategy.Context != "" {
 		for i := range resourceContextSpec.Contexts {
 			detail := resourceContextSpec.Contexts[i]
@@ -269,7 +269,7 @@ func (r *RealResourceContextControl) doUpdateTargetContext(
 
 	// keep context detail in order by ID
 	sort.Sort(ContextDetailsByOrder(resourceContextSpec.Contexts))
-	r.resourceContextController.SetResourceContextSpec(resourceContextSpec, targetContext)
+	r.resourceContextAdapter.SetResourceContextSpec(resourceContextSpec, targetContext)
 	err := r.Client.Update(ctx, targetContext)
 	if err != nil {
 		return err
