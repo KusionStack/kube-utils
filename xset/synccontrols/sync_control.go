@@ -74,11 +74,11 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	}
 	scaleInOpsLifecycleAdapter := xsetController.GetScaleInOpsLifecycleAdapter()
 	if scaleInOpsLifecycleAdapter == nil {
-		scaleInOpsLifecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{LabelManager: lifeCycleLabelManager}
+		scaleInOpsLifecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{LabelManager: lifeCycleLabelManager, XSetType: xsetController.XSetMeta()}
 	}
 	updateLifecycleAdapter := xsetController.GetUpdateOpsLifecycleAdapter()
 	if updateLifecycleAdapter == nil {
-		updateLifecycleAdapter = &opslifecycle.DefaultUpdateLifecycleAdapter{LabelManager: lifeCycleLabelManager}
+		updateLifecycleAdapter = &opslifecycle.DefaultUpdateLifecycleAdapter{LabelManager: lifeCycleLabelManager, XSetType: xsetController.XSetMeta()}
 	}
 
 	xMeta := xsetController.XMeta()

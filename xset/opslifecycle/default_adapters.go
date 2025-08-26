@@ -17,6 +17,9 @@
 package opslifecycle
 
 import (
+	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"kusionstack.io/kube-utils/xset/api"
@@ -26,10 +29,11 @@ var _ api.LifecycleAdapter = &DefaultUpdateLifecycleAdapter{}
 
 type DefaultUpdateLifecycleAdapter struct {
 	LabelManager api.LifeCycleLabelManager
+	XSetType     metav1.TypeMeta
 }
 
 func (d *DefaultUpdateLifecycleAdapter) GetID() string {
-	return "xset"
+	return strings.ToLower(d.XSetType.Kind)
 }
 
 func (d *DefaultUpdateLifecycleAdapter) GetType() api.OperationType {
@@ -40,8 +44,7 @@ func (d *DefaultUpdateLifecycleAdapter) AllowMultiType() bool {
 	return true
 }
 
-func (d *DefaultUpdateLifecycleAdapter) WhenBegin(target client.Object) (bool, error) {
-	setOperate(d.LabelManager, d, target)
+func (d *DefaultUpdateLifecycleAdapter) WhenBegin(_ client.Object) (bool, error) {
 	return true, nil
 }
 
@@ -53,10 +56,11 @@ var _ api.LifecycleAdapter = &DefaultScaleInLifecycleAdapter{}
 
 type DefaultScaleInLifecycleAdapter struct {
 	LabelManager api.LifeCycleLabelManager
+	XSetType     metav1.TypeMeta
 }
 
 func (d *DefaultScaleInLifecycleAdapter) GetID() string {
-	return "xset"
+	return strings.ToLower(d.XSetType.Kind)
 }
 
 func (d *DefaultScaleInLifecycleAdapter) GetType() api.OperationType {
@@ -68,10 +72,9 @@ func (d *DefaultScaleInLifecycleAdapter) AllowMultiType() bool {
 }
 
 func (d *DefaultScaleInLifecycleAdapter) WhenBegin(target client.Object) (bool, error) {
-	setOperate(d.LabelManager, d, target)
-	return true, nil
+	return WhenBeginDelete(d.LabelManager, target)
 }
 
-func (d *DefaultScaleInLifecycleAdapter) WhenFinish(target client.Object) (bool, error) {
+func (d *DefaultScaleInLifecycleAdapter) WhenFinish(_ client.Object) (bool, error) {
 	return false, nil
 }
