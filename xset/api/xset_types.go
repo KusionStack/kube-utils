@@ -219,10 +219,15 @@ const (
 	EnumXSetOrphanedLabel
 
 	EnumXSetTargetCreatingLabel
+
+	EnumXSetTargetExcludeIndicationLabel
+
+	EnumXSetLastTargetStatusAnnotationKey
 )
 
 type XSetLabelManager interface {
 	Get(labels map[string]string, labelType XSetControllerLabelEnum) (string, bool)
 	Set(labels map[string]string, labelType XSetControllerLabelEnum, value string)
+	Delete(labels map[string]string, labelType XSetControllerLabelEnum)
 	Label(labelType XSetControllerLabelEnum) string
 }

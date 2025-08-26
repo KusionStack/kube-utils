@@ -29,14 +29,15 @@ import (
 	"kusionstack.io/kube-utils/xset/api"
 )
 
-func GetInstanceID(target client.Object) (int, error) {
+func GetInstanceID(xsetLabelMgr api.XSetLabelManager, target client.Object) (int, error) {
 	if target.GetLabels() == nil {
 		return -1, fmt.Errorf("no labels found for instance ID")
 	}
 
-	val, exist := target.GetLabels()[TargetInstanceIDLabelKey]
+	instanceIdLabelKey := xsetLabelMgr.Label(api.EnumXSetInstanceIdLabel)
+	val, exist := target.GetLabels()[instanceIdLabelKey]
 	if !exist {
-		return -1, fmt.Errorf("failed to find instance ID label %s", TargetInstanceIDLabelKey)
+		return -1, fmt.Errorf("failed to find instance ID label %s", instanceIdLabelKey)
 	}
 
 	id, err := strconv.ParseInt(val, 10, 32)

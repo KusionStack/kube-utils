@@ -23,16 +23,18 @@ import (
 )
 
 var defaultXSetControllerLabelManager = map[api.XSetControllerLabelEnum]string{
-	api.EnumXSetControlledLabel:             appsv1alpha1.ControlledByKusionStackLabelKey,
-	api.EnumXSetInstanceIdLabel:             appsv1alpha1.PodInstanceIDLabelKey,
-	api.EnumXSetUpdateIndicationLabel:       appsv1alpha1.CollaSetUpdateIndicateLabelKey,
-	api.EnumXSetDeletionIndicationLabel:     appsv1alpha1.PodDeletionIndicationLabelKey,
-	api.EnumXSetReplaceIndicationLabel:      appsv1alpha1.PodReplaceIndicationLabelKey,
-	api.EnumXSetReplacePairNewIdLabel:       appsv1alpha1.PodReplacePairNewId,
-	api.EnumXSetReplacePairOriginNameLabel:  appsv1alpha1.PodReplacePairOriginName,
-	api.EnumXSetReplaceByReplaceUpdateLabel: appsv1alpha1.PodReplaceByReplaceUpdateLabelKey,
-	api.EnumXSetOrphanedLabel:               appsv1alpha1.PodOrphanedIndicateLabelKey,
-	api.EnumXSetTargetCreatingLabel:         appsv1alpha1.PodCreatingLabel,
+	api.EnumXSetControlledLabel:               appsv1alpha1.ControlledByKusionStackLabelKey,
+	api.EnumXSetInstanceIdLabel:               appsv1alpha1.PodInstanceIDLabelKey,
+	api.EnumXSetUpdateIndicationLabel:         appsv1alpha1.CollaSetUpdateIndicateLabelKey,
+	api.EnumXSetDeletionIndicationLabel:       appsv1alpha1.PodDeletionIndicationLabelKey,
+	api.EnumXSetReplaceIndicationLabel:        appsv1alpha1.PodReplaceIndicationLabelKey,
+	api.EnumXSetReplacePairNewIdLabel:         appsv1alpha1.PodReplacePairNewId,
+	api.EnumXSetReplacePairOriginNameLabel:    appsv1alpha1.PodReplacePairOriginName,
+	api.EnumXSetReplaceByReplaceUpdateLabel:   appsv1alpha1.PodReplaceByReplaceUpdateLabelKey,
+	api.EnumXSetOrphanedLabel:                 appsv1alpha1.PodOrphanedIndicateLabelKey,
+	api.EnumXSetTargetCreatingLabel:           appsv1alpha1.PodCreatingLabel,
+	api.EnumXSetTargetExcludeIndicationLabel:  appsv1alpha1.PodExcludeIndicationLabelKey,
+	api.EnumXSetLastTargetStatusAnnotationKey: appsv1alpha1.LastPodStatusAnnotationKey,
 }
 
 func NewXSetControllerLabelManager() api.XSetLabelManager {
@@ -60,6 +62,14 @@ func (m *xSetControllerLabelManager) Set(labels map[string]string, key api.XSetC
 	}
 	labelKey := m.labelManager[key]
 	labels[labelKey] = val
+}
+
+func (m *xSetControllerLabelManager) Delete(labels map[string]string, key api.XSetControllerLabelEnum) {
+	if labels == nil {
+		return
+	}
+	labelKey := m.labelManager[key]
+	delete(labels, labelKey)
 }
 
 func (m *xSetControllerLabelManager) Label(key api.XSetControllerLabelEnum) string {

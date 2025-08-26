@@ -291,7 +291,7 @@ type TargetUpdater interface {
 	FilterAllowOpsTargets(ctx context.Context, targetToUpdate []*targetUpdateInfo, ownedIDs map[int]*api.ContextDetail, syncContext *SyncContext, targetCh chan *targetUpdateInfo) (*time.Duration, error)
 	UpgradeTarget(ctx context.Context, targetInfo *targetUpdateInfo) error
 	GetTargetUpdateFinishStatus(ctx context.Context, targetUpdateInfo *targetUpdateInfo) (bool, string, error)
-	FinishUpdateTarget(ctx context.Context, targetInfo *targetUpdateInfo) error
+	FinishUpdateTarget(ctx context.Context, targetInfo *targetUpdateInfo, finishByCancelUpdate bool) error
 }
 
 type GenericTargetUpdater struct {
@@ -323,7 +323,6 @@ func (u *GenericTargetUpdater) BeginUpdateTarget(_ context.Context, syncContext 
 				return err
 			}
 		}
-
 		return nil
 	})
 
@@ -363,7 +362,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 		}
 
 		if _, exist := ownedIDs[targetInfo.ID]; !exist {
-			u.recorder.Eventf(u.OwnerObject, corev1.EventTypeWarning, "TargetBeforeUpdate", "target %s/%s is not allowed to update because cannot find context id %s in resourceContext", targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetLabels()[TargetInstanceIDLabelKey])
+			u.recorder.Eventf(u.OwnerObject, corev1.EventTypeWarning, "TargetBeforeUpdate", "target %s/%s is not allowed to update because cannot find context id %s in resourceContext", targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetLabels()[u.xsetLabelMgr.Label(api.EnumXSetInstanceIdLabel)])
 			continue
 		}
 
@@ -398,7 +397,13 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 	return recordedRequeueAfter, nil
 }
 
-func (u *GenericTargetUpdater) FinishUpdateTarget(_ context.Context, targetInfo *targetUpdateInfo) error {
+func (u *GenericTargetUpdater) FinishUpdateTarget(_ context.Context, targetInfo *targetUpdateInfo, finishByCancelUpdate bool) error {
+	if finishByCancelUpdate {
+		// cancel update lifecycle
+		return opslifecycle.CancelOpsLifecycle(u.opsLifecycleLabelMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object)
+	}
+
+	// target is ops finished, finish the lifecycle gracefully
 	if updated, err := opslifecycle.Finish(u.opsLifecycleLabelMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object); err != nil {
 		return fmt.Errorf("failed to finish TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 	} else if updated {
@@ -524,7 +529,7 @@ func (u *inPlaceIfPossibleUpdater) GetTargetUpdateFinishStatus(_ context.Context
 	}
 
 	targetLastState := &TargetStatus{}
-	if lastStateJson, exist := targetUpdateInfo.GetAnnotations()[LastTargetStatusAnnotationKey]; !exist {
+	if lastStateJson, exist := u.xsetLabelMgr.Get(targetUpdateInfo.GetAnnotations(), api.EnumXSetLastTargetStatusAnnotationKey); !exist {
 		return false, "no target last state annotation", nil
 	} else if err := json.Unmarshal([]byte(lastStateJson), targetLastState); err != nil {
 		msg := fmt.Sprintf("malformat target last state annotation [%s]: %s", lastStateJson, err.Error())
@@ -572,7 +577,7 @@ func (u *replaceUpdateTargetUpdater) BeginUpdateTarget(ctx context.Context, sync
 			if exist && newTargetRevision == targetInfo.UpdateRevision.GetName() {
 				return nil
 			}
-			if _, exist := replacePairNewTarget.GetLabels()[TargetDeletionIndicationLabelKey]; exist {
+			if _, exist := u.xsetLabelMgr.Get(replacePairNewTarget.GetLabels(), api.EnumXSetDeletionIndicationLabel); exist {
 				return nil
 			}
 
@@ -584,7 +589,7 @@ func (u *replaceUpdateTargetUpdater) BeginUpdateTarget(ctx context.Context, sync
 				replacePairNewTarget.GetName(),
 				newTargetRevision,
 				syncContext.UpdatedRevision.GetName())
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, TargetDeletionIndicationLabelKey, time.Now().UnixNano())))
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, u.xsetLabelMgr.Label(api.EnumXSetDeletionIndicationLabel), time.Now().UnixNano())))
 			if patchErr := u.client.Patch(ctx, targetInfo.ReplacePairNewTargetInfo.Object, patch); patchErr != nil {
 				err := fmt.Errorf("failed to delete replace pair new target %s/%s %s",
 					targetInfo.ReplacePairNewTargetInfo.GetNamespace(), targetInfo.ReplacePairNewTargetInfo.GetName(), patchErr.Error())
@@ -615,12 +620,12 @@ func (u *replaceUpdateTargetUpdater) FulfillTargetUpdatedInfo(_ context.Context,
 
 func (u *replaceUpdateTargetUpdater) UpgradeTarget(ctx context.Context, targetInfo *targetUpdateInfo) error {
 	// add replace labels and wait to replace when syncTargets
-	_, replaceIndicate := targetInfo.Object.GetLabels()[TargetReplaceIndicationLabelKey]
-	_, replaceByUpdate := targetInfo.Object.GetLabels()[TargetReplaceByReplaceUpdateLabelKey]
+	_, replaceIndicate := u.xsetLabelMgr.Get(targetInfo.Object.GetLabels(), api.EnumXSetReplaceIndicationLabel)
+	_, replaceByUpdate := u.xsetLabelMgr.Get(targetInfo.Object.GetLabels(), api.EnumXSetReplaceByReplaceUpdateLabel)
 	if !replaceIndicate || !replaceByUpdate {
 		// need replace update target, label target with replace-indicate and replace-update
 		now := time.Now().UnixNano()
-		patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%v", %q: "%v"}}}`, TargetReplaceIndicationLabelKey, now, TargetReplaceByReplaceUpdateLabelKey, targetInfo.UpdateRevision.GetName())))
+		patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%v", %q: "%v"}}}`, u.xsetLabelMgr.Label(api.EnumXSetReplaceIndicationLabel), now, u.xsetLabelMgr.Label(api.EnumXSetReplaceByReplaceUpdateLabel), targetInfo.UpdateRevision.GetName())))
 		if err := u.client.Patch(ctx, targetInfo.Object, patch); err != nil {
 			return fmt.Errorf("fail to label origin target %s/%s with replace indicate label by replaceUpdate: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 		}
@@ -644,11 +649,11 @@ func (u *replaceUpdateTargetUpdater) GetTargetUpdateFinishStatus(_ context.Conte
 	return u.isTargetUpdatedServiceAvailable(replaceNewTargetInfo)
 }
 
-func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, targetInfo *targetUpdateInfo) error {
+func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, targetInfo *targetUpdateInfo, finishByCancelUpdate bool) error {
 	ReplacePairNewTargetInfo := targetInfo.ReplacePairNewTargetInfo
 	if ReplacePairNewTargetInfo != nil {
-		if _, exist := targetInfo.GetLabels()[TargetDeletionIndicationLabelKey]; !exist {
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, TargetDeletionIndicationLabelKey, time.Now().UnixNano())))
+		if _, exist := u.xsetLabelMgr.Get(targetInfo.GetLabels(), api.EnumXSetDeletionIndicationLabel); !exist {
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, u.xsetLabelMgr.Label(api.EnumXSetDeletionIndicationLabel), time.Now().UnixNano())))
 			if err := u.targetControl.PatchTarget(ctx, targetInfo.Object, patch); err != nil {
 				return fmt.Errorf("failed to delete replace pair origin target %s/%s %s", targetInfo.GetNamespace(), targetInfo.ReplacePairNewTargetInfo.GetName(), err.Error())
 			}
@@ -658,6 +663,7 @@ func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, tar
 }
 
 func (u *GenericTargetUpdater) isTargetUpdatedServiceAvailable(targetInfo *targetUpdateInfo) (finished bool, msg string, err error) {
+	// TODO check decoration changed
 	if targetInfo.GetLabels() == nil {
 		return false, "no labels on target", nil
 	}

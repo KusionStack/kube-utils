@@ -310,6 +310,21 @@ func IsLifecycleOnTarget(m api.LifeCycleLabelManager, operatingID string, target
 	return false, nil
 }
 
+func CancelOpsLifecycle(m api.LifeCycleLabelManager, client client.Client, adapter api.LifecycleAdapter, target client.Object) error {
+	if target == nil {
+		return nil
+	}
+
+	// only cancel when lifecycle exist on pod
+	if exist, err := IsLifecycleOnTarget(m, adapter.GetID(), target); err != nil {
+		return fmt.Errorf("fail to check %s PodOpsLifecycle on Pod %s/%s: %w", adapter.GetID(), target.GetNamespace(), target.GetName(), err)
+	} else if !exist {
+		return nil
+	}
+
+	return Undo(m, client, adapter, target)
+}
+
 func DefaultUpdateAll(target client.Object, updateFuncs ...UpdateFunc) (updated bool, err error) {
 	for _, updateFunc := range updateFuncs {
 		ok, updateErr := updateFunc(target)

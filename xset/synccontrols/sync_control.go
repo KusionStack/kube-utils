@@ -175,7 +175,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	for i := range syncContext.FilteredTarget {
 		target := syncContext.FilteredTarget[i]
 		xName := target.GetName()
-		id, _ := GetInstanceID(target)
+		id, _ := GetInstanceID(r.xsetLabelMgr, target)
 		toDelete := toDeleteTargetNames.Has(xName)
 		toExclude := toExcludeTargetNames.Has(xName)
 
@@ -271,7 +271,7 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 
 	for _, target := range targets {
 		ownedTargets.Insert(target.GetName())
-		if _, exist := target.GetLabels()[TargetExcludeIndicationLabelKey]; exist {
+		if _, exist := r.xsetLabelMgr.Get(target.GetLabels(), api.EnumXSetTargetExcludeIndicationLabel); exist {
 			excludeTargetNames.Insert(target.GetName())
 		}
 	}
@@ -351,7 +351,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 
 	defer func() {
 		syncContext.activeTargets = FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
-		syncContext.replacingMap = classifyTargetReplacingMapping(syncContext.activeTargets)
+		syncContext.replacingMap = classifyTargetReplacingMapping(r.xsetLabelMgr, syncContext.activeTargets)
 	}()
 
 	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(ctx, syncContext.FilteredTarget)
@@ -761,7 +761,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 		}
 
 		if updateFinished || finishByCancelUpdate {
-			if err := updater.FinishUpdateTarget(ctx, targetInfo); err != nil {
+			if err := updater.FinishUpdateTarget(ctx, targetInfo, finishByCancelUpdate); err != nil {
 				return fmt.Errorf("failed to finish target %s/%s update: %w", targetInfo.GetNamespace(), targetInfo.GetName(), err)
 			}
 			r.Recorder.Eventf(targetInfo.Object,
