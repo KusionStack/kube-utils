@@ -33,6 +33,7 @@ var defaultXSetControllerLabelManager = map[api.XSetControllerLabelEnum]string{
 	api.EnumXSetReplaceByReplaceUpdateLabel:   appsv1alpha1.PodReplaceByReplaceUpdateLabelKey,
 	api.EnumXSetOrphanedLabel:                 appsv1alpha1.PodOrphanedIndicateLabelKey,
 	api.EnumXSetTargetCreatingLabel:           appsv1alpha1.PodCreatingLabel,
+	api.EnumXSetTargetCompletingLabel:         appsv1alpha1.PodCompletingLabel,
 	api.EnumXSetTargetExcludeIndicationLabel:  appsv1alpha1.PodExcludeIndicationLabelKey,
 	api.EnumXSetLastTargetStatusAnnotationKey: appsv1alpha1.LastPodStatusAnnotationKey,
 }

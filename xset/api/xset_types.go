@@ -220,6 +220,8 @@ const (
 
 	EnumXSetTargetCreatingLabel
 
+	EnumXSetTargetCompletingLabel
+
 	EnumXSetTargetExcludeIndicationLabel
 
 	EnumXSetLastTargetStatusAnnotationKey

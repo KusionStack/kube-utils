@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -464,7 +465,15 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				// scale out new Targets with updatedRevision
 				// TODO use cache
 				// TODO decoration for target template
-				target, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, xsetObject, revision, availableIDContext.ID)
+				target, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, xsetObject, revision, availableIDContext.ID,
+					func(object client.Object) error {
+						if _, exist := r.resourceContextControl.Get(availableIDContext, api.EnumJustCreateContextDataKey); exist {
+							r.xsetLabelMgr.Set(object.GetLabels(), api.EnumXSetTargetCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+						} else {
+							r.xsetLabelMgr.Set(object.GetLabels(), api.EnumXSetTargetCompletingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+						}
+						return nil
+					})
 				if err != nil {
 					return fmt.Errorf("fail to new Target from revision %s: %w", revision.GetName(), err)
 				}
@@ -937,7 +946,7 @@ func (r *RealSyncControl) BatchDeleteTargetsByLabel(ctx context.Context, targetC
 	_, err := controllerutils.SlowStartBatch(len(needDeleteTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		target := needDeleteTargets[i]
 		if _, exist := r.xsetLabelMgr.Get(target.GetLabels(), api.EnumXSetDeletionIndicationLabel); !exist {
-			patch := client.RawPatch(types.StrategicMergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%q":"%d"}}}`, r.xsetLabelMgr.Label(api.EnumXSetDeletionIndicationLabel), time.Now().UnixNano())))
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%s":"%d"}}}`, r.xsetLabelMgr.Label(api.EnumXSetDeletionIndicationLabel), time.Now().UnixNano()))) // nolint
 			if err := targetControl.PatchTarget(ctx, target, patch); err != nil {
 				return fmt.Errorf("failed to delete target when syncTargets %s/%s/%w", target.GetNamespace(), target.GetName(), err)
 			}
