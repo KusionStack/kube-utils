@@ -263,9 +263,11 @@ func (o *orderByDefault) Less(i, j int) bool {
 		return lReady
 	}
 
+	// TODO abstract interface
+
 	lCreationTime := l.Object.GetCreationTimestamp().Time
 	rCreationTime := r.Object.GetCreationTimestamp().Time
-	return lCreationTime.Before(rCreationTime)
+	return lCreationTime.After(rCreationTime)
 }
 
 type UpdateConfig struct {

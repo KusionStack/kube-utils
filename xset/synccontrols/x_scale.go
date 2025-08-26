@@ -115,9 +115,11 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 
 	// TODO consider service available timestamps
 
+	// TODO abstract interface
+
 	lCreationTime := l.Object.GetCreationTimestamp().Time
 	rCreationTime := r.Object.GetCreationTimestamp().Time
-	return lCreationTime.Before(rCreationTime)
+	return lCreationTime.After(rCreationTime)
 }
 
 // doIncludeExcludeTargets do real include and exclude for targets which are allowed to in/exclude
