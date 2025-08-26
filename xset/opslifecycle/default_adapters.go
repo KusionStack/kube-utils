@@ -49,6 +49,7 @@ func (d *DefaultUpdateLifecycleAdapter) WhenBegin(_ client.Object) (bool, error)
 }
 
 func (d *DefaultUpdateLifecycleAdapter) WhenFinish(target client.Object) (bool, error) {
+	// TODO inplace update post actions
 	return false, nil
 }
 
