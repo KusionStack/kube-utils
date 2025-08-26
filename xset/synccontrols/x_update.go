@@ -52,10 +52,10 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 
 	for i, target := range activeTargets {
 		updateInfo := &targetUpdateInfo{
-			targetWrapper:        &syncContext.TargetWrappers[i],
-			InPlaceUpdateSupport: true,
+			targetWrapper: &syncContext.TargetWrappers[i],
 		}
 
+		// TODO decoration for target template
 		updateInfo.UpdateRevision = syncContext.UpdatedRevision
 		// decide this target current revision, or nil if not indicated
 		if target.GetLabels() != nil {
@@ -90,9 +90,8 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 
 		spec := r.xsetController.GetXSetSpec(xsetObject)
 		// decide whether the TargetOpsLifecycle is during ops or not
-		updateInfo.IsDuringOps = target.IsDuringUpdateOps
-		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowOps = opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, RealValue(spec.UpdateStrategy.OperationDelaySeconds), target)
-
+		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowUpdateOps = opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, ptr.Deref(spec.UpdateStrategy.OperationDelaySeconds, 0), target)
+		// TODO check pvc template changed
 		targetUpdateInfoList[i] = updateInfo
 	}
 
@@ -101,25 +100,30 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 	for _, targetUpdateInfo := range targetUpdateInfoList {
 		targetUpdateInfoMap[targetUpdateInfo.GetName()] = targetUpdateInfo
 	}
+	// originTarget's isAllowUpdateOps depends on these 2 cases:
+	// (1) target is during replacing but not during replaceUpdate, keep it legacy value
+	// (2) target is during replaceUpdate, set to "true" if newTarget is service available
 	for originTargetName, replacePairNewTarget := range syncContext.replacingMap {
 		originTargetInfo := targetUpdateInfoMap[originTargetName]
+		_, replaceIndicated := r.xsetLabelMgr.Get(originTargetInfo.GetLabels(), api.EnumXSetReplaceIndicationLabel)
+		_, replaceByReplaceUpdate := r.xsetLabelMgr.Get(originTargetInfo.GetLabels(), api.EnumXSetReplaceByReplaceUpdateLabel)
+		isReplaceUpdating := replaceIndicated && replaceByReplaceUpdate
+
+		originTargetInfo.IsInReplace = replaceIndicated
+		originTargetInfo.IsInReplaceUpdate = isReplaceUpdating
+
 		if replacePairNewTarget != nil {
-			originTargetInfo.IsInReplacing = true
-			// replace origin target not go through lifecycle, mark  during ops manual
-			originTargetInfo.IsDuringOps = true
-			originTargetInfo.IsAllowOps = true
+			// origin target is allowed to ops if new pod is serviceAvailable
+			_, newTargetSa := replacePairNewTarget.GetLabels()[r.updateConfig.opsLifecycleLabelMgr.Get(api.ServiceAvailableLabel)]
+			originTargetInfo.IsAllowUpdateOps = originTargetInfo.IsAllowUpdateOps || newTargetSa
+			// attach replace new target updateInfo
 			ReplacePairNewTargetInfo := targetUpdateInfoMap[replacePairNewTarget.GetName()]
-			ReplacePairNewTargetInfo.IsInReplacing = true
+			ReplacePairNewTargetInfo.IsInReplace = true
+			// in case of to-replace label is removed from origin target, new target is still in replaceUpdate
+			ReplacePairNewTargetInfo.IsInReplaceUpdate = replaceByReplaceUpdate
+
 			ReplacePairNewTargetInfo.ReplacePairOriginTargetName = originTargetName
 			originTargetInfo.ReplacePairNewTargetInfo = ReplacePairNewTargetInfo
-		} else {
-			_, replaceIndicated := originTargetInfo.GetLabels()[TargetReplaceIndicationLabelKey]
-			_, replaceByReplaceUpdate := originTargetInfo.GetLabels()[TargetReplaceByReplaceUpdateLabelKey]
-			if replaceIndicated && replaceByReplaceUpdate {
-				originTargetInfo.IsInReplacing = true
-				originTargetInfo.IsDuringOps = true
-				originTargetInfo.IsAllowOps = true
-			}
 		}
 	}
 
@@ -129,9 +133,8 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 			continue
 		}
 		updateInfo := &targetUpdateInfo{
-			targetWrapper:        &target,
-			InPlaceUpdateSupport: true,
-			UpdateRevision:       syncContext.UpdatedRevision,
+			targetWrapper:  &target,
+			UpdateRevision: syncContext.UpdatedRevision,
 		}
 		if revision, exist := r.resourceContextControl.Get(target.ContextDetail, api.EnumRevisionContextDataKey); exist &&
 			revision == syncContext.UpdatedRevision.GetName() {
@@ -154,46 +157,40 @@ func filterOutPlaceHolderUpdateInfos(targets []*targetUpdateInfo) []*targetUpdat
 	return filteredTargetUpdateInfos
 }
 
-func decideTargetToUpdate(xsetController api.XSetController, xset api.XSetObject, targetInfos []*targetUpdateInfo) []*targetUpdateInfo {
+func (r *RealSyncControl) decideTargetToUpdate(xsetController api.XSetController, xset api.XSetObject, targetInfos []*targetUpdateInfo) []*targetUpdateInfo {
 	spec := xsetController.GetXSetSpec(xset)
+	filteredPodInfos := r.getTargetsUpdateTargets(targetInfos)
+
 	if spec.UpdateStrategy.RollingUpdate != nil && spec.UpdateStrategy.RollingUpdate.ByLabel != nil {
-		activeTargetInfos := filterOutPlaceHolderUpdateInfos(targetInfos)
-		return decideTargetToUpdateByLabel(xset, activeTargetInfos)
+		activeTargetInfos := filterOutPlaceHolderUpdateInfos(filteredPodInfos)
+		return r.decideTargetToUpdateByLabel(activeTargetInfos)
 	}
 
-	return decideTargetToUpdateByPartition(xsetController, xset, targetInfos)
+	return r.decideTargetToUpdateByPartition(xsetController, xset, targetInfos)
 }
 
-func decideTargetToUpdateByLabel(_ api.XSetObject, targetInfos []*targetUpdateInfo) (targetToUpdate []*targetUpdateInfo) {
+func (r *RealSyncControl) decideTargetToUpdateByLabel(targetInfos []*targetUpdateInfo) (targetToUpdate []*targetUpdateInfo) {
 	for i := range targetInfos {
-		if _, exist := targetInfos[i].GetLabels()[XSetUpdateIndicateLabelKey]; exist {
-			// filter target which is in replace update and is the new created target
-			if targetInfos[i].IsInReplacing && targetInfos[i].ReplacePairOriginTargetName != "" {
-				continue
-			}
+		if _, exist := r.xsetLabelMgr.Get(targetInfos[i].GetLabels(), api.EnumXSetUpdateIndicationLabel); exist {
 			targetToUpdate = append(targetToUpdate, targetInfos[i])
 			continue
 		}
 
-		// already in replace update.
-		if targetInfos[i].IsInReplacing && targetInfos[i].ReplacePairNewTargetInfo != nil {
-			targetToUpdate = append(targetToUpdate, targetInfos[i])
-			continue
-		}
+		// TODO separate decoration and xset update progress
 	}
 	return targetToUpdate
 }
 
-func decideTargetToUpdateByPartition(xsetController api.XSetController, xset api.XSetObject, targetInfos []*targetUpdateInfo) []*targetUpdateInfo {
+func (r *RealSyncControl) decideTargetToUpdateByPartition(xsetController api.XSetController, xset api.XSetObject, filteredTargetInfos []*targetUpdateInfo) []*targetUpdateInfo {
 	spec := xsetController.GetXSetSpec(xset)
 	replicas := ptr.Deref(spec.Replicas, 0)
+
 	partition := int32(0)
 
 	if spec.UpdateStrategy.RollingUpdate != nil && spec.UpdateStrategy.RollingUpdate.ByPartition != nil {
 		partition = ptr.Deref(spec.UpdateStrategy.RollingUpdate.ByPartition.Partition, 0)
 	}
 
-	filteredTargetInfos := getTargetsUpdateTargets(targetInfos)
 	// update all or not update any replicas
 	if partition == 0 {
 		return filteredTargetInfos
@@ -210,20 +207,16 @@ func decideTargetToUpdateByPartition(xsetController api.XSetController, xset api
 }
 
 // when sort targets to choose update, only sort (1) replace origin targets, (2) non-exclude targets
-func getTargetsUpdateTargets(targetInfos []*targetUpdateInfo) (filteredTargetInfos []*targetUpdateInfo) {
+func (r *RealSyncControl) getTargetsUpdateTargets(targetInfos []*targetUpdateInfo) (filteredTargetInfos []*targetUpdateInfo) {
 	for _, targetInfo := range targetInfos {
-		if targetInfo.IsInReplacing && targetInfo.ReplacePairOriginTargetName != "" {
+		if targetInfo.ReplacePairOriginTargetName != "" {
 			continue
 		}
-
 		if targetInfo.PlaceHolder {
-			_, isReplaceNewTarget := targetInfo.ContextDetail.Data[ReplaceOriginTargetIDContextDataKey]
-			_, isReplaceOriginTarget := targetInfo.ContextDetail.Data[ReplaceNewTargetIDContextDataKey]
-			if isReplaceNewTarget || isReplaceOriginTarget {
+			if _, isReplaceNewTarget := r.resourceContextControl.Get(targetInfo.ContextDetail, api.EnumReplaceOriginTargetIDContextDataKey); isReplaceNewTarget {
 				continue
 			}
 		}
-
 		filteredTargetInfos = append(filteredTargetInfos, targetInfo)
 	}
 	return filteredTargetInfos
@@ -261,8 +254,8 @@ func (o *orderByDefault) Less(i, j int) bool {
 		return true
 	}
 
-	if l.IsDuringOps != r.IsDuringOps {
-		return l.IsDuringOps
+	if l.IsDuringUpdateOps != r.IsDuringUpdateOps {
+		return l.IsDuringUpdateOps
 	}
 
 	lReady, rReady := o.checkReadyFunc(l.Object), o.checkReadyFunc(r.Object)
@@ -277,6 +270,7 @@ func (o *orderByDefault) Less(i, j int) bool {
 
 type UpdateConfig struct {
 	xsetController         api.XSetController
+	xsetLabelMgr           api.XSetLabelManager
 	client                 client.Client
 	targetControl          xcontrol.TargetControl
 	resourceContextControl resourcecontexts.ResourceContextControl
@@ -285,7 +279,6 @@ type UpdateConfig struct {
 	opsLifecycleLabelMgr    api.LifeCycleLabelManager
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
-	xSetControllerLabelMgr  api.XSetControllerLabelManager
 
 	cacheExpectations expectations.CacheExpectationsInterface
 	targetGVK         schema.GroupVersionKind
@@ -351,7 +344,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 		targetInfo := candidates[i]
 
 		if !targetInfo.PlaceHolder {
-			if !targetInfo.IsAllowOps {
+			if !targetInfo.IsAllowUpdateOps {
 				continue
 			}
 			if targetInfo.RequeueForOperationDelay != nil {
@@ -363,7 +356,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 			}
 		}
 
-		targetInfo.IsAllowOps = true
+		targetInfo.IsAllowUpdateOps = true
 
 		if targetInfo.IsUpdatedRevision {
 			continue
@@ -466,14 +459,14 @@ type inPlaceIfPossibleUpdater struct {
 func (u *inPlaceIfPossibleUpdater) FulfillTargetUpdatedInfo(_ context.Context, revision *appsv1.ControllerRevision, targetUpdateInfo *targetUpdateInfo) error {
 	// 1. build target from current and updated revision
 	// TODO: use cache
-	currentTarget, err := NewTargetFrom(u.xsetController, u.OwnerObject, targetUpdateInfo.CurrentRevision, targetUpdateInfo.ID)
+	currentTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelMgr, u.OwnerObject, targetUpdateInfo.CurrentRevision, targetUpdateInfo.ID)
 	if err != nil {
 		return fmt.Errorf("fail to build Target from current revision %s: %v", targetUpdateInfo.CurrentRevision.GetName(), err.Error())
 	}
 
 	// TODO: use cache
 
-	UpdatedTarget, err := NewTargetFrom(u.xsetController, u.OwnerObject, targetUpdateInfo.UpdateRevision, targetUpdateInfo.ID)
+	UpdatedTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelMgr, u.OwnerObject, targetUpdateInfo.UpdateRevision, targetUpdateInfo.ID)
 	if err != nil {
 		return fmt.Errorf("fail to build Target from updated revision %s: %v", targetUpdateInfo.UpdateRevision.GetName(), err.Error())
 	}
@@ -668,7 +661,7 @@ func (u *GenericTargetUpdater) isTargetUpdatedServiceAvailable(targetInfo *targe
 	if targetInfo.GetLabels() == nil {
 		return false, "no labels on target", nil
 	}
-	if targetInfo.IsInReplacing && targetInfo.ReplacePairNewTargetInfo != nil {
+	if targetInfo.IsInReplace && targetInfo.ReplacePairNewTargetInfo != nil {
 		return false, "replace origin target", nil
 	}
 

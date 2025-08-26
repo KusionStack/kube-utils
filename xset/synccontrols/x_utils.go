@@ -48,7 +48,7 @@ func GetInstanceID(target client.Object) (int, error) {
 	return int(id), nil
 }
 
-func NewTargetFrom(setController api.XSetController, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
+func NewTargetFrom(setController api.XSetController, xsetLabelMgr api.XSetLabelManager, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
 	targetObj, err := setController.GetXObjectFromRevision(revision)
 	if err != nil {
 		return nil, err
@@ -61,9 +61,9 @@ func NewTargetFrom(setController api.XSetController, owner api.XSetObject, revis
 	targetObj.SetGenerateName(GetTargetsPrefix(owner.GetName()))
 
 	labels := targetObj.GetLabels()
-	labels[TargetInstanceIDLabelKey] = fmt.Sprintf("%d", id)
+	xsetLabelMgr.Set(labels, api.EnumXSetInstanceIdLabel, fmt.Sprintf("%d", id))
 	labels[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
-	controlByXSet(setController, targetObj)
+	controlByXSet(xsetLabelMgr, targetObj)
 
 	for _, fn := range updateFuncs {
 		if err := fn(targetObj); err != nil {
@@ -72,14 +72,6 @@ func NewTargetFrom(setController api.XSetController, owner api.XSetObject, revis
 	}
 
 	return targetObj, nil
-}
-
-func RealValue(val *int32) int32 {
-	if val == nil {
-		return 0
-	}
-
-	return *val
 }
 
 const ConditionUpdatePeriodBackOff = 30 * time.Second
@@ -170,29 +162,20 @@ func filterOutCondition(conditions []metav1.Condition, condType string) []metav1
 	return newConditions
 }
 
-func controlByXSet(setController api.XSetController, obj client.Object) {
+func controlByXSet(xsetLabelMgr api.XSetLabelManager, obj client.Object) {
 	if obj.GetLabels() == nil {
 		obj.SetLabels(map[string]string{})
 	}
-	controlLabel := setController.GetXSetControllerLabelManager()
-	if controlLabel == nil {
-		controlLabel = NewXSetControllerLabelManager()
-	}
-
-	if v, ok := obj.GetLabels()[controlLabel.Get(api.EnumXSetControlledLabel)]; !ok || v != "true" {
-		obj.GetLabels()[controlLabel.Get(api.EnumXSetControlledLabel)] = "true"
+	if v, ok := xsetLabelMgr.Get(obj.GetLabels(), api.EnumXSetControlledLabel); !ok || v != "true" {
+		xsetLabelMgr.Set(obj.GetLabels(), api.EnumXSetControlledLabel, "true")
 	}
 }
-func IsControlledByXSet(setController api.XSetController, obj client.Object) bool {
+
+func IsControlledByXSet(xsetLabelManager api.XSetLabelManager, obj client.Object) bool {
 	if obj.GetLabels() == nil {
 		return false
 	}
 
-	controlLabel := setController.GetXSetControllerLabelManager()
-	if controlLabel == nil {
-		controlLabel = NewXSetControllerLabelManager()
-	}
-
-	v, ok := obj.GetLabels()[controlLabel.Get(api.EnumXSetControlledLabel)]
+	v, ok := xsetLabelManager.Get(obj.GetLabels(), api.EnumXSetControlledLabel)
 	return ok && v == "true"
 }

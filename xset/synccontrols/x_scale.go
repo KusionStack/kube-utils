@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 
 	clientutil "kusionstack.io/kube-utils/client"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
@@ -32,8 +33,10 @@ import (
 	"kusionstack.io/kube-utils/xset/opslifecycle"
 )
 
-// getTargetsToDelete finds number of diff targets from filteredTargets to do scaleIn
-func (r *RealSyncControl) getTargetsToDelete(filteredTargets []*targetWrapper, replaceMapping map[string]*targetWrapper, diff int) []*targetWrapper {
+// getTargetsToDelete
+// 1. finds number of diff targets from filteredPods to do scaleIn
+// 2. finds targets allowed to scale in out of diff
+func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filteredTargets []*targetWrapper, replaceMapping map[string]*targetWrapper, diff int) []*targetWrapper {
 	var countedTargets []*targetWrapper
 	for _, target := range filteredTargets {
 		if _, exist := replaceMapping[target.GetName()]; exist {
@@ -49,7 +52,14 @@ func (r *RealSyncControl) getTargetsToDelete(filteredTargets []*targetWrapper, r
 
 	// 2. select targets to delete in second round according to replace, delete, exclude
 	var needDeleteTargets []*targetWrapper
-	for _, target := range countedTargets[:diff] {
+	for i, target := range countedTargets {
+		// find pods to be scaleIn out of diff, is allowed to ops
+		spec := r.xsetController.GetXSetSpec(xsetObject)
+		_, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
+		if i >= diff && !allowed {
+			continue
+		}
+
 		//  don't scaleIn exclude target and its newTarget (if exist)
 		if target.ToExclude {
 			continue

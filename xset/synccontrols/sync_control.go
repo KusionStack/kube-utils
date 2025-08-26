@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/retry"
-	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutil "kusionstack.io/kube-utils/client"
@@ -55,21 +56,20 @@ type SyncControl interface {
 	Update(ctx context.Context, instance api.XSetObject, syncContext *SyncContext) (bool, *time.Duration, error)
 
 	CalculateStatus(ctx context.Context, instance api.XSetObject, syncContext *SyncContext) *api.XSetStatus
+
+	BatchDeleteTargetsByLabel(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error
 }
 
 func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xsetController api.XSetController,
 	xControl xcontrol.TargetControl,
+	xsetLabelManager api.XSetLabelManager,
 	resourceContexts resourcecontexts.ResourceContextControl,
 	cacheExpectations expectations.CacheExpectationsInterface,
 ) SyncControl {
 	lifeCycleLabelManager := xsetController.GetLifeCycleLabelManager()
 	if lifeCycleLabelManager == nil {
 		lifeCycleLabelManager = opslifecycle.NewLabelManager(nil)
-	}
-	xSetControllerLabelManager := xsetController.GetXSetControllerLabelManager()
-	if xSetControllerLabelManager == nil {
-		xSetControllerLabelManager = NewXSetControllerLabelManager()
 	}
 	scaleInOpsLifecycleAdapter := xsetController.GetScaleInOpsLifecycleAdapter()
 	if scaleInOpsLifecycleAdapter == nil {
@@ -87,6 +87,7 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 
 	updateConfig := &UpdateConfig{
 		xsetController:         xsetController,
+		xsetLabelMgr:           xsetLabelManager,
 		client:                 reconcileMixIn.Client,
 		targetControl:          xControl,
 		resourceContextControl: resourceContexts,
@@ -94,7 +95,6 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 
 		opsLifecycleLabelMgr:    lifeCycleLabelManager,
 		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
-		xSetControllerLabelMgr:  xSetControllerLabelManager,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
 		cacheExpectations:       cacheExpectations,
 		targetGVK:               targetGVK,
@@ -102,7 +102,7 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	return &RealSyncControl{
 		ReconcilerMixin:        *reconcileMixIn,
 		xsetController:         xsetController,
-		xsetControllerLabelMgr: xSetControllerLabelManager,
+		xsetLabelMgr:           xsetLabelManager,
 		resourceContextControl: resourceContexts,
 		xControl:               xControl,
 
@@ -122,7 +122,7 @@ type RealSyncControl struct {
 	mixin.ReconcilerMixin
 	xControl               xcontrol.TargetControl
 	xsetController         api.XSetController
-	xsetControllerLabelMgr api.XSetControllerLabelManager
+	xsetLabelMgr           api.XSetLabelManager
 	resourceContextControl resourcecontexts.ResourceContextControl
 
 	updateConfig            *UpdateConfig
@@ -159,7 +159,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	// get owned IDs
 	var ownedIDs map[int]*api.ContextDetail
 	if err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		ownedIDs, err = r.resourceContextControl.AllocateID(ctx, instance, syncContext.UpdatedRevision.GetName(), int(RealValue(xspec.Replicas)))
+		ownedIDs, err = r.resourceContextControl.AllocateID(ctx, instance, syncContext.UpdatedRevision.GetName(), int(ptr.Deref(xspec.Replicas, 0)))
 		syncContext.OwnedIds = ownedIDs
 		return err
 	}); err != nil {
@@ -184,7 +184,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			toDeleteTargetNames.Delete(xName)
 		}
 		if toExclude {
-			if targetDuringReplace(r.xsetControllerLabelMgr, target) || toDelete {
+			if targetDuringReplace(r.xsetLabelMgr, target) || toDelete {
 				// skip exclude until replace and toDelete done
 				toExcludeTargetNames.Delete(xName)
 			} else {
@@ -199,7 +199,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 				idToReclaim.Insert(id)
 			}
 
-			_, replaceIndicate := target.GetLabels()[r.xsetControllerLabelMgr.Get(api.EnumXSetReplaceIndicationLabelKey)]
+			_, replaceIndicate := r.xsetLabelMgr.Get(target.GetLabels(), api.EnumXSetReplaceIndicationLabel)
 			// 2. filter out Targets which are terminating and not replace indicate
 			if !replaceIndicate {
 				continue
@@ -259,9 +259,6 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	syncContext.TargetWrappers = targetWrappers
 	syncContext.OwnedIds = ownedIDs
 
-	syncContext.activeTargets = FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
-	syncContext.replacingMap = classifyTargetReplacingMapping(syncContext.activeTargets)
-
 	return inExSucceed, nil
 }
 
@@ -304,8 +301,8 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "DupExIncludedTarget", "duplicated targets %s in both excluding and including sets", strings.Join(intersection.List(), ", "))
 	}
 
-	toExcludeTargets, notAllowedExcludeTargets, exErr := r.allowIncludeExcludeTargets(ctx, xsetObject, excludeTargetNames.List(), AllowResourceExclude, r.xsetControllerLabelMgr)
-	toIncludeTargets, notAllowedIncludeTargets, inErr := r.allowIncludeExcludeTargets(ctx, xsetObject, includeTargetNames.List(), AllowResourceInclude, r.xsetControllerLabelMgr)
+	toExcludeTargets, notAllowedExcludeTargets, exErr := r.allowIncludeExcludeTargets(ctx, xsetObject, excludeTargetNames.List(), AllowResourceExclude, r.xsetLabelMgr)
+	toIncludeTargets, notAllowedIncludeTargets, inErr := r.allowIncludeExcludeTargets(ctx, xsetObject, includeTargetNames.List(), AllowResourceInclude, r.xsetLabelMgr)
 	if notAllowedExcludeTargets.Len() > 0 {
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "ExcludeNotAllowed", fmt.Sprintf("targets [%v] are not allowed to exclude, please find out the reason from target's event", notAllowedExcludeTargets.List()))
 	}
@@ -316,10 +313,10 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 }
 
 // checkAllowFunc refers to AllowResourceExclude and AllowResourceInclude
-type checkAllowFunc func(obj metav1.Object, ownerName, ownerKind string, labelMgr api.XSetControllerLabelManager) (bool, string)
+type checkAllowFunc func(obj metav1.Object, ownerName, ownerKind string, labelMgr api.XSetLabelManager) (bool, string)
 
 // allowIncludeExcludeTargets try to classify targetNames to allowedTargets and notAllowedTargets, using checkAllowFunc func
-func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, targetNames []string, fn checkAllowFunc, labelMgr api.XSetControllerLabelManager) (allowTargets, notAllowTargets sets.String, err error) {
+func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, targetNames []string, fn checkAllowFunc, labelMgr api.XSetLabelManager) (allowTargets, notAllowTargets sets.String, err error) {
 	allowTargets = sets.String{}
 	notAllowTargets = sets.String{}
 	for i := range targetNames {
@@ -351,12 +348,16 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 	var err error
 	var needUpdateContext bool
 	var idToReclaim sets.Int
-	logger := r.Logger.WithValues(r.xsetGVK.Kind, ObjectKeyString(xsetObject))
 
-	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(syncContext.FilteredTarget, logger)
+	defer func() {
+		syncContext.activeTargets = FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
+		syncContext.replacingMap = classifyTargetReplacingMapping(syncContext.activeTargets)
+	}()
+
+	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(ctx, syncContext.FilteredTarget)
 
 	// delete origin targets for replace
-	err = BatchDeleteTargetByLabel(ctx, r.xControl, needDeleteTargets)
+	err = r.BatchDeleteTargetsByLabel(ctx, r.xControl, needDeleteTargets)
 	if err != nil {
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "ReplaceTarget", "delete targets by label with error: %s", err.Error())
 		return err
@@ -409,17 +410,17 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 
 func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, syncContext *SyncContext) (bool, *time.Duration, error) {
 	spec := r.xsetController.GetXSetSpec(xsetObject)
-	logger := r.Logger.WithValues(r.xsetGVK.Kind, ObjectKeyString(xsetObject))
+	logger := logr.FromContext(ctx)
 	var recordedRequeueAfter *time.Duration
 
-	diff := int(RealValue(spec.Replicas)) - len(syncContext.replacingMap)
+	diff := int(ptr.Deref(spec.Replicas, 0)) - len(syncContext.replacingMap)
 	scaling := false
 
 	if diff >= 0 {
 		// trigger delete targets indicated in ScaleStrategy.TargetToDelete by label
 		for _, targetWrapper := range syncContext.activeTargets {
 			if targetWrapper.ToDelete {
-				err := BatchDeleteTargetByLabel(ctx, r.xControl, []client.Object{targetWrapper.Object})
+				err := r.BatchDeleteTargetsByLabel(ctx, r.xControl, []client.Object{targetWrapper.Object})
 				if err != nil {
 					return false, recordedRequeueAfter, err
 				}
@@ -435,10 +436,16 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			}
 
 			// find IDs and their contexts which have not been used by owned Targets
-			availableContext := r.resourceContextControl.ExtractAvailableContexts(diff, syncContext.OwnedIds, targetInstanceIDSet)
+			var availableContexts []*api.ContextDetail
+			var getErr error
+			availableContexts, syncContext.OwnedIds, getErr = r.getAvailableTargetIDs(ctx, diff, xsetObject, syncContext)
+			if getErr != nil {
+				return false, recordedRequeueAfter, getErr
+			}
+
 			needUpdateContext := atomic.Bool{}
-			succCount, err := controllerutils.SlowStartBatch(len(availableContext), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) (err error) {
-				availableIDContext := availableContext[i]
+			succCount, err := controllerutils.SlowStartBatch(len(availableContexts), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) (err error) {
+				availableIDContext := availableContexts[i]
 				defer func() {
 					if r.decideContextRevision(availableIDContext, syncContext.UpdatedRevision, err == nil) {
 						needUpdateContext.Store(true)
@@ -456,13 +463,15 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				}
 				// scale out new Targets with updatedRevision
 				// TODO use cache
-				target, err := NewTargetFrom(r.xsetController, xsetObject, revision, availableIDContext.ID)
+				// TODO decoration for target template
+				target, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, xsetObject, revision, availableIDContext.ID)
 				if err != nil {
 					return fmt.Errorf("fail to new Target from revision %s: %w", revision.GetName(), err)
 				}
 
+				// TODO create pvcs for targets (pod)
 				newTarget := target.DeepCopyObject().(client.Object)
-				logger.V(1).Info("try to create Target with revision of "+r.xsetGVK.Kind, "revision", revision.GetName())
+				logger.Info("try to create Target with revision of "+r.xsetGVK.Kind, "revision", revision.GetName())
 				if target, err = r.xControl.CreateTarget(ctx, newTarget); err != nil {
 					return err
 				}
@@ -470,7 +479,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				return r.cacheExpectations.ExpectCreation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName())
 			})
 			if needUpdateContext.Load() {
-				logger.V(1).Info("try to update ResourceContext for XSet after scaling out")
+				logger.Info("try to update ResourceContext for XSet after scaling out", "Context", syncContext.OwnedIds)
 				if updateContextErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 					return r.resourceContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 				}); updateContextErr != nil {
@@ -484,13 +493,12 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			r.Recorder.Eventf(xsetObject, corev1.EventTypeNormal, "ScaleOut", "scale out %d Target(s)", succCount)
 			AddOrUpdateCondition(syncContext.NewStatus, api.XSetScale, nil, "ScaleOut", "")
 			return succCount > 0, recordedRequeueAfter, err
-		} else {
-			AddOrUpdateCondition(syncContext.NewStatus, api.XSetScale, nil, "ScaleOut", "")
-			return false, nil, nil
 		}
-	} else if diff < 0 {
+	}
+
+	if diff <= 0 {
 		// chose the targets to scale in
-		targetsToScaleIn := r.getTargetsToDelete(syncContext.activeTargets, syncContext.replacingMap, diff*-1)
+		targetsToScaleIn := r.getTargetsToDelete(xsetObject, syncContext.activeTargets, syncContext.replacingMap, diff*-1)
 		// filter out Targets need to trigger TargetOpsLifecycle
 		wrapperCh := make(chan *targetWrapper, len(targetsToScaleIn))
 		for i := range targetsToScaleIn {
@@ -507,10 +515,10 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 			// trigger TargetOpsLifecycle with scaleIn OperationType
 			logger.V(1).Info("try to begin TargetOpsLifecycle for scaling in Target in XSet", "wrapper", ObjectKeyString(object))
-			// todo switch to x opslifecycle
 			if updated, err := opslifecycle.Begin(r.updateConfig.opsLifecycleLabelMgr, r.Client, r.scaleInLifecycleAdapter, object); err != nil {
 				return fmt.Errorf("fail to begin TargetOpsLifecycle for Scaling in Target %s/%s: %w", object.GetNamespace(), object.GetName(), err)
 			} else if updated {
+				wrapper.IsDuringScaleInOps = true
 				r.Recorder.Eventf(object, corev1.EventTypeNormal, "BeginScaleInLifecycle", "succeed to begin TargetOpsLifecycle for scaling in")
 				// add an expectation for this wrapper creation, before next reconciling
 				if err := r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, object.GetNamespace(), object.GetName(), object.GetResourceVersion()); err != nil {
@@ -520,7 +528,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 			return nil
 		})
-		scaling = succCount != 0
+		scaling = succCount > 0
 
 		if err != nil {
 			AddOrUpdateCondition(syncContext.NewStatus, api.XSetScale, err, "ScaleInFailed", err.Error())
@@ -531,7 +539,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 		needUpdateContext := false
 		for i, targetWrapper := range targetsToScaleIn {
-			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, RealValue(spec.ScaleStrategy.OperationDelaySeconds), targetWrapper.Object)
+			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), targetWrapper.Object)
 			if !allowed && targetWrapper.Object.GetDeletionTimestamp() == nil {
 				r.Recorder.Eventf(targetWrapper.Object, corev1.EventTypeNormal, "TargetScaleInLifecycle", "Target is not allowed to scale in")
 				continue
@@ -561,7 +569,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 		// mark these Targets to scalingIn
 		if needUpdateContext {
-			logger.V(1).Info("try to update ResourceContext for XSet when scaling in Target")
+			logger.Info("try to update ResourceContext for XSet when scaling in Target")
 			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				return r.resourceContextControl.UpdateToTargetContext(ctx, xsetObject, syncContext.OwnedIds)
 			}); err != nil {
@@ -575,12 +583,13 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		// do delete Target resource
 		succCount, err = controllerutils.SlowStartBatch(len(wrapperCh), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 			target := <-wrapperCh
-			logger.V(1).Info("try to scale in Target", "target", ObjectKeyString(target))
+			logger.Info("try to scale in Target", "target", ObjectKeyString(target))
 			if err := r.xControl.DeleteTarget(ctx, target.Object); err != nil {
 				return fmt.Errorf("fail to delete Target %s/%s when scaling in: %w", target.GetNamespace(), target.GetName(), err)
 			}
 
 			r.Recorder.Eventf(xsetObject, corev1.EventTypeNormal, "TargetDeleted", "succeed to scale in Target %s/%s", target.GetNamespace(), target.GetName())
+			// TODO delete pvcs if target is in update replace, or retention policy is "Deleted"
 			return r.cacheExpectations.ExpectDeletion(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName())
 		})
 		scaling = scaling || succCount > 0
@@ -594,15 +603,13 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		} else {
 			AddOrUpdateCondition(syncContext.NewStatus, api.XSetScale, nil, "ScaleIn", "")
 		}
-
-		return scaling, recordedRequeueAfter, err
 	}
 
 	// reset ContextDetail.ScalingIn, if there are Targets had its TargetOpsLifecycle reverted
 	needUpdateTargetContext := false
 	for _, targetWrapper := range syncContext.activeTargets {
-		if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist && r.resourceContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") &&
-			!opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, targetWrapper) {
+		if contextDetail, exist := syncContext.OwnedIds[targetWrapper.ID]; exist &&
+			r.resourceContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") && !targetWrapper.IsDuringScaleInOps {
 			needUpdateTargetContext = true
 			r.resourceContextControl.Remove(contextDetail, api.EnumScaleInContextDataKey)
 		}
@@ -617,18 +624,22 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		}
 	}
 
+	if !scaling {
+		AddOrUpdateCondition(syncContext.NewStatus, api.XSetScale, nil, "Scaled", "")
+	}
+
 	return scaling, recordedRequeueAfter, nil
 }
 
 func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject, syncContext *SyncContext) (bool, *time.Duration, error) {
-	logger := r.Logger.WithValues("xset", ObjectKeyString(xsetObject))
+	logger := logr.FromContext(ctx)
 	var err error
 	var recordedRequeueAfter *time.Duration
 	// 1. scan and analysis targets update info for active targets and PlaceHolder targets
 	targetUpdateInfos := r.attachTargetUpdateInfo(xsetObject, syncContext)
 
 	// 2. decide Target update candidates
-	candidates := decideTargetToUpdate(r.xsetController, xsetObject, targetUpdateInfos)
+	candidates := r.decideTargetToUpdate(r.xsetController, xsetObject, targetUpdateInfos)
 	targetToUpdate := filterOutPlaceHolderUpdateInfos(candidates)
 	targetCh := make(chan *targetUpdateInfo, len(targetToUpdate))
 	updater := r.newTargetUpdater(xsetObject)
@@ -636,6 +647,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 
 	// 3. filter already updated revision,
 	for i, targetInfo := range targetToUpdate {
+		// TODO check decoration and pvc template changed
 		if targetInfo.IsUpdatedRevision {
 			continue
 		}
@@ -652,7 +664,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 			continue
 		}
 
-		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, targetInfo) {
+		if targetInfo.IsDuringScaleInOps || targetInfo.IsDuringUpdateOps {
 			continue
 		}
 
@@ -680,7 +692,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	// 6. update Target
 	succCount, err := controllerutils.SlowStartBatch(len(targetCh), controllerutils.SlowStartInitialBatchSize, false, func(_ int, _ error) error {
 		targetInfo := <-targetCh
-		logger.V(1).Info("before target update operation",
+		logger.Info("before target update operation",
 			"target", ObjectKeyString(targetInfo.Object),
 			"revision.from", targetInfo.CurrentRevision.GetName(),
 			"revision.to", syncContext.UpdatedRevision.GetName(),
@@ -689,10 +701,9 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 		)
 
 		spec := r.xsetController.GetXSetSpec(xsetObject)
-		isReplaceUpdate := spec.UpdateStrategy.UpdatePolicy == api.XSetReplaceTargetUpdateStrategyType
-		if targetInfo.IsInReplacing && !isReplaceUpdate {
+		if targetInfo.IsInReplace && spec.UpdateStrategy.UpdatePolicy != api.XSetReplaceTargetUpdateStrategyType {
 			// a replacing target should be replaced by an updated revision target when encountering upgrade
-			if err := updateReplaceOriginTarget(ctx, r.Client, r.Recorder, targetInfo, targetInfo.ReplacePairNewTargetInfo); err != nil {
+			if err := updateReplaceOriginTarget(ctx, r.Client, r.Recorder, r.xsetLabelMgr, targetInfo, targetInfo.ReplacePairNewTargetInfo); err != nil {
 				return err
 			}
 		} else {
@@ -720,31 +731,44 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	succCount, err = controllerutils.SlowStartBatch(len(targetUpdateInfos), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		targetInfo := targetUpdateInfos[i]
 
-		if !targetInfo.IsDuringOps || targetInfo.PlaceHolder || targetInfo.GetDeletionTimestamp() != nil {
+		if !(targetInfo.IsDuringUpdateOps || targetInfo.PlaceHolder) || targetInfo.PlaceHolder || targetInfo.GetDeletionTimestamp() != nil {
 			return nil
 		}
 
-		// check Target is during updating, and it is finished or not
-		finished, msg, err := updater.GetTargetUpdateFinishStatus(ctx, targetInfo)
-		if err != nil {
-			return fmt.Errorf("failed to get target %s/%s update finished: %w", targetInfo.GetNamespace(), targetInfo.GetName(), err)
+		var finishByCancelUpdate bool
+		var updateFinished bool
+		var msg string
+		var err error
+
+		if !targetToUpdateSet.Has(targetInfo.GetName()) {
+			// target is out of scope (partition or by label) and not start update yet, finish update by cancel
+			finishByCancelUpdate = !targetInfo.IsAllowUpdateOps
+			logger.Info("out of update scope", "target", ObjectKeyString(targetInfo.Object), "finishByCancelUpdate", finishByCancelUpdate)
+		} else if !targetInfo.IsAllowUpdateOps {
+			// target is in update scope, but is not start update yet, if pod is updatedRevision, just finish update by cancel
+			finishByCancelUpdate = targetInfo.IsUpdatedRevision
+		} else {
+			// target is in update scope and allowed to update, check and finish update gracefully
+			if updateFinished, msg, err = updater.GetTargetUpdateFinishStatus(ctx, targetInfo); err != nil {
+				return fmt.Errorf("failed to get target %s/%s update finished: %w", targetInfo.GetNamespace(), targetInfo.GetName(), err)
+			} else if !updateFinished {
+				r.Recorder.Eventf(targetInfo.Object,
+					corev1.EventTypeNormal,
+					"WaitingUpdateReady",
+					"waiting for target %s/%s to update finished: %s",
+					targetInfo.GetNamespace(), targetInfo.GetName(), msg)
+			}
 		}
 
-		if finished {
+		if updateFinished || finishByCancelUpdate {
 			if err := updater.FinishUpdateTarget(ctx, targetInfo); err != nil {
-				return err
+				return fmt.Errorf("failed to finish target %s/%s update: %w", targetInfo.GetNamespace(), targetInfo.GetName(), err)
 			}
 			r.Recorder.Eventf(targetInfo.Object,
 				corev1.EventTypeNormal,
 				"UpdateTargetFinished",
 				"target %s/%s is finished for upgrade to revision %s",
 				targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.UpdateRevision.GetName())
-		} else {
-			r.Recorder.Eventf(targetInfo.Object,
-				corev1.EventTypeNormal,
-				"WaitingUpdateReady",
-				"waiting for target %s/%s to update finished: %s",
-				targetInfo.GetNamespace(), targetInfo.GetName(), msg)
 		}
 
 		return nil
@@ -897,23 +921,23 @@ func FilterOutActiveTargetWrappers(targets []targetWrapper) []*targetWrapper {
 	return filteredTargetWrappers
 }
 
-func targetDuringReplace(labelMgr api.XSetControllerLabelManager, target client.Object) bool {
+func targetDuringReplace(labelMgr api.XSetLabelManager, target client.Object) bool {
 	labels := target.GetLabels()
 	if labels == nil {
 		return false
 	}
-	_, replaceIndicate := labels[labelMgr.Get(api.EnumXSetReplaceIndicationLabelKey)]
-	_, replaceOriginTarget := labels[labelMgr.Get(api.EnumXSetReplacePairOriginName)]
-	_, replaceNewTarget := labels[labelMgr.Get(api.EnumXSetReplacePairNewId)]
+	_, replaceIndicate := labelMgr.Get(labels, api.EnumXSetReplaceIndicationLabel)
+	_, replaceOriginTarget := labelMgr.Get(labels, api.EnumXSetReplacePairOriginNameLabel)
+	_, replaceNewTarget := labelMgr.Get(labels, api.EnumXSetReplacePairNewIdLabel)
 	return replaceIndicate || replaceOriginTarget || replaceNewTarget
 }
 
-// BatchDeleteTargetByLabel try to trigger target deletion by to-delete label
-func BatchDeleteTargetByLabel(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error {
+// BatchDeleteTargetsByLabel try to trigger target deletion by to-delete label
+func (r *RealSyncControl) BatchDeleteTargetsByLabel(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error {
 	_, err := controllerutils.SlowStartBatch(len(needDeleteTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		target := needDeleteTargets[i]
-		if _, exist := target.GetLabels()[appsv1alpha1.PodDeletionIndicationLabelKey]; !exist {
-			patch := client.RawPatch(types.StrategicMergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%q":"%d"}}}`, appsv1alpha1.PodDeletionIndicationLabelKey, time.Now().UnixNano())))
+		if _, exist := r.xsetLabelMgr.Get(target.GetLabels(), api.EnumXSetDeletionIndicationLabel); !exist {
+			patch := client.RawPatch(types.StrategicMergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%q":"%d"}}}`, r.xsetLabelMgr.Label(api.EnumXSetDeletionIndicationLabel), time.Now().UnixNano())))
 			if err := targetControl.PatchTarget(ctx, target, patch); err != nil {
 				return fmt.Errorf("failed to delete target when syncTargets %s/%s/%w", target.GetNamespace(), target.GetName(), err)
 			}

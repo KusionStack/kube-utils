@@ -72,16 +72,17 @@ type targetUpdateInfo struct {
 	// carry the desired update revision
 	UpdateRevision *appsv1.ControllerRevision
 
-	// indicates the TargetOpsLifecycle is started.
-	IsDuringOps bool
+	// TODO decoration revisions
+
 	// indicates operate is allowed for TargetOpsLifecycle.
-	IsAllowOps bool
+	IsAllowUpdateOps bool
 	// requeue after for operationDelaySeconds
 	RequeueForOperationDelay *time.Duration
 
 	// for replace update
 	// judge target in replace updating
-	IsInReplacing bool
+	IsInReplace       bool
+	IsInReplaceUpdate bool
 
 	// replace new created target
 	ReplacePairNewTargetInfo *targetUpdateInfo

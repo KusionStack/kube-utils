@@ -38,17 +38,24 @@ import (
 	"kusionstack.io/kube-utils/xset/opslifecycle"
 )
 
-const (
-	ReplaceNewTargetIDContextDataKey    = "ReplaceNewTargetID"
-	ReplaceOriginTargetIDContextDataKey = "ReplaceOriginTargetID"
-)
-
-func (r *RealSyncControl) cleanReplaceTargetLabels(ctx context.Context, needCleanLabelTargets []client.Object, targetsNeedCleanLabels [][]string, ownedIDs map[int]*api.ContextDetail, currentIDs sets.Int) (bool, sets.Int, error) {
+func (r *RealSyncControl) cleanReplaceTargetLabels(
+	ctx context.Context,
+	needCleanLabelTargets []client.Object,
+	targetsNeedCleanLabels [][]string,
+	ownedIDs map[int]*api.ContextDetail,
+	currentIDs sets.Int,
+) (bool, sets.Int, error) {
+	logger := logr.FromContext(ctx)
 	needUpdateContext := false
 	needDeleteTargetsIDs := sets.Int{}
-	mapOriginToNewTargetContext := mapReplaceOriginToNewTargetContext(ownedIDs)
-	mapNewToOriginTargetContext := mapReplaceNewToOriginTargetContext(ownedIDs)
-	_, err := controllerutils.SlowStartBatch(len(needCleanLabelTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
+	mapOriginToNewTargetContext := r.mapReplaceOriginToNewTargetContext(ownedIDs)
+	mapNewToOriginTargetContext := r.mapReplaceNewToOriginTargetContext(ownedIDs)
+	_, err := controllerutils.SlowStartBatch(len(needCleanLabelTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) (err error) {
+		defer func() {
+			if err == nil {
+				logger.Info("cleanReplaceTargetLabels clean replace labels success", "kind", needCleanLabelTargets[i].GetObjectKind(), "target", needCleanLabelTargets[i].GetName(), "labels", targetsNeedCleanLabels[i])
+			}
+		}()
 		target := needCleanLabelTargets[i]
 		needCleanLabels := targetsNeedCleanLabels[i]
 		var deletePatch []map[string]string
@@ -59,32 +66,32 @@ func (r *RealSyncControl) cleanReplaceTargetLabels(ctx context.Context, needClea
 			}
 			deletePatch = append(deletePatch, patchOperation)
 			// replace finished, (1) remove ReplaceNewTargetID, ReplaceOriginTargetID key from IDs, (2) try to delete origin Target's ID
-			if labelKey == TargetReplacePairOriginName {
+			if labelKey == r.xsetLabelMgr.Label(api.EnumXSetReplacePairOriginNameLabel) {
 				needUpdateContext = true
 				newTargetId, _ := GetInstanceID(target)
 				if originTargetContext, exist := mapOriginToNewTargetContext[newTargetId]; exist && originTargetContext != nil {
-					originTargetContext.Remove(ReplaceNewTargetIDContextDataKey)
+					r.resourceContextControl.Remove(originTargetContext, api.EnumReplaceNewTargetIDContextDataKey)
 					if _, exist := currentIDs[originTargetContext.ID]; !exist {
 						needDeleteTargetsIDs.Insert(originTargetContext.ID)
 					}
 				}
 				if contextDetail, exist := ownedIDs[newTargetId]; exist {
-					contextDetail.Remove(ReplaceOriginTargetIDContextDataKey)
+					r.resourceContextControl.Remove(contextDetail, api.EnumReplaceOriginTargetIDContextDataKey)
 				}
 			}
 			// replace canceled, (1) remove ReplaceNewTargetID, ReplaceOriginTargetID key from IDs, (2) try to delete new Target's ID
 			_, replaceIndicate := target.GetLabels()[TargetReplaceIndicationLabelKey]
-			if !replaceIndicate && labelKey == TargetReplacePairNewId {
+			if !replaceIndicate && labelKey == r.xsetLabelMgr.Label(api.EnumXSetReplacePairNewIdLabel) {
 				needUpdateContext = true
 				originTargetId, _ := GetInstanceID(target)
 				if newTargetContext, exist := mapNewToOriginTargetContext[originTargetId]; exist && newTargetContext != nil {
-					newTargetContext.Remove(ReplaceOriginTargetIDContextDataKey)
+					r.resourceContextControl.Remove(newTargetContext, api.EnumReplaceOriginTargetIDContextDataKey)
 					if _, exist := currentIDs[newTargetContext.ID]; !exist {
 						needDeleteTargetsIDs.Insert(newTargetContext.ID)
 					}
 				}
 				if contextDetail, exist := ownedIDs[originTargetId]; exist {
-					contextDetail.Remove(ReplaceNewTargetIDContextDataKey)
+					r.resourceContextControl.Remove(contextDetail, api.EnumReplaceNewTargetIDContextDataKey)
 				}
 			}
 		}
@@ -110,40 +117,51 @@ func (r *RealSyncControl) replaceOriginTargets(
 	ownedIDs map[int]*api.ContextDetail,
 	availableContexts []*api.ContextDetail,
 ) (int, error) {
-	mapNewToOriginTargetContext := mapReplaceNewToOriginTargetContext(ownedIDs)
+	logger := logr.FromContext(ctx)
+	mapNewToOriginTargetContext := r.mapReplaceNewToOriginTargetContext(ownedIDs)
 	successCount, err := controllerutils.SlowStartBatch(len(needReplaceOriginTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		originTarget := needReplaceOriginTargets[i]
 		originTargetId, _ := GetInstanceID(originTarget)
 
-		replaceRevision := getReplaceRevision(originTarget, syncContext)
+		if ownedIDs[originTargetId] == nil {
+			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "OriginTargetContext", "cannot found resource context id %d of origin target %s/%s", originTargetId, originTarget.GetNamespace(), originTarget.GetName())
+			return fmt.Errorf("cannot found context for replace origin target %s/%s", originTarget.GetNamespace(), originTarget.GetName())
+		}
+
+		replaceRevision := r.getReplaceRevision(originTarget, syncContext)
 
 		// create target using update revision if replaced by update, otherwise using current revision
-		newTarget, err := NewTargetFrom(r.xsetController, instance, replaceRevision, originTargetId)
+		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, instance, replaceRevision, originTargetId)
 		if err != nil {
 			return err
 		}
 		// add instance id and replace pair label
-		var instanceId string
+		var newInstanceId string
 		var newTargetContext *api.ContextDetail
 		if contextDetail, exist := mapNewToOriginTargetContext[originTargetId]; exist && contextDetail != nil {
 			newTargetContext = contextDetail
 			// reuse targetContext ID if pair-relation exists
-			instanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			newTarget.GetLabels()[TargetInstanceIDLabelKey] = instanceId
+			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
+			newTarget.GetLabels()[TargetInstanceIDLabelKey] = newInstanceId
+			logger.Info("replaceOriginTargets", "try to reuse new pod resourceContext id", newInstanceId)
 		} else {
 			if availableContexts[i] == nil {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "AvailableContext", "cannot found available context for replace origin target %s/%s", originTarget.GetNamespace(), originTarget.GetName())
 				return fmt.Errorf("cannot found available context for replace new target when replacing origin target %s/%s", originTarget.GetNamespace(), originTarget.GetName())
 			}
 			newTargetContext = availableContexts[i]
 			// add replace pair-relation to targetContexts for originTarget and newTarget
-			instanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			newTarget.GetLabels()[TargetInstanceIDLabelKey] = instanceId
-			ownedIDs[originTargetId].Put(ReplaceNewTargetIDContextDataKey, instanceId)
-			ownedIDs[newTargetContext.ID].Put(ReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
+			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
+			r.xsetLabelMgr.Set(newTarget.GetLabels(), api.EnumXSetInstanceIdLabel, newInstanceId)
+			r.resourceContextControl.Put(ownedIDs[originTargetId], api.EnumReplaceNewTargetIDContextDataKey, newInstanceId)
+			r.resourceContextControl.Put(ownedIDs[newTargetContext.ID], api.EnumReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
 			r.resourceContextControl.Remove(ownedIDs[newTargetContext.ID], api.EnumJustCreateContextDataKey)
 		}
-		newTarget.GetLabels()[TargetReplacePairOriginName] = originTarget.GetName()
+		r.xsetLabelMgr.Set(newTarget.GetLabels(), api.EnumXSetReplacePairOriginNameLabel, originTarget.GetName())
+		r.xsetLabelMgr.Set(newTarget.GetLabels(), api.EnumXSetTargetCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 		r.resourceContextControl.Put(newTargetContext, api.EnumRevisionContextDataKey, replaceRevision.GetName())
+
+		// TODO create pvcs for new target (pod)
 
 		if newCreatedTarget, err := r.xControl.CreateTarget(ctx, newTarget); err == nil {
 			r.Recorder.Eventf(originTarget,
@@ -154,11 +172,16 @@ func (r *RealSyncControl) replaceOriginTargets(
 				originTarget.GetName(),
 				replaceRevision.GetName())
 
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:%q}}}`, TargetReplacePairNewId, instanceId)))
+			if err := r.cacheExpectations.ExpectCreation(clientutil.ObjectKeyString(instance), r.targetGVK, newTarget.GetNamespace(), newTarget.GetName()); err != nil {
+				return err
+			}
+
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:%q}}}`, TargetReplacePairNewId, newInstanceId)))
 			if err = r.xControl.PatchTarget(ctx, originTarget, patch); err != nil {
 				return fmt.Errorf("fail to update origin target %s/%s pair label %s when updating by replaceUpdate: %s", originTarget.GetNamespace(), originTarget.GetName(), newCreatedTarget.GetName(), err.Error())
 			}
-			return r.cacheExpectations.ExpectCreation(clientutil.ObjectKeyString(instance), r.targetGVK, newTarget.GetNamespace(), newTarget.GetName())
+			logger.Info("replaceOriginTargets", "replacing originTarget", originTarget.GetName(), "originTargetId", originTargetId, "newTargetContextID", newInstanceId)
+			return nil
 		} else {
 			r.Recorder.Eventf(originTarget,
 				corev1.EventTypeNormal,
@@ -175,9 +198,10 @@ func (r *RealSyncControl) replaceOriginTargets(
 	return successCount, err
 }
 
-func (r *RealSyncControl) dealReplaceTargets(targets []client.Object, logger logr.Logger) (
+func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []client.Object) (
 	needReplaceTargets, needCleanLabelTargets []client.Object, targetNeedCleanLabels [][]string, needDeleteTargets []client.Object,
 ) {
+	logger := logr.FromContext(ctx)
 	targetInstanceIdMap := make(map[string]client.Object)
 	targetNameMap := make(map[string]client.Object)
 
@@ -224,15 +248,15 @@ func (r *RealSyncControl) dealReplaceTargets(targets []client.Object, logger log
 
 	for _, target := range targets {
 		targetLabels := target.GetLabels()
-		_, replaceByUpdate := targetLabels[TargetReplaceByReplaceUpdateLabelKey]
+		_, replaceByUpdate := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplaceByReplaceUpdateLabel)
 		var needCleanLabels []string
 
 		// target is replace new created target, skip replace
-		if originTargetName, exist := targetLabels[TargetReplacePairOriginName]; exist {
+		if originTargetName, exist := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplacePairOriginNameLabel); exist {
 			// replace pair origin target is not exist, clean label.
 			if originTarget, exist := targetNameMap[originTargetName]; !exist {
-				needCleanLabels = append(needCleanLabels, TargetReplacePairOriginName)
-			} else if originTarget.GetLabels()[TargetReplaceIndicationLabelKey] == "" {
+				needCleanLabels = append(needCleanLabels, r.xsetLabelMgr.Label(api.EnumXSetReplacePairOriginNameLabel))
+			} else if _, exist := r.xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceIndicationLabel); !exist {
 				// replace canceled, delete replace new target if new target is not service available
 				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); !serviceAvailable {
 					needDeleteTargets = append(needDeleteTargets, target)
@@ -245,9 +269,9 @@ func (r *RealSyncControl) dealReplaceTargets(targets []client.Object, logger log
 			}
 		}
 
-		if newPairTargetId, exist := targetLabels[TargetReplacePairNewId]; exist {
+		if newPairTargetId, exist := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplacePairNewIdLabel); exist {
 			if _, exist := targetInstanceIdMap[newPairTargetId]; !exist {
-				needCleanLabels = append(needCleanLabels, TargetReplacePairNewId)
+				needCleanLabels = append(needCleanLabels, r.xsetLabelMgr.Label(api.EnumXSetReplacePairNewIdLabel))
 			}
 		}
 
@@ -263,6 +287,7 @@ func updateReplaceOriginTarget(
 	ctx context.Context,
 	c client.Client,
 	recorder record.EventRecorder,
+	xsetLabelMgr api.XSetLabelManager,
 	originTargetUpdateInfo, newTargetUpdateInfo *targetUpdateInfo,
 ) error {
 	originTarget := originTargetUpdateInfo.Object
@@ -270,10 +295,10 @@ func updateReplaceOriginTarget(
 	// 1. delete the new target if not updated
 	if newTargetUpdateInfo != nil {
 		newTarget := newTargetUpdateInfo.Object
-		_, deletionIndicate := newTarget.GetLabels()[TargetDeletionIndicationLabelKey]
+		_, deletionIndicate := xsetLabelMgr.Get(newTarget.GetLabels(), api.EnumXSetDeletionIndicationLabel)
 		currentRevision, exist := newTarget.GetLabels()[appsv1.ControllerRevisionHashLabelKey]
 		if exist && currentRevision != originTargetUpdateInfo.UpdateRevision.GetName() && !deletionIndicate {
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, TargetDeletionIndicationLabelKey, time.Now().UnixNano())))
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, xsetLabelMgr.Label(api.EnumXSetDeletionIndicationLabel), time.Now().UnixNano())))
 			if patchErr := c.Patch(ctx, newTarget, patch); patchErr != nil {
 				err := fmt.Errorf("failed to delete replace pair new target %s/%s %s",
 					newTarget.GetNamespace(), newTarget.GetName(), patchErr.Error())
@@ -290,11 +315,11 @@ func updateReplaceOriginTarget(
 	}
 
 	// 2. replace the origin target with updated target
-	_, replaceIndicate := originTarget.GetLabels()[TargetReplaceIndicationLabelKey]
-	_, replaceByUpdate := originTarget.GetLabels()[TargetReplaceByReplaceUpdateLabelKey]
-	if !replaceIndicate || !replaceByUpdate {
+	_, replaceIndicate := xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceIndicationLabel)
+	replaceRevision, replaceByUpdate := xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceByReplaceUpdateLabel)
+	if !replaceIndicate || !replaceByUpdate || replaceRevision != originTargetUpdateInfo.UpdateRevision.Name {
 		now := time.Now().UnixNano()
-		patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%v", %q: "%v"}}}`, TargetReplaceIndicationLabelKey, now, TargetReplaceByReplaceUpdateLabelKey, originTargetUpdateInfo.UpdateRevision.GetName())))
+		patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%v", %q: "%v"}}}`, xsetLabelMgr.Label(api.EnumXSetReplaceIndicationLabel), now, xsetLabelMgr.Label(api.EnumXSetReplaceByReplaceUpdateLabel), originTargetUpdateInfo.UpdateRevision.Name)))
 		if err := c.Patch(ctx, originTarget, patch); err != nil {
 			return fmt.Errorf("fail to label origin target %s/%s with replace indicate label by replaceUpdate: %s", originTarget.GetNamespace(), originTarget.GetName(), err.Error())
 		}
@@ -311,11 +336,11 @@ func updateReplaceOriginTarget(
 }
 
 // getReplaceRevision finds replaceNewTarget's revision from originTarget
-func getReplaceRevision(originTarget client.Object, syncContext *SyncContext) *appsv1.ControllerRevision {
+func (r *RealSyncControl) getReplaceRevision(originTarget client.Object, syncContext *SyncContext) *appsv1.ControllerRevision {
 	// replace update, first find revision from label, if revision not found, just replace with updated revision
-	if updateRevisionName, exist := originTarget.GetLabels()[TargetReplaceByReplaceUpdateLabelKey]; exist {
+	if updateRevisionName, exist := r.xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceByReplaceUpdateLabel); exist {
 		for _, rv := range syncContext.Revisions {
-			if updateRevisionName == rv.GetName() {
+			if updateRevisionName == rv.Name {
 				return rv
 			}
 		}
@@ -374,13 +399,14 @@ func classifyTargetReplacingMapping(targetWrappers []*targetWrapper) map[string]
 	return replaceTargetMapping
 }
 
-func mapReplaceNewToOriginTargetContext(ownedIDs map[int]*api.ContextDetail) map[int]*api.ContextDetail {
+func (r *RealSyncControl) mapReplaceNewToOriginTargetContext(ownedIDs map[int]*api.ContextDetail) map[int]*api.ContextDetail {
 	mapNewToOriginTargetContext := make(map[int]*api.ContextDetail)
 	for id, contextDetail := range ownedIDs {
-		if val, exist := contextDetail.Data[ReplaceNewTargetIDContextDataKey]; exist {
+		if val, exist := r.resourceContextControl.Get(contextDetail, api.EnumReplaceNewTargetIDContextDataKey); exist {
 			newTargetId, _ := strconv.ParseInt(val, 10, 32)
 			newTargetContextDetail, exist := ownedIDs[int(newTargetId)]
-			if exist && newTargetContextDetail.Data[ReplaceOriginTargetIDContextDataKey] == strconv.Itoa(id) {
+			originTargetId, _ := r.resourceContextControl.Get(newTargetContextDetail, api.EnumReplaceOriginTargetIDContextDataKey)
+			if exist && originTargetId == strconv.Itoa(id) {
 				mapNewToOriginTargetContext[id] = newTargetContextDetail
 			} else {
 				mapNewToOriginTargetContext[id] = nil
@@ -390,13 +416,14 @@ func mapReplaceNewToOriginTargetContext(ownedIDs map[int]*api.ContextDetail) map
 	return mapNewToOriginTargetContext
 }
 
-func mapReplaceOriginToNewTargetContext(ownedIDs map[int]*api.ContextDetail) map[int]*api.ContextDetail {
+func (r *RealSyncControl) mapReplaceOriginToNewTargetContext(ownedIDs map[int]*api.ContextDetail) map[int]*api.ContextDetail {
 	mapOriginToNewTargetContext := make(map[int]*api.ContextDetail)
 	for id, contextDetail := range ownedIDs {
-		if val, exist := contextDetail.Data[ReplaceOriginTargetIDContextDataKey]; exist {
+		if val, exist := r.resourceContextControl.Get(contextDetail, api.EnumReplaceOriginTargetIDContextDataKey); exist {
 			originTargetId, _ := strconv.ParseInt(val, 10, 32)
 			originTargetContextDetail, exist := ownedIDs[int(originTargetId)]
-			if exist && originTargetContextDetail.Data[ReplaceNewTargetIDContextDataKey] == strconv.Itoa(id) {
+			newTargetId, _ := r.resourceContextControl.Get(originTargetContextDetail, api.EnumReplaceNewTargetIDContextDataKey)
+			if exist && newTargetId == strconv.Itoa(id) {
 				mapOriginToNewTargetContext[id] = originTargetContextDetail
 			} else {
 				mapOriginToNewTargetContext[id] = nil

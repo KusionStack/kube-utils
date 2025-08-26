@@ -23,13 +23,19 @@ import (
 )
 
 var defaultXSetControllerLabelManager = map[api.XSetControllerLabelEnum]string{
-	api.EnumXSetControlledLabel:           appsv1alpha1.ControlledByKusionStackLabelKey,
-	api.EnumXSetReplaceIndicationLabelKey: appsv1alpha1.PodReplaceIndicationLabelKey,
-	api.EnumXSetReplacePairNewId:          appsv1alpha1.PodReplacePairNewId,
-	api.EnumXSetReplacePairOriginName:     appsv1alpha1.PodReplacePairOriginName,
+	api.EnumXSetControlledLabel:             appsv1alpha1.ControlledByKusionStackLabelKey,
+	api.EnumXSetInstanceIdLabel:             appsv1alpha1.PodInstanceIDLabelKey,
+	api.EnumXSetUpdateIndicationLabel:       appsv1alpha1.CollaSetUpdateIndicateLabelKey,
+	api.EnumXSetDeletionIndicationLabel:     appsv1alpha1.PodDeletionIndicationLabelKey,
+	api.EnumXSetReplaceIndicationLabel:      appsv1alpha1.PodReplaceIndicationLabelKey,
+	api.EnumXSetReplacePairNewIdLabel:       appsv1alpha1.PodReplacePairNewId,
+	api.EnumXSetReplacePairOriginNameLabel:  appsv1alpha1.PodReplacePairOriginName,
+	api.EnumXSetReplaceByReplaceUpdateLabel: appsv1alpha1.PodReplaceByReplaceUpdateLabelKey,
+	api.EnumXSetOrphanedLabel:               appsv1alpha1.PodOrphanedIndicateLabelKey,
+	api.EnumXSetTargetCreatingLabel:         appsv1alpha1.PodCreatingLabel,
 }
 
-func NewXSetControllerLabelManager() api.XSetControllerLabelManager {
+func NewXSetControllerLabelManager() api.XSetLabelManager {
 	return &xSetControllerLabelManager{
 		labelManager: defaultXSetControllerLabelManager,
 	}
@@ -39,6 +45,23 @@ type xSetControllerLabelManager struct {
 	labelManager map[api.XSetControllerLabelEnum]string
 }
 
-func (m *xSetControllerLabelManager) Get(key api.XSetControllerLabelEnum) string {
+func (m *xSetControllerLabelManager) Get(labels map[string]string, key api.XSetControllerLabelEnum) (string, bool) {
+	if labels == nil {
+		return "", false
+	}
+	labelKey := m.labelManager[key]
+	val, exist := labels[labelKey]
+	return val, exist
+}
+
+func (m *xSetControllerLabelManager) Set(labels map[string]string, key api.XSetControllerLabelEnum, val string) {
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labelKey := m.labelManager[key]
+	labels[labelKey] = val
+}
+
+func (m *xSetControllerLabelManager) Label(key api.XSetControllerLabelEnum) string {
 	return m.labelManager[key]
 }

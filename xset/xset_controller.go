@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -70,6 +71,11 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 		return err
 	}
 
+	xsetLabelManager := xsetController.GetXSetControllerLabelManager()
+	if xsetLabelManager == nil {
+		xsetLabelManager = synccontrols.NewXSetControllerLabelManager()
+	}
+
 	reconcilerMixin := mixin.NewReconcilerMixin(xsetController.ControllerName(), mgr)
 	xsetMeta := xsetController.XSetMeta()
 	xsetGVK := xsetMeta.GroupVersionKind()
@@ -83,7 +89,7 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 	}
 	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
 	resourceContextControl := resourcecontexts.NewRealResourceContextControl(reconcilerMixin.Client, xsetController, resourceContextAdapter, resourceContextGVK, cacheExpectations)
-	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, resourceContextControl, cacheExpectations)
+	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, xsetLabelManager, resourceContextControl, cacheExpectations)
 	revisionControl := history.NewRevisionControl(reconcilerMixin.Client, reconcilerMixin.Client)
 	revisionOwner := revisionowner.NewRevisionOwner(xsetController, targetControl)
 	revisionManager := history.NewHistoryManager(revisionControl, revisionOwner)
@@ -118,16 +124,17 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 		OwnerType:    xsetController.NewXSetObject(),
 	}, predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
-			return synccontrols.IsControlledByXSet(xsetController, event.Object)
+			return synccontrols.IsControlledByXSet(xsetLabelManager, event.Object)
 		},
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			return synccontrols.IsControlledByXSet(xsetController, updateEvent.ObjectNew) || synccontrols.IsControlledByXSet(xsetController, updateEvent.ObjectOld)
+			return synccontrols.IsControlledByXSet(xsetLabelManager, updateEvent.ObjectNew) ||
+				synccontrols.IsControlledByXSet(xsetLabelManager, updateEvent.ObjectOld)
 		},
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
-			return synccontrols.IsControlledByXSet(xsetController, deleteEvent.Object)
+			return synccontrols.IsControlledByXSet(xsetLabelManager, deleteEvent.Object)
 		},
 		GenericFunc: func(genericEvent event.GenericEvent) bool {
-			return synccontrols.IsControlledByXSet(xsetController, genericEvent.Object)
+			return synccontrols.IsControlledByXSet(xsetLabelManager, genericEvent.Object)
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to watch %s: %s", targetMeta.Kind, err.Error())
@@ -150,7 +157,8 @@ func getAndValidateResourceContextAdapter(xsetController api.XSetController) (ap
 func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	kind := r.meta.Kind
 	key := req.String()
-	logger := r.Logger.WithValues(kind, key)
+	ctx = logr.NewContext(ctx, r.Logger.WithValues(kind, key))
+	logger := logr.FromContext(ctx)
 	instance := r.XSetController.NewXSetObject()
 	if err := r.Client.Get(ctx, req.NamespacedName, instance); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -248,7 +256,7 @@ func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("fail to get filtered Targets: %s", err.Error())
 	}
-	return synccontrols.BatchDeleteTargetByLabel(ctx, r.targetControl, targets)
+	return r.syncControl.BatchDeleteTargetsByLabel(ctx, r.targetControl, targets)
 }
 
 func (r *xSetCommonReconciler) updateStatus(ctx context.Context, instance api.XSetObject, status *api.XSetStatus) error {

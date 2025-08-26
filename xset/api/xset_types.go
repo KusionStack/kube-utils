@@ -202,13 +202,27 @@ type XSetControllerLabelEnum int
 const (
 	EnumXSetControlledLabel XSetControllerLabelEnum = iota
 
-	EnumXSetReplaceIndicationLabelKey
+	EnumXSetInstanceIdLabel
 
-	EnumXSetReplacePairNewId
+	EnumXSetUpdateIndicationLabel
 
-	EnumXSetReplacePairOriginName
+	EnumXSetDeletionIndicationLabel
+
+	EnumXSetReplaceIndicationLabel
+
+	EnumXSetReplacePairNewIdLabel
+
+	EnumXSetReplacePairOriginNameLabel
+
+	EnumXSetReplaceByReplaceUpdateLabel
+
+	EnumXSetOrphanedLabel
+
+	EnumXSetTargetCreatingLabel
 )
 
-type XSetControllerLabelManager interface {
-	Get(labelType XSetControllerLabelEnum) string
+type XSetLabelManager interface {
+	Get(labels map[string]string, labelType XSetControllerLabelEnum) (string, bool)
+	Set(labels map[string]string, labelType XSetControllerLabelEnum, value string)
+	Label(labelType XSetControllerLabelEnum) string
 }
