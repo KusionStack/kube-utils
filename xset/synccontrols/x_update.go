@@ -634,6 +634,17 @@ func (u *replaceUpdateTargetUpdater) GetTargetUpdateFinishStatus(_ context.Conte
 }
 
 func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, targetInfo *targetUpdateInfo, finishByCancelUpdate bool) error {
+	if finishByCancelUpdate {
+		// cancel replace update by removing to-replace and replace-by-update label from origin model
+		if targetInfo.IsInReplace {
+			patch := client.RawPatch(types.MergePatchType, fmt.Appendf(nil, `{"metadata":{"labels":{"%s":null, "%s":null}}}`, u.xsetLabelMgr.Label(api.EnumXSetReplaceIndicationLabel), u.xsetLabelMgr.Label(api.EnumXSetReplaceByReplaceUpdateLabel)))
+			if err := u.targetControl.PatchTarget(ctx, targetInfo.Object, patch); err != nil {
+				return fmt.Errorf("failed to patch replace pair origin model %s/%s %w when cancel replace update", targetInfo.GetNamespace(), targetInfo.GetName(), err)
+			}
+			return u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.Object.GetNamespace(), targetInfo.Object.GetName(), targetInfo.Object.GetResourceVersion())
+		}
+	}
+
 	ReplacePairNewTargetInfo := targetInfo.ReplacePairNewTargetInfo
 	if ReplacePairNewTargetInfo != nil {
 		if _, exist := u.xsetLabelMgr.Get(targetInfo.GetLabels(), api.EnumXSetDeletionIndicationLabel); !exist {

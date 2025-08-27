@@ -740,7 +740,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	succCount, err = controllerutils.SlowStartBatch(len(targetUpdateInfos), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		targetInfo := targetUpdateInfos[i]
 
-		if !(targetInfo.IsDuringUpdateOps || targetInfo.PlaceHolder) || targetInfo.PlaceHolder || targetInfo.GetDeletionTimestamp() != nil {
+		if !(targetInfo.IsDuringUpdateOps || targetInfo.IsInReplaceUpdate) || targetInfo.PlaceHolder || targetInfo.GetDeletionTimestamp() != nil {
 			return nil
 		}
 
