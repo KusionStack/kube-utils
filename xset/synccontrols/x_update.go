@@ -621,25 +621,7 @@ func (u *replaceUpdateTargetUpdater) FulfillTargetUpdatedInfo(_ context.Context,
 }
 
 func (u *replaceUpdateTargetUpdater) UpgradeTarget(ctx context.Context, targetInfo *targetUpdateInfo) error {
-	// add replace labels and wait to replace when syncTargets
-	_, replaceIndicate := u.xsetLabelMgr.Get(targetInfo.Object.GetLabels(), api.EnumXSetReplaceIndicationLabel)
-	_, replaceByUpdate := u.xsetLabelMgr.Get(targetInfo.Object.GetLabels(), api.EnumXSetReplaceByReplaceUpdateLabel)
-	if !replaceIndicate || !replaceByUpdate {
-		// need replace update target, label target with replace-indicate and replace-update
-		now := time.Now().UnixNano()
-		patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%v", %q: "%v"}}}`, u.xsetLabelMgr.Label(api.EnumXSetReplaceIndicationLabel), now, u.xsetLabelMgr.Label(api.EnumXSetReplaceByReplaceUpdateLabel), targetInfo.UpdateRevision.GetName())))
-		if err := u.client.Patch(ctx, targetInfo.Object, patch); err != nil {
-			return fmt.Errorf("fail to label origin target %s/%s with replace indicate label by replaceUpdate: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
-		}
-		u.recorder.Eventf(targetInfo.Object,
-			corev1.EventTypeNormal,
-			"UpdateTarget",
-			"succeed to update Target %s/%s by label to-replace",
-			targetInfo.GetNamespace(),
-			targetInfo.GetName(),
-		)
-	}
-	return nil
+	return updateReplaceOriginTarget(ctx, u.client, u.recorder, u.xsetLabelMgr, targetInfo, targetInfo.ReplacePairNewTargetInfo)
 }
 
 func (u *replaceUpdateTargetUpdater) GetTargetUpdateFinishStatus(_ context.Context, targetUpdateInfo *targetUpdateInfo) (finished bool, msg string, err error) {
