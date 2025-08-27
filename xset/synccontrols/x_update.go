@@ -166,7 +166,7 @@ func (r *RealSyncControl) decideTargetToUpdate(xsetController api.XSetController
 		return r.decideTargetToUpdateByLabel(activeTargetInfos)
 	}
 
-	return r.decideTargetToUpdateByPartition(xsetController, xset, targetInfos)
+	return r.decideTargetToUpdateByPartition(xsetController, xset, filteredPodInfos)
 }
 
 func (r *RealSyncControl) decideTargetToUpdateByLabel(targetInfos []*targetUpdateInfo) (targetToUpdate []*targetUpdateInfo) {
