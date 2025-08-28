@@ -31,11 +31,6 @@ import (
 
 type UpdateFunc func(object client.Object) (bool, error)
 
-func IsServiceAvailable(m api.LifeCycleLabelManager, target client.Object) bool {
-	_, exists := target.GetLabels()[m.Get(api.ServiceAvailableLabel)]
-	return exists
-}
-
 // IDToLabelsMap returns a map of pod id to labels map and a map of operation type to number of pods.
 func IDToLabelsMap(m *LabelManagerImpl, target client.Object) (map[string]map[string]string, map[string]int, error) {
 	idToLabelsMap := map[string]map[string]string{}

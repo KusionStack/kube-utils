@@ -71,7 +71,7 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 				continue
 			}
 			// when scaleIn origin Target, newTarget should be deleted if not service available
-			if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); !serviceAvailable {
+			if r.xsetController.CheckAvailable(target) {
 				needDeleteTargets = append(needDeleteTargets, replacePairTarget)
 			}
 		}
@@ -174,7 +174,7 @@ func (r *RealSyncControl) reclaimScaleStrategy(ctx context.Context, deletedTarge
 	toIncludeTargetNames := sets.NewString(xspec.ScaleStrategy.TargetToInclude...)
 	notIncludeTargets := toIncludeTargetNames.Delete(includedTargets.List()...)
 	xspec.ScaleStrategy.TargetToInclude = notIncludeTargets.List()
-	if err := r.xsetController.UpdateScaleStrategy(xsetObject, &xspec.ScaleStrategy); err != nil {
+	if err := r.xsetController.UpdateScaleStrategy(ctx, r.Client, xsetObject, &xspec.ScaleStrategy); err != nil {
 		return err
 	}
 	// update xsetObject.spec.scaleStrategy

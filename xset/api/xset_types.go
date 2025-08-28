@@ -197,6 +197,14 @@ type XSetStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// OpsPriority is used to store the ops priority of a target
+type OpsPriority struct {
+	// PriorityClass is the priority class of the target
+	PriorityClass int32
+	// DeletionCost is the deletion cost of the target
+	DeletionCost int32
+}
+
 type XSetControllerLabelEnum int
 
 const (

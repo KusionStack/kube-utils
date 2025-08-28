@@ -52,7 +52,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 
 	for i, target := range activeTargets {
 		updateInfo := &targetUpdateInfo{
-			targetWrapper: &syncContext.TargetWrappers[i],
+			targetWrapper: syncContext.TargetWrappers[i],
 		}
 
 		// TODO decoration for target template
@@ -114,7 +114,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 
 		if replacePairNewTarget != nil {
 			// origin target is allowed to ops if new pod is serviceAvailable
-			_, newTargetSa := replacePairNewTarget.GetLabels()[r.updateConfig.opsLifecycleLabelMgr.Get(api.ServiceAvailableLabel)]
+			newTargetSa := r.xsetController.CheckAvailable(replacePairNewTarget.Object)
 			originTargetInfo.IsAllowUpdateOps = originTargetInfo.IsAllowUpdateOps || newTargetSa
 			// attach replace new target updateInfo
 			ReplacePairNewTargetInfo := targetUpdateInfoMap[replacePairNewTarget.GetName()]
@@ -133,7 +133,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 			continue
 		}
 		updateInfo := &targetUpdateInfo{
-			targetWrapper:  &target,
+			targetWrapper:  target,
 			UpdateRevision: syncContext.UpdatedRevision,
 		}
 		if revision, exist := r.resourceContextControl.Get(target.ContextDetail, api.EnumRevisionContextDataKey); exist &&
@@ -666,7 +666,7 @@ func (u *GenericTargetUpdater) isTargetUpdatedServiceAvailable(targetInfo *targe
 		return false, "replace origin target", nil
 	}
 
-	if serviceAvailable := opslifecycle.IsServiceAvailable(u.opsLifecycleLabelMgr, targetInfo.Object); serviceAvailable {
+	if u.xsetController.CheckAvailable(targetInfo.Object) {
 		return true, "", nil
 	}
 

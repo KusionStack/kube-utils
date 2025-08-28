@@ -17,6 +17,8 @@
 package api
 
 import (
+	"context"
+
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,7 +38,6 @@ type XSetController interface {
 	GetXSetSpec(object XSetObject) *XSetSpec
 	GetXSetPatch(object metav1.Object) ([]byte, error)
 	GetXSetTemplatePatcher(object metav1.Object) func(client.Object) error
-	UpdateScaleStrategy(object XSetObject, scaleStrategy *ScaleStrategy) (err error)
 	GetXSetStatus(object XSetObject) *XSetStatus
 	SetXSetStatus(object XSetObject, status *XSetStatus)
 
@@ -49,6 +50,9 @@ type XSetController interface {
 	CheckScheduled(object client.Object) bool
 	CheckReady(object client.Object) bool
 	CheckAvailable(object client.Object) bool
+
+	UpdateScaleStrategy(ctx context.Context, c client.Client, object XSetObject, scaleStrategy *ScaleStrategy) error
+	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
 }
 
 type XSetObject client.Object

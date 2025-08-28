@@ -33,7 +33,7 @@ type SyncContext struct {
 	ExistingSubResource []client.Object
 
 	FilteredTarget []client.Object
-	TargetWrappers []targetWrapper
+	TargetWrappers []*targetWrapper
 	activeTargets  []*targetWrapper
 	replacingMap   map[string]*targetWrapper
 
@@ -55,6 +55,8 @@ type targetWrapper struct {
 
 	IsDuringScaleInOps bool
 	IsDuringUpdateOps  bool
+
+	OpsPriority *api.OpsPriority
 }
 
 type targetUpdateInfo struct {

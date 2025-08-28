@@ -259,12 +259,12 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 				needCleanLabels = append(needCleanLabels, r.xsetLabelMgr.Label(api.EnumXSetReplacePairOriginNameLabel))
 			} else if _, exist := r.xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceIndicationLabel); !exist {
 				// replace canceled, delete replace new target if new target is not service available
-				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); !serviceAvailable {
+				if r.xsetController.CheckAvailable(target) {
 					needDeleteTargets = append(needDeleteTargets, target)
 				}
 			} else if !replaceByUpdate {
 				// not replace update, delete origin target when new created target is service available
-				if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleLabelMgr, target); serviceAvailable {
+				if r.xsetController.CheckAvailable(target) {
 					needDeleteTargets = append(needDeleteTargets, originTarget)
 				}
 			}

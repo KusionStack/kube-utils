@@ -184,7 +184,7 @@ func IsControlledByXSet(xsetLabelManager api.XSetLabelManager, obj client.Object
 	return ok && v == "true"
 }
 
-func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController, c client.Client, xset api.XSetObject, targets []targetWrapper) error {
+func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController, c client.Client, xset api.XSetObject, targets []*targetWrapper) error {
 	_, patchErr := controllerutils.SlowStartBatch(len(targets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		if targets[i].Object == nil || targets[i].PlaceHolder {
 			return nil
