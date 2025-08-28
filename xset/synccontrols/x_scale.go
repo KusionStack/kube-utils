@@ -71,7 +71,7 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 				continue
 			}
 			// when scaleIn origin Target, newTarget should be deleted if not service available
-			if r.xsetController.CheckAvailable(target) {
+			if !r.xsetController.CheckAvailable(target.Object) {
 				needDeleteTargets = append(needDeleteTargets, replacePairTarget)
 			}
 		}
