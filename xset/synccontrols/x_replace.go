@@ -131,7 +131,8 @@ func (r *RealSyncControl) replaceOriginTargets(
 		replaceRevision := r.getReplaceRevision(originTarget, syncContext)
 
 		// create target using update revision if replaced by update, otherwise using current revision
-		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, instance, replaceRevision, originTargetId)
+		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, instance, replaceRevision, originTargetId,
+			r.xsetController.GetXSetTemplatePatcher(instance))
 		if err != nil {
 			return err
 		}

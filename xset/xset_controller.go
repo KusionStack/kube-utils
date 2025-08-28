@@ -242,8 +242,9 @@ func (r *xSetCommonReconciler) doSync(ctx context.Context, instance api.XSetObje
 
 	_, scaleRequeueAfter, scaleErr := r.syncControl.Scale(ctx, instance, syncContext)
 	_, updateRequeueAfter, updateErr := r.syncControl.Update(ctx, instance, syncContext)
+	patcherErr := synccontrols.ApplyTemplatePatcher(ctx, r.XSetController, r.Client, instance, syncContext.TargetWrappers)
 
-	err = errors.Join(scaleErr, updateErr)
+	err = errors.Join(scaleErr, updateErr, patcherErr)
 	if updateRequeueAfter != nil && (scaleRequeueAfter == nil || *updateRequeueAfter < *scaleRequeueAfter) {
 		return updateRequeueAfter, err
 	}

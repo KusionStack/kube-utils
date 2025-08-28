@@ -35,6 +35,7 @@ type XSetController interface {
 
 	GetXSetSpec(object XSetObject) *XSetSpec
 	GetXSetPatch(object metav1.Object) ([]byte, error)
+	GetXSetTemplatePatcher(object metav1.Object) func(client.Object) error
 	UpdateScaleStrategy(object XSetObject, scaleStrategy *ScaleStrategy) (err error)
 	GetXSetStatus(object XSetObject) *XSetStatus
 	SetXSetStatus(object XSetObject, status *XSetStatus)

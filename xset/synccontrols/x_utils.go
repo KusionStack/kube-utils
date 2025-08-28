@@ -17,6 +17,7 @@
 package synccontrols
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"time"
@@ -26,6 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	clientutils "kusionstack.io/kube-utils/client"
+	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 )
 
@@ -179,4 +182,15 @@ func IsControlledByXSet(xsetLabelManager api.XSetLabelManager, obj client.Object
 
 	v, ok := xsetLabelManager.Get(obj.GetLabels(), api.EnumXSetControlledLabel)
 	return ok && v == "true"
+}
+
+func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController, c client.Client, xset api.XSetObject, targets []targetWrapper) error {
+	_, patchErr := controllerutils.SlowStartBatch(len(targets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
+		if targets[i].Object == nil || targets[i].PlaceHolder {
+			return nil
+		}
+		_, err := clientutils.UpdateOnConflict(ctx, c, c, targets[i].Object, xsetController.GetXSetTemplatePatcher(xset))
+		return err
+	})
+	return patchErr
 }

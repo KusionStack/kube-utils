@@ -473,7 +473,9 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 							r.xsetLabelMgr.Set(object.GetLabels(), api.EnumXSetTargetCompletingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 						}
 						return nil
-					})
+					},
+					r.xsetController.GetXSetTemplatePatcher(xsetObject),
+				)
 				if err != nil {
 					return fmt.Errorf("fail to new Target from revision %s: %w", revision.GetName(), err)
 				}
