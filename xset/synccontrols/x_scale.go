@@ -138,7 +138,7 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 	}
 
 	// TODO consider service available timestamps
-	return CompareTarget(l, r, s.checkReadyFunc, s.getReadyTimeFunc)
+	return CompareTarget(l.Object, r.Object, s.checkReadyFunc, s.getReadyTimeFunc)
 }
 
 // doIncludeExcludeTargets do real include and exclude for targets which are allowed to in/exclude

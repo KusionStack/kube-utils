@@ -278,7 +278,7 @@ func (o *orderByDefault) Less(i, j int) bool {
 		}
 	}
 
-	return CompareTarget(l, r, o.checkReadyFunc, o.getReadyTimeFunc)
+	return CompareTarget(l.Object, r.Object, o.checkReadyFunc, o.getReadyTimeFunc)
 }
 
 type UpdateConfig struct {
