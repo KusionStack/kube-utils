@@ -40,6 +40,7 @@ type XSetController interface {
 	GetXSetTemplatePatcher(object metav1.Object) func(client.Object) error
 	GetXSetStatus(object XSetObject) *XSetStatus
 	SetXSetStatus(object XSetObject, status *XSetStatus)
+	GetReadyTime(object client.Object) *metav1.Time
 
 	GetLifeCycleLabelManager() LifeCycleLabelManager
 	GetXSetControllerLabelManager() XSetLabelManager

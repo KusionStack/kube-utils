@@ -22,10 +22,12 @@ import (
 	"sort"
 	"strconv"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutil "kusionstack.io/kube-utils/client"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
@@ -45,7 +47,7 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 	}
 
 	// 1. select targets to delete in first round according to diff
-	sort.Sort(newActiveTargetsForDeletion(countedTargets))
+	sort.Sort(newActiveTargetsForDeletion(countedTargets, r.xsetController.CheckReady, r.xsetController.GetReadyTime))
 	if diff > len(countedTargets) {
 		diff = len(countedTargets)
 	}
@@ -82,12 +84,20 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 }
 
 type ActiveTargetsForDeletion struct {
-	targets []*targetWrapper
+	targets          []*targetWrapper
+	checkReadyFunc   func(object client.Object) bool
+	getReadyTimeFunc func(object client.Object) *metav1.Time
 }
 
-func newActiveTargetsForDeletion(targets []*targetWrapper) *ActiveTargetsForDeletion {
+func newActiveTargetsForDeletion(
+	targets []*targetWrapper,
+	checkReadyFunc func(object client.Object) bool,
+	getReadyTimeFunc func(object client.Object) *metav1.Time,
+) *ActiveTargetsForDeletion {
 	return &ActiveTargetsForDeletion{
-		targets: targets,
+		targets:          targets,
+		checkReadyFunc:   checkReadyFunc,
+		getReadyTimeFunc: getReadyTimeFunc,
 	}
 }
 
@@ -113,13 +123,22 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 		return l.IsDuringScaleInOps
 	}
 
+	lReady, rReady := s.checkReadyFunc(l.Object), s.checkReadyFunc(r.Object)
+	if lReady != rReady {
+		return lReady
+	}
+
+	if l.OpsPriority != nil && r.OpsPriority != nil {
+		if l.OpsPriority.PriorityClass != r.OpsPriority.PriorityClass {
+			return l.OpsPriority.PriorityClass < r.OpsPriority.PriorityClass
+		}
+		if l.OpsPriority.DeletionCost != r.OpsPriority.DeletionCost {
+			return l.OpsPriority.DeletionCost < r.OpsPriority.DeletionCost
+		}
+	}
+
 	// TODO consider service available timestamps
-
-	// TODO abstract interface
-
-	lCreationTime := l.Object.GetCreationTimestamp().Time
-	rCreationTime := r.Object.GetCreationTimestamp().Time
-	return lCreationTime.After(rCreationTime)
+	return CompareTarget(l, r, s.checkReadyFunc, s.getReadyTimeFunc)
 }
 
 // doIncludeExcludeTargets do real include and exclude for targets which are allowed to in/exclude

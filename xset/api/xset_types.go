@@ -188,7 +188,7 @@ type XSetStatus struct {
 	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
 
 	// UpdatedAvailableReplicas indicates the number of available updated revision replicas for this replicas set.
-	// A model is updated available means the model is ready for updated revision and accessible
+	// A target is updated available means the target is ready for updated revision and accessible
 	// +optional
 	UpdatedAvailableReplicas int32 `json:"updatedAvailableReplicas,omitempty"`
 

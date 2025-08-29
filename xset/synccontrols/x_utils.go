@@ -194,3 +194,26 @@ func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController
 	})
 	return patchErr
 }
+
+func CompareTarget(l, r client.Object,
+	checkReadyFunc func(object client.Object) bool,
+	getReadyTimeFunc func(object client.Object) *metav1.Time,
+) bool {
+	// If both targets are ready, the latest ready one is smaller
+	if checkReadyFunc(l) && checkReadyFunc(r) && !getReadyTimeFunc(l).Equal(getReadyTimeFunc(r)) {
+		return afterOrZero(getReadyTimeFunc(l), getReadyTimeFunc(r))
+	}
+	// Empty creation time targets < newer targets < older targets
+	lCreationTime, rCreationTime := l.GetCreationTimestamp(), r.GetCreationTimestamp()
+	if !(&lCreationTime).Equal(&rCreationTime) {
+		return afterOrZero(&lCreationTime, &rCreationTime)
+	}
+	return false
+}
+
+func afterOrZero(t1, t2 *metav1.Time) bool {
+	if t1.Time.IsZero() || t2.Time.IsZero() {
+		return t1.Time.IsZero()
+	}
+	return t1.After(t2.Time)
+}

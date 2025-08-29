@@ -200,7 +200,7 @@ func (r *RealSyncControl) decideTargetToUpdateByPartition(xsetController api.XSe
 	}
 
 	// partial update replicas
-	ordered := newOrderedTargetUpdateInfos(filteredTargetInfos, xsetController.CheckReady)
+	ordered := newOrderedTargetUpdateInfos(filteredTargetInfos, xsetController.CheckReady, xsetController.GetReadyTime)
 	sort.Sort(ordered)
 	targetToUpdate := ordered.targets[:replicas-partition]
 	return targetToUpdate
@@ -222,16 +222,22 @@ func (r *RealSyncControl) getTargetsUpdateTargets(targetInfos []*targetUpdateInf
 	return filteredTargetInfos
 }
 
-func newOrderedTargetUpdateInfos(targetInfos []*targetUpdateInfo, checkReadyFunc func(object client.Object) bool) *orderByDefault {
+func newOrderedTargetUpdateInfos(
+	targetInfos []*targetUpdateInfo,
+	checkReadyFunc func(object client.Object) bool,
+	getReadyTimeFunc func(object client.Object) *metav1.Time,
+) *orderByDefault {
 	return &orderByDefault{
-		targets:        targetInfos,
-		checkReadyFunc: checkReadyFunc,
+		targets:          targetInfos,
+		checkReadyFunc:   checkReadyFunc,
+		getReadyTimeFunc: getReadyTimeFunc,
 	}
 }
 
 type orderByDefault struct {
-	targets        []*targetUpdateInfo
-	checkReadyFunc func(object client.Object) bool
+	targets          []*targetUpdateInfo
+	checkReadyFunc   func(object client.Object) bool
+	getReadyTimeFunc func(object client.Object) *metav1.Time
 }
 
 func (o *orderByDefault) Len() int {
@@ -263,11 +269,16 @@ func (o *orderByDefault) Less(i, j int) bool {
 		return lReady
 	}
 
-	// TODO abstract interface
+	if l.OpsPriority != nil && r.OpsPriority != nil {
+		if l.OpsPriority.PriorityClass != r.OpsPriority.PriorityClass {
+			return l.OpsPriority.PriorityClass < r.OpsPriority.PriorityClass
+		}
+		if l.OpsPriority.DeletionCost != r.OpsPriority.DeletionCost {
+			return l.OpsPriority.DeletionCost < r.OpsPriority.DeletionCost
+		}
+	}
 
-	lCreationTime := l.Object.GetCreationTimestamp().Time
-	rCreationTime := r.Object.GetCreationTimestamp().Time
-	return lCreationTime.After(rCreationTime)
+	return CompareTarget(l, r, o.checkReadyFunc, o.getReadyTimeFunc)
 }
 
 type UpdateConfig struct {
@@ -635,11 +646,11 @@ func (u *replaceUpdateTargetUpdater) GetTargetUpdateFinishStatus(_ context.Conte
 
 func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, targetInfo *targetUpdateInfo, finishByCancelUpdate bool) error {
 	if finishByCancelUpdate {
-		// cancel replace update by removing to-replace and replace-by-update label from origin model
+		// cancel replace update by removing to-replace and replace-by-update label from origin target
 		if targetInfo.IsInReplace {
 			patch := client.RawPatch(types.MergePatchType, fmt.Appendf(nil, `{"metadata":{"labels":{"%s":null, "%s":null}}}`, u.xsetLabelMgr.Label(api.EnumXSetReplaceIndicationLabel), u.xsetLabelMgr.Label(api.EnumXSetReplaceByReplaceUpdateLabel)))
 			if err := u.targetControl.PatchTarget(ctx, targetInfo.Object, patch); err != nil {
-				return fmt.Errorf("failed to patch replace pair origin model %s/%s %w when cancel replace update", targetInfo.GetNamespace(), targetInfo.GetName(), err)
+				return fmt.Errorf("failed to patch replace pair target %s/%s %w when cancel replace update", targetInfo.GetNamespace(), targetInfo.GetName(), err)
 			}
 		}
 		return nil
