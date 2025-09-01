@@ -38,13 +38,6 @@ type XSetController interface {
 	XSetOperation
 	// XOperation are implemented to access X object and status, etc.
 	XOperation
-
-	// LifecycleAdapterGetter is used to get lifecycle adapters.
-	LifecycleAdapterGetter
-	// ResourceContextAdapterGetter is used to get resource context adapter.
-	ResourceContextAdapterGetter
-	// LabelAnnotationManagerGetter is used to get label manager adapter.
-	LabelAnnotationManagerGetter
 }
 
 type XSetObject client.Object
@@ -66,15 +59,18 @@ type XOperation interface {
 	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
 }
 
+// LifecycleAdapterGetter is used to get lifecycle adapters.
 type LifecycleAdapterGetter interface {
 	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
 	GetUpdateOpsLifecycleAdapter() LifecycleAdapter
 }
 
+// ResourceContextAdapterGetter is used to get resource context adapter.
 type ResourceContextAdapterGetter interface {
 	GetResourceContextAdapter() ResourceContextAdapter
 }
 
+// LabelAnnotationManagerGetter is used to get label manager adapter.
 type LabelAnnotationManagerGetter interface {
 	GetLabelManagerAdapter() XSetLabelAnnotationManager
 }

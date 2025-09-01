@@ -68,19 +68,11 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	resourceContexts resourcecontexts.ResourceContextControl,
 	cacheExpectations expectations.CacheExpectationsInterface,
 ) SyncControl {
-	scaleInOpsLifecycleAdapter := xsetController.GetScaleInOpsLifecycleAdapter()
-	if scaleInOpsLifecycleAdapter == nil {
-		scaleInOpsLifecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{LabelAnnoManager: xsetLabelAnnoManager, XSetType: xsetController.XSetMeta()}
-	}
-	updateLifecycleAdapter := xsetController.GetUpdateOpsLifecycleAdapter()
-	if updateLifecycleAdapter == nil {
-		updateLifecycleAdapter = &opslifecycle.DefaultUpdateLifecycleAdapter{LabelAnnoManager: xsetLabelAnnoManager, XSetType: xsetController.XSetMeta()}
-	}
-
 	xMeta := xsetController.XMeta()
 	targetGVK := xMeta.GroupVersionKind()
 	xsetMeta := xsetController.XSetMeta()
 	xsetGVK := xsetMeta.GroupVersionKind()
+	updateLifecycleAdapter, scaleInOpsLifecycleAdapter := opslifecycle.GetLifecycleAdapters(xsetController, xsetLabelAnnoManager, xsetMeta)
 
 	updateConfig := &UpdateConfig{
 		xsetController:         xsetController,

@@ -79,3 +79,10 @@ func (d *DefaultScaleInLifecycleAdapter) WhenBegin(target client.Object) (bool, 
 func (d *DefaultScaleInLifecycleAdapter) WhenFinish(_ client.Object) (bool, error) {
 	return false, nil
 }
+
+func GetLifecycleAdapters(xsetController api.XSetController, labelAnnoMgr api.XSetLabelAnnotationManager, xsetTypeMeta metav1.TypeMeta) (api.LifecycleAdapter, api.LifecycleAdapter) {
+	if getter, ok := xsetController.(api.LifecycleAdapterGetter); ok {
+		return getter.GetUpdateOpsLifecycleAdapter(), getter.GetScaleInOpsLifecycleAdapter()
+	}
+	return &DefaultUpdateLifecycleAdapter{LabelAnnoManager: labelAnnoMgr, XSetType: xsetTypeMeta}, &DefaultScaleInLifecycleAdapter{LabelAnnoManager: labelAnnoMgr, XSetType: xsetTypeMeta}
+}

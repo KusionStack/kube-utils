@@ -36,13 +36,6 @@ var defaultResourceContextKeys = map[api.ResourceContextKeyEnum]string{
 	api.EnumReplaceOriginTargetIDContextDataKey: "ReplaceOriginTargetID",
 }
 
-type ResourceContextAdapterGetter struct {
-}
-
-func (r *ResourceContextAdapterGetter) GetResourceContextAdapter() api.ResourceContextAdapter {
-	return &DefaultResourceContextAdapter{}
-}
-
 // DefaultResourceContextAdapter is the adapter to api apps.kusionstack.io.resourcecontexts
 type DefaultResourceContextAdapter struct{}
 
@@ -84,4 +77,11 @@ func (*DefaultResourceContextAdapter) GetContextKeys() map[api.ResourceContextKe
 
 func (*DefaultResourceContextAdapter) NewResourceContext() api.ResourceContextObject {
 	return &appsv1alpha1.ResourceContext{}
+}
+
+func GetResourceContextAdapter(controller api.XSetController) api.ResourceContextAdapter {
+	if getter, ok := controller.(api.ResourceContextAdapterGetter); ok {
+		return getter.GetResourceContextAdapter()
+	}
+	return &DefaultResourceContextAdapter{}
 }

@@ -167,3 +167,10 @@ func GetWellKnownLabelPrefixesWithID(m XSetLabelAnnotationManager) []string {
 		m.Value(OperatingLabelPrefix),
 	}
 }
+
+func GetXSetLabelAnnotationManager(xsetController XSetController) XSetLabelAnnotationManager {
+	if getter, ok := xsetController.(LabelAnnotationManagerGetter); ok {
+		return getter.GetLabelManagerAdapter()
+	}
+	return NewXSetLabelAnnotationManager()
+}
