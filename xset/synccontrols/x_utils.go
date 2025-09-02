@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutils "kusionstack.io/kube-utils/client"
+	"kusionstack.io/kube-utils/condition"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 )
@@ -85,7 +86,7 @@ func AddOrUpdateCondition(status *api.XSetStatus, conditionType api.XSetConditio
 		condStatus = metav1.ConditionFalse
 	}
 
-	existCond := GetCondition(status, string(conditionType))
+	existCond := condition.GetCondition(status.Conditions, string(conditionType))
 	if existCond != nil && existCond.Reason == reason && existCond.Status == condStatus {
 		now := metav1.Now()
 		if now.Sub(existCond.LastTransitionTime.Time) < ConditionUpdatePeriodBackOff {
@@ -93,40 +94,8 @@ func AddOrUpdateCondition(status *api.XSetStatus, conditionType api.XSetConditio
 		}
 	}
 
-	cond := NewCondition(string(conditionType), condStatus, reason, message)
-	SetCondition(status, cond)
-}
-
-func NewCondition(condType string, status metav1.ConditionStatus, reason, msg string) *metav1.Condition {
-	return &metav1.Condition{
-		Type:               condType,
-		Status:             status,
-		LastTransitionTime: metav1.Now(),
-		Reason:             reason,
-		Message:            msg,
-	}
-}
-
-// SetCondition adds/replaces the given condition in the replicaset status. If the condition that we
-// are about to add already exists and has the same status and reason then we are not going to update.
-func SetCondition(status *api.XSetStatus, condition *metav1.Condition) {
-	currentCond := GetCondition(status, condition.Type)
-	if currentCond != nil && currentCond.Status == condition.Status && currentCond.Reason == condition.Reason && currentCond.LastTransitionTime == condition.LastTransitionTime {
-		return
-	}
-	newConditions := filterOutCondition(status.Conditions, condition.Type)
-	newConditions = append(newConditions, *condition)
-	status.Conditions = newConditions
-}
-
-// GetCondition returns a inplace set condition with the provided type if it exists.
-func GetCondition(status *api.XSetStatus, condType string) *metav1.Condition {
-	for _, c := range status.Conditions {
-		if c.Type == condType {
-			return &c
-		}
-	}
-	return nil
+	cond := condition.NewCondition(string(conditionType), condStatus, reason, message)
+	status.Conditions = condition.SetCondition(status.Conditions, *cond)
 }
 
 func GetTargetsPrefix(controllerName string) string {
@@ -151,18 +120,6 @@ func ObjectKeyString(obj client.Object) string {
 		return obj.GetName()
 	}
 	return obj.GetNamespace() + "/" + obj.GetName()
-}
-
-// filterOutCondition returns a new slice of replicaset conditions without conditions with the provided type.
-func filterOutCondition(conditions []metav1.Condition, condType string) []metav1.Condition {
-	var newConditions []metav1.Condition
-	for _, c := range conditions {
-		if c.Type == condType {
-			continue
-		}
-		newConditions = append(newConditions, c)
-	}
-	return newConditions
 }
 
 func controlByXSet(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, obj client.Object) {
