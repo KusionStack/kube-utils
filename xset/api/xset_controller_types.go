@@ -62,8 +62,11 @@ type XOperation interface {
 }
 
 type SubResourcePvcAdapter interface {
-	XSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
-	XMountedPvcs(object client.Object)
+	RetainPvcWhenXSetDeleted(object XSetObject) bool
+	RetainPvcWhenXSetScaled(object XSetObject) bool
+	GetXSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
+	GetXMountedPvcs(object client.Object) []corev1.Volume
+	MountXPvcs(object client.Object, pvcs []corev1.Volume)
 }
 
 // LifecycleAdapterGetter is used to get lifecycle adapters.
