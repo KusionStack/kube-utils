@@ -20,6 +20,7 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -57,6 +58,11 @@ type XOperation interface {
 	CheckReadyTime(object client.Object) (bool, *metav1.Time)
 	CheckAvailable(object client.Object) bool
 	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
+}
+
+type SubResourcePvcAdapter interface {
+	XSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
+	XMountedPvcs(object client.Object)
 }
 
 // LifecycleAdapterGetter is used to get lifecycle adapters.
