@@ -19,9 +19,13 @@ package synccontrols
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -33,6 +37,7 @@ import (
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
+	"kusionstack.io/kube-utils/xset/subresources"
 )
 
 // getTargetsToDelete
@@ -139,6 +144,115 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 	return CompareTarget(l.Object, r.Object, s.checkReadyFunc)
 }
 
+// dealIncludeExcludeTargets returns targets which are allowed to exclude and include
+func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObject api.XSetObject, targets []client.Object) (sets.String, sets.String, error) {
+	spec := r.xsetController.GetXSetSpec(xsetObject)
+	ownedTargets := sets.String{}
+	excludeTargetNames := sets.String{}
+	includeTargetNames := sets.String{}
+
+	for _, target := range targets {
+		ownedTargets.Insert(target.GetName())
+		if _, exist := r.xsetLabelAnnoMgr.Get(target.GetLabels(), api.XExcludeIndicationLabelKey); exist {
+			excludeTargetNames.Insert(target.GetName())
+		}
+	}
+
+	tmpUnOwnedExcludeTargets := sets.String{}
+	for _, targetName := range spec.ScaleStrategy.TargetToExclude {
+		if ownedTargets.Has(targetName) {
+			excludeTargetNames.Insert(targetName)
+		} else {
+			tmpUnOwnedExcludeTargets.Insert(targetName)
+		}
+	}
+
+	intersection := sets.String{}
+	for _, targetName := range spec.ScaleStrategy.TargetToInclude {
+		if excludeTargetNames.Has(targetName) {
+			intersection.Insert(targetName)
+			excludeTargetNames.Delete(targetName)
+		} else if tmpUnOwnedExcludeTargets.Has(targetName) {
+			intersection.Insert(targetName)
+		} else if !ownedTargets.Has(targetName) {
+			includeTargetNames.Insert(targetName)
+		}
+	}
+
+	if len(intersection) > 0 {
+		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "DupExIncludedTarget", "duplicated targets %s in both excluding and including sets", strings.Join(intersection.List(), ", "))
+	}
+
+	toExcludeTargets, notAllowedExcludeTargets, exErr := r.allowIncludeExcludeTargets(ctx, xsetObject, excludeTargetNames.List(), AllowResourceExclude, r.xsetLabelAnnoMgr)
+	toIncludeTargets, notAllowedIncludeTargets, inErr := r.allowIncludeExcludeTargets(ctx, xsetObject, includeTargetNames.List(), AllowResourceInclude, r.xsetLabelAnnoMgr)
+	if notAllowedExcludeTargets.Len() > 0 {
+		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "ExcludeNotAllowed", fmt.Sprintf("targets [%v] are not allowed to exclude, please find out the reason from target's event", notAllowedExcludeTargets.List()))
+	}
+	if notAllowedIncludeTargets.Len() > 0 {
+		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "IncludeNotAllowed", fmt.Sprintf("targets [%v] are not allowed to include, please find out the reason from target's event", notAllowedIncludeTargets.List()))
+	}
+	return toExcludeTargets, toIncludeTargets, errors.Join(exErr, inErr)
+}
+
+// checkAllowFunc refers to AllowResourceExclude and AllowResourceInclude
+type checkAllowFunc func(obj metav1.Object, ownerName, ownerKind string, labelMgr api.XSetLabelAnnotationManager) (bool, string)
+
+// allowIncludeExcludeTargets try to classify targetNames to allowedTargets and notAllowedTargets, using checkAllowFunc func
+func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, targetNames []string, fn checkAllowFunc, labelMgr api.XSetLabelAnnotationManager) (allowTargets, notAllowTargets sets.String, err error) {
+	allowTargets = sets.String{}
+	notAllowTargets = sets.String{}
+	for i := range targetNames {
+		target := r.xsetController.NewXObject()
+		targetName := targetNames[i]
+		err = r.Client.Get(ctx, types.NamespacedName{Namespace: xset.GetNamespace(), Name: targetName}, target)
+		if apierrors.IsNotFound(err) {
+			notAllowTargets.Insert(targetNames[i])
+			continue
+		} else if err != nil {
+			r.Recorder.Eventf(xset, corev1.EventTypeWarning, "ExcludeIncludeFailed", fmt.Sprintf("failed to find target %s: %s", targetNames[i], err.Error()))
+			return
+		}
+
+		// check allowance for target
+		if allowed, reason := fn(target, xset.GetName(), xset.GetObjectKind().GroupVersionKind().Kind, labelMgr); !allowed {
+			r.Recorder.Eventf(target, corev1.EventTypeWarning, "ExcludeIncludeNotAllowed",
+				fmt.Sprintf("target is not allowed to exclude/include from/to %s %s/%s: %s", r.xsetGVK.Kind, xset.GetNamespace(), xset.GetName(), reason))
+			notAllowTargets.Insert(targetName)
+			continue
+		}
+
+		// check allowance for subresource
+		pvcsAllowed := true
+		if subresources.SubresourcePvcEnabled(r.pvcControl) {
+			adapter, _ := r.xsetController.(api.SubResourcePvcAdapter)
+			for _, volume := range adapter.GetXSpecVolumes(target) {
+				if volume.PersistentVolumeClaim == nil {
+					continue
+				}
+				pvc := &corev1.PersistentVolumeClaim{}
+				err = r.Client.Get(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: volume.PersistentVolumeClaim.ClaimName}, pvc)
+				// if pvc not found, ignore it. In case of pvc is filtered by controller-mesh
+				if apierrors.IsNotFound(err) {
+					continue
+				} else if err != nil {
+					r.Recorder.Eventf(target, corev1.EventTypeWarning, "ExcludeIncludeNotAllowed", fmt.Sprintf("failed to check allowed to exclude/include from/to xset %s/%s: %s", xset.GetNamespace(), xset.GetName(), err.Error()))
+					pvcsAllowed = false
+				}
+				if allowed, reason := fn(pvc, xset.GetName(), xset.GetObjectKind().GroupVersionKind().Kind, labelMgr); !allowed {
+					r.Recorder.Eventf(target, corev1.EventTypeWarning, "ExcludeIncludeNotAllowed", fmt.Sprintf("failed to check allowed to exclude/include from/to xset %s/%s: %s", xset.GetNamespace(), xset.GetName(), reason))
+					pvcsAllowed = false
+				}
+			}
+		}
+		if pvcsAllowed {
+			allowTargets.Insert(targetName)
+		} else {
+			notAllowTargets.Insert(targetName)
+		}
+	}
+	return allowTargets, notAllowTargets, nil
+}
+
 // doIncludeExcludeTargets do real include and exclude for targets which are allowed to in/exclude
 func (r *RealSyncControl) doIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, excludeTargets, includeTargets []string, availableContexts []*api.ContextDetail) error {
 	var excludeErrs, includeErrs []error
@@ -160,8 +274,34 @@ func (r *RealSyncControl) excludeTarget(ctx context.Context, xsetObject api.XSet
 		return err
 	}
 
+	// exclude subresource
+	if subresources.SubresourcePvcEnabled(r.pvcControl) {
+		adapter, _ := r.xsetController.(api.SubResourcePvcAdapter)
+		for _, volume := range adapter.GetXSpecVolumes(target) {
+			if volume.PersistentVolumeClaim == nil {
+				continue
+			}
+			pvc := &corev1.PersistentVolumeClaim{}
+			err := r.Client.Get(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: volume.PersistentVolumeClaim.ClaimName}, pvc)
+			// If pvc not found, ignore it. In case of pvc is filtered out by controller-mesh
+			if apierrors.IsNotFound(err) {
+				continue
+			} else if err != nil {
+				return err
+			}
+
+			r.xsetLabelAnnoMgr.Set(pvc, api.XOrphanedIndicationLabelKey, "true")
+			if err := r.pvcControl.OrphanPvc(ctx, xsetObject, pvc); err != nil {
+				return err
+			}
+		}
+	}
+
 	r.xsetLabelAnnoMgr.Set(target, api.XOrphanedIndicationLabelKey, "true")
-	return r.xControl.OrphanTarget(xsetObject, target)
+	if err := r.xControl.OrphanTarget(xsetObject, target); err != nil {
+		return err
+	}
+	return r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName(), target.GetResourceVersion())
 }
 
 // includeTarget try to include a target into xset
@@ -171,9 +311,36 @@ func (r *RealSyncControl) includeTarget(ctx context.Context, xsetObject api.XSet
 		return err
 	}
 
+	// exclude subresource
+	if subresources.SubresourcePvcEnabled(r.pvcControl) {
+		adapter, _ := r.xsetController.(api.SubResourcePvcAdapter)
+		for _, volume := range adapter.GetXSpecVolumes(target) {
+			if volume.PersistentVolumeClaim == nil {
+				continue
+			}
+			pvc := &corev1.PersistentVolumeClaim{}
+			err := r.Client.Get(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: volume.PersistentVolumeClaim.ClaimName}, pvc)
+			// If pvc not found, ignore it. In case of pvc is filtered out by controller-mesh
+			if apierrors.IsNotFound(err) {
+				continue
+			} else if err != nil {
+				return err
+			}
+
+			r.xsetLabelAnnoMgr.Set(pvc, api.XInstanceIdLabelKey, instanceId)
+			r.xsetLabelAnnoMgr.Delete(pvc.GetLabels(), api.XOrphanedIndicationLabelKey)
+			if err := r.pvcControl.AdoptPvc(ctx, xsetObject, pvc); err != nil {
+				return err
+			}
+		}
+	}
+
 	r.xsetLabelAnnoMgr.Set(target, api.XInstanceIdLabelKey, instanceId)
 	r.xsetLabelAnnoMgr.Delete(target.GetLabels(), api.XOrphanedIndicationLabelKey)
-	return r.xControl.AdoptTarget(xsetObject, target)
+	if err := r.xControl.AdoptTarget(xsetObject, target); err != nil {
+		return err
+	}
+	return r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName(), target.GetResourceVersion())
 }
 
 // reclaimScaleStrategy updates targetToDelete, targetToExclude, targetToInclude in scaleStrategy

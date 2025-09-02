@@ -20,6 +20,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -40,7 +41,13 @@ type SyncContext struct {
 	CurrentIDs sets.Int
 	OwnedIds   map[int]*api.ContextDetail
 
+	SubResources
+
 	NewStatus *api.XSetStatus
+}
+
+type SubResources struct {
+	ExistingPvcs []*corev1.PersistentVolumeClaim
 }
 
 type targetWrapper struct {
@@ -75,6 +82,7 @@ type targetUpdateInfo struct {
 	UpdateRevision *appsv1.ControllerRevision
 
 	// TODO decoration revisions
+	SubResourcesChanged
 
 	// indicates operate is allowed for TargetOpsLifecycle.
 	IsAllowUpdateOps bool
@@ -91,4 +99,9 @@ type targetUpdateInfo struct {
 
 	// replace origin target
 	ReplacePairOriginTargetName string
+}
+
+type SubResourcesChanged struct {
+	// indicate if the pvc template changed
+	PvcTmpHashChanged bool
 }

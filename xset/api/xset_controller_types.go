@@ -61,14 +61,6 @@ type XOperation interface {
 	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
 }
 
-type SubResourcePvcAdapter interface {
-	RetainPvcWhenXSetDeleted(object XSetObject) bool
-	RetainPvcWhenXSetScaled(object XSetObject) bool
-	GetXSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
-	GetXMountedPvcs(object client.Object) []corev1.Volume
-	MountXPvcs(object client.Object, pvcs []corev1.Volume)
-}
-
 // LifecycleAdapterGetter is used to get lifecycle adapters.
 type LifecycleAdapterGetter interface {
 	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
@@ -83,4 +75,14 @@ type ResourceContextAdapterGetter interface {
 // LabelAnnotationManagerGetter is used to get label manager adapter.
 type LabelAnnotationManagerGetter interface {
 	GetLabelManagerAdapter() XSetLabelAnnotationManager
+}
+
+// SubResourcePvcAdapter is used to manage pvc subresource, and is enabled for X.kind=Pod.
+type SubResourcePvcAdapter interface {
+	RetainPvcWhenXSetDeleted(object XSetObject) bool
+	RetainPvcWhenXSetScaled(object XSetObject) bool
+	GetXSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
+	GetXSpecVolumes(object client.Object) []corev1.Volume
+	SetXSpecVolumes(object client.Object, pvcs []corev1.Volume)
+	GetXVolumeMounts(object client.Object) []corev1.VolumeMount
 }
