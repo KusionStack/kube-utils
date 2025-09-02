@@ -61,6 +61,11 @@ type XOperation interface {
 	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
 }
 
+type SubResourcePvcAdapter interface {
+	XSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
+	XMountedPvcs(object client.Object)
+}
+
 // LifecycleAdapterGetter is used to get lifecycle adapters.
 type LifecycleAdapterGetter interface {
 	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
