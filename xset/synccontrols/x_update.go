@@ -41,12 +41,13 @@ import (
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
 	"kusionstack.io/kube-utils/xset/resourcecontexts"
+	"kusionstack.io/kube-utils/xset/subresources"
 	"kusionstack.io/kube-utils/xset/xcontrol"
 )
 
 const UnknownRevision = "__unknownRevision__"
 
-func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, syncContext *SyncContext) []*targetUpdateInfo {
+func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, syncContext *SyncContext) ([]*targetUpdateInfo, error) {
 	activeTargets := FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
 	targetUpdateInfoList := make([]*targetUpdateInfo, len(activeTargets))
 
@@ -88,10 +89,17 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 				"target is going to be updated by recreate because: (1) controller-revision-hash label not found, or (2) not found in history revisions")
 		}
 
+		var err error
 		spec := r.xsetController.GetXSetSpec(xsetObject)
 		// decide whether the TargetOpsLifecycle is during ops or not
 		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowUpdateOps = opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.updateLifecycleAdapter, ptr.Deref(spec.UpdateStrategy.OperationDelaySeconds, 0), target)
-		// TODO check pvc template changed
+		// check subresource pvc template changed
+		if subresources.GetSubresourcePvcAdapter(r.pvcControl) {
+			updateInfo.PvcTmpHashChanged, err = r.pvcControl.IsTargetPvcTmpChanged(xsetObject, target.Object, syncContext.ExistingPvcs)
+			if err != nil {
+				return nil, err
+			}
+		}
 		targetUpdateInfoList[i] = updateInfo
 	}
 
@@ -143,7 +151,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 		targetUpdateInfoList = append(targetUpdateInfoList, updateInfo)
 	}
 
-	return targetUpdateInfoList
+	return targetUpdateInfoList, nil
 }
 
 func filterOutPlaceHolderUpdateInfos(targets []*targetUpdateInfo) []*targetUpdateInfo {
@@ -367,7 +375,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 
 		targetInfo.IsAllowUpdateOps = true
 
-		if targetInfo.IsUpdatedRevision {
+		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged {
 			continue
 		}
 
@@ -484,6 +492,10 @@ func (u *inPlaceIfPossibleUpdater) FulfillTargetUpdatedInfo(_ context.Context, r
 	UpdatedTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.UpdateRevision, targetUpdateInfo.ID)
 	if err != nil {
 		return fmt.Errorf("fail to build Target from updated revision %s: %v", targetUpdateInfo.UpdateRevision.GetName(), err.Error())
+	}
+
+	if targetUpdateInfo.PvcTmpHashChanged {
+		targetUpdateInfo.InPlaceUpdateSupport, targetUpdateInfo.OnlyMetadataChanged = false, false
 	}
 
 	newUpdatedTarget := targetUpdateInfo.targetWrapper.Object.DeepCopyObject().(client.Object)
@@ -615,7 +627,7 @@ func (u *replaceUpdateTargetUpdater) BeginUpdateTarget(ctx context.Context, sync
 func (u *replaceUpdateTargetUpdater) FilterAllowOpsTargets(_ context.Context, candidates []*targetUpdateInfo, _ map[int]*api.ContextDetail, _ *SyncContext, targetCh chan *targetUpdateInfo) (requeueAfter *time.Duration, err error) {
 	activeTargetToUpdate := filterOutPlaceHolderUpdateInfos(candidates)
 	for i, targetInfo := range activeTargetToUpdate {
-		if targetInfo.IsUpdatedRevision {
+		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged {
 			continue
 		}
 

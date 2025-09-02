@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -44,6 +45,7 @@ import (
 	"kusionstack.io/kube-utils/xset/api/validation"
 	"kusionstack.io/kube-utils/xset/resourcecontexts"
 	"kusionstack.io/kube-utils/xset/revisionowner"
+	"kusionstack.io/kube-utils/xset/subresources"
 	"kusionstack.io/kube-utils/xset/synccontrols"
 	"kusionstack.io/kube-utils/xset/xcontrol"
 )
@@ -59,6 +61,7 @@ type xSetCommonReconciler struct {
 	// reconcile logic helpers
 	cacheExpectations      *expectations.CacheExpectations
 	targetControl          xcontrol.TargetControl
+	pvcControl             subresources.PvcControl
 	syncControl            synccontrols.SyncControl
 	revisionManager        history.HistoryManager
 	resourceContextControl resourcecontexts.ResourceContextControl
@@ -87,7 +90,11 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 	}
 	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
 	resourceContextControl := resourcecontexts.NewRealResourceContextControl(reconcilerMixin.Client, xsetController, resourceContextAdapter, resourceContextGVK, cacheExpectations)
-	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, xsetLabelManager, resourceContextControl, cacheExpectations)
+	pvcControl, err := subresources.NewRealPvcControl(reconcilerMixin, cacheExpectations, xsetLabelManager, xsetController)
+	if err != nil {
+		return errors.New("failed to create pvc control")
+	}
+	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, pvcControl, xsetLabelManager, resourceContextControl, cacheExpectations)
 	revisionControl := history.NewRevisionControl(reconcilerMixin.Client, reconcilerMixin.Client)
 	revisionOwner := revisionowner.NewRevisionOwner(xsetController, targetControl)
 	revisionManager := history.NewHistoryManager(revisionControl, revisionOwner)
@@ -98,6 +105,7 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 		XSetController:         xsetController,
 		meta:                   xsetController.XSetMeta(),
 		finalizerName:          xsetController.FinalizerName(),
+		pvcControl:             pvcControl,
 		syncControl:            syncControl,
 		revisionManager:        revisionManager,
 		resourceContextControl: resourceContextControl,
@@ -165,21 +173,21 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 	}
 
 	if instance.GetDeletionTimestamp() != nil {
-		if err := r.ensureReclaimTargetsDeletion(ctx, instance); err != nil {
-			// reclaim targets deletion before remove finalizers
-			return ctrl.Result{}, err
-		}
 		if controllerutil.ContainsFinalizer(instance, r.finalizerName) {
 			// reclaim owner IDs in ResourceContextControl
 			if err := r.resourceContextControl.UpdateToTargetContext(ctx, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
-			if err := clientutil.RemoveFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName); err != nil {
+			if err := r.ensureReclaimTargetsDeletion(ctx, instance); err != nil {
+				// reclaim targets deletion before remove finalizers
+				return ctrl.Result{}, err
+			}
+			// reclaim target sub resources before remove finalizers
+			if err := r.ensureReclaimTargetSubResources(ctx, instance); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
-
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, clientutil.RemoveFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName)
 	}
 
 	if !controllerutil.ContainsFinalizer(instance, r.finalizerName) {
@@ -236,6 +244,40 @@ func (r *xSetCommonReconciler) doSync(ctx context.Context, instance api.XSetObje
 		return updateRequeueAfter, err
 	}
 	return scaleRequeueAfter, err
+}
+
+func (r *xSetCommonReconciler) ensureReclaimTargetSubResources(ctx context.Context, xset api.XSetObject) error {
+	if _, enabled := subresources.GetSubresourcePvcAdapter(r.XSetController); enabled {
+		err := r.ensureReclaimPvcs(ctx, xset)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *xSetCommonReconciler) ensureReclaimPvcs(ctx context.Context, xset api.XSetObject) error {
+	if !r.pvcControl.RetainPvcWhenXSetDeleted(xset) {
+		return nil
+	}
+	var needReclaimPvcs []*corev1.PersistentVolumeClaim
+	pvcs, err := r.pvcControl.GetFilteredPvcs(ctx, xset)
+	if err != nil {
+		return err
+	}
+	// reclaim pvcs if RetainPvcWhenXSetDeleted
+	for i := range pvcs {
+		owned := pvcs[i].OwnerReferences != nil && len(pvcs[i].OwnerReferences) > 0
+		if owned {
+			needReclaimPvcs = append(needReclaimPvcs, pvcs[i])
+		}
+	}
+	for i := range needReclaimPvcs {
+		if err := r.pvcControl.OrphanPvc(ctx, xset, needReclaimPvcs[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context, instance api.XSetObject) error {

@@ -22,6 +22,8 @@ import (
 	"sort"
 	"strconv"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -33,10 +35,11 @@ import (
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
+	"kusionstack.io/kube-utils/xset/subresources"
 )
 
 // getTargetsToDelete
-// 1. finds number of diff targets from filteredPods to do scaleIn
+// 1. finds number of diff targets from filteredTargets to do scaleIn
 // 2. finds targets allowed to scale in out of diff
 func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filteredTargets []*targetWrapper, replaceMapping map[string]*targetWrapper, diff int) []*targetWrapper {
 	var countedTargets []*targetWrapper
@@ -55,7 +58,7 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 	// 2. select targets to delete in second round according to replace, delete, exclude
 	var needDeleteTargets []*targetWrapper
 	for i, target := range countedTargets {
-		// find pods to be scaleIn out of diff, is allowed to ops
+		// find targets to be scaleIn out of diff, is allowed to ops
 		spec := r.xsetController.GetXSetSpec(xsetObject)
 		_, allowed := opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
 		if i >= diff && !allowed {
@@ -160,8 +163,35 @@ func (r *RealSyncControl) excludeTarget(ctx context.Context, xsetObject api.XSet
 		return err
 	}
 
+	// exclude subresource
+	if adapter, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
+		volumes := adapter.GetXSpecVolumes(target)
+		for i := range volumes {
+			volume := volumes[i]
+			if volume.PersistentVolumeClaim == nil {
+				continue
+			}
+			pvc := &corev1.PersistentVolumeClaim{}
+			err := r.Client.Get(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: volume.PersistentVolumeClaim.ClaimName}, pvc)
+			// If pvc not found, ignore it. In case of pvc is filtered out by controller-mesh
+			if apierrors.IsNotFound(err) {
+				continue
+			} else if err != nil {
+				return err
+			}
+
+			r.xsetLabelAnnoMgr.Set(pvc, api.XOrphanedIndicationLabelKey, "true")
+			if err := r.pvcControl.OrphanPvc(ctx, xsetObject, pvc); err != nil {
+				return err
+			}
+		}
+	}
+
 	r.xsetLabelAnnoMgr.Set(target, api.XOrphanedIndicationLabelKey, "true")
-	return r.xControl.OrphanTarget(xsetObject, target)
+	if err := r.xControl.OrphanTarget(xsetObject, target); err != nil {
+		return err
+	}
+	return r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName(), target.GetResourceVersion())
 }
 
 // includeTarget try to include a target into xset
@@ -171,9 +201,37 @@ func (r *RealSyncControl) includeTarget(ctx context.Context, xsetObject api.XSet
 		return err
 	}
 
+	// exclude subresource
+	if adapter, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
+		volumes := adapter.GetXSpecVolumes(target)
+		for i := range volumes {
+			volume := volumes[i]
+			if volume.PersistentVolumeClaim == nil {
+				continue
+			}
+			pvc := &corev1.PersistentVolumeClaim{}
+			err := r.Client.Get(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: volume.PersistentVolumeClaim.ClaimName}, pvc)
+			// If pvc not found, ignore it. In case of pvc is filtered out by controller-mesh
+			if apierrors.IsNotFound(err) {
+				continue
+			} else if err != nil {
+				return err
+			}
+
+			r.xsetLabelAnnoMgr.Set(pvc, api.XInstanceIdLabelKey, instanceId)
+			r.xsetLabelAnnoMgr.Delete(pvc.GetLabels(), api.XOrphanedIndicationLabelKey)
+			if err := r.pvcControl.AdoptPvc(ctx, xsetObject, pvc); err != nil {
+				return err
+			}
+		}
+	}
+
 	r.xsetLabelAnnoMgr.Set(target, api.XInstanceIdLabelKey, instanceId)
 	r.xsetLabelAnnoMgr.Delete(target.GetLabels(), api.XOrphanedIndicationLabelKey)
-	return r.xControl.AdoptTarget(xsetObject, target)
+	if err := r.xControl.AdoptTarget(xsetObject, target); err != nil {
+		return err
+	}
+	return r.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName(), target.GetResourceVersion())
 }
 
 // reclaimScaleStrategy updates targetToDelete, targetToExclude, targetToInclude in scaleStrategy

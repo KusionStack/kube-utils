@@ -61,14 +61,6 @@ type XOperation interface {
 	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
 }
 
-type SubResourcePvcAdapter interface {
-	RetainPvcWhenXSetDeleted(object XSetObject) bool
-	RetainPvcWhenXSetScaled(object XSetObject) bool
-	GetXSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
-	GetXMountedPvcs(object client.Object) []corev1.Volume
-	MountXPvcs(object client.Object, pvcs []corev1.Volume)
-}
-
 // LifecycleAdapterGetter is used to get lifecycle adapters.
 type LifecycleAdapterGetter interface {
 	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
@@ -83,4 +75,23 @@ type ResourceContextAdapterGetter interface {
 // LabelAnnotationManagerGetter is used to get label manager adapter.
 type LabelAnnotationManagerGetter interface {
 	GetLabelManagerAdapter() XSetLabelAnnotationManager
+}
+
+// SubResourcePvcAdapter is used to manage pvc subresource for X, which are declared on XSet, e.g., spec.volumeClaimTemplate.
+// Once adapter is implemented, XSetController will automatically manage pvc: (1) create pvcs from GetXSetPvcTemplate for each
+// X object and attach theses pvcs with same instance-id, (2) upgrade pvcs and recreate X object pvcs when PvcTemplateChanged,
+// (3) retain pvcs when XSet is deleted or scaledIn according to RetainPvcWhenXSetDeleted and RetainPvcWhenXSetScaled.
+type SubResourcePvcAdapter interface {
+	// RetainPvcWhenXSetDeleted returns true if pvc should be retained when XSet is deleted.
+	RetainPvcWhenXSetDeleted(object XSetObject) bool
+	// RetainPvcWhenXSetScaled returns true if pvc should be retained when XSet replicas is scaledIn.
+	RetainPvcWhenXSetScaled(object XSetObject) bool
+	// GetXSetPvcTemplate returns pvc template from XSet object.
+	GetXSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
+	// GetXSpecVolumes returns spec.volumes from X object.
+	GetXSpecVolumes(object client.Object) []corev1.Volume
+	// GetXVolumeMounts returns containers volumeMounts from X (pod) object.
+	GetXVolumeMounts(object client.Object) []corev1.VolumeMount
+	// SetXSpecVolumes sets spec.volumes to X object.
+	SetXSpecVolumes(object client.Object, pvcs []corev1.Volume)
 }

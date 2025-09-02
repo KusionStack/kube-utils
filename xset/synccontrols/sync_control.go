@@ -44,6 +44,7 @@ import (
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
 	"kusionstack.io/kube-utils/xset/resourcecontexts"
+	"kusionstack.io/kube-utils/xset/subresources"
 	"kusionstack.io/kube-utils/xset/xcontrol"
 )
 
@@ -64,6 +65,7 @@ type SyncControl interface {
 func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xsetController api.XSetController,
 	xControl xcontrol.TargetControl,
+	pvcControl subresources.PvcControl,
 	xsetLabelAnnoManager api.XSetLabelAnnotationManager,
 	resourceContexts resourcecontexts.ResourceContextControl,
 	cacheExpectations expectations.CacheExpectationsInterface,
@@ -93,6 +95,7 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 		xsetLabelAnnoMgr:       xsetLabelAnnoManager,
 		resourceContextControl: resourceContexts,
 		xControl:               xControl,
+		pvcControl:             pvcControl,
 
 		updateConfig:      updateConfig,
 		cacheExpectations: cacheExpectations,
@@ -109,6 +112,7 @@ var _ SyncControl = &RealSyncControl{}
 type RealSyncControl struct {
 	mixin.ReconcilerMixin
 	xControl               xcontrol.TargetControl
+	pvcControl             subresources.PvcControl
 	xsetController         api.XSetController
 	xsetLabelAnnoMgr       api.XSetLabelAnnotationManager
 	resourceContextControl resourcecontexts.ResourceContextControl
@@ -137,8 +141,22 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 		return false, fmt.Errorf("fail to get filtered Targets: %w", err)
 	}
 
-	// TODO list, adopt and retain pvcs pvcs (for pods)
+	// sync subresource
+	// 1. list pvcs using ownerReference
+	// 2. adopt and retain orphaned pvcs according to PVC retention policy
+	if _, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
+		var existingPvcs, adoptedPvcs []*corev1.PersistentVolumeClaim
+		if existingPvcs, err = r.pvcControl.GetFilteredPvcs(ctx, instance); err != nil {
+			return false, fmt.Errorf("fail to get filtered subresource PVCs: %w", err)
+		}
+		if adoptedPvcs, err = r.pvcControl.AdoptPvcsLeftByRetainPolicy(ctx, instance); err != nil {
+			return false, fmt.Errorf("fail to adopt orphaned left by whenDelete retention policy PVCs: %w", err)
+		}
+		syncContext.ExistingPvcs = append(syncContext.ExistingPvcs, existingPvcs...)
+		syncContext.ExistingPvcs = append(syncContext.ExistingPvcs, adoptedPvcs...)
+	}
 
+	// sync include exclude targets
 	toExcludeTargetNames, toIncludeTargetNames, err := r.dealIncludeExcludeTargets(ctx, instance, syncContext.FilteredTarget)
 	if err != nil {
 		return false, fmt.Errorf("fail to deal with include exclude targets: %s", err.Error())
@@ -194,7 +212,14 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			}
 		}
 
-		// TODO delete unused pvcs (for pods)
+		// delete unused pvcs
+		if _, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
+			err = r.pvcControl.DeleteTargetUnusedPvcs(ctx, instance, target, syncContext.ExistingPvcs)
+			if err != nil {
+				return false, fmt.Errorf("fail to delete unused pvcs %w", err)
+			}
+		}
+
 		targetWrappers = append(targetWrappers, &targetWrapper{
 			Object:        target,
 			ID:            id,
@@ -315,7 +340,7 @@ func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset a
 			continue
 		} else if err != nil {
 			r.Recorder.Eventf(xset, corev1.EventTypeWarning, "ExcludeIncludeFailed", fmt.Sprintf("failed to find target %s: %s", targetNames[i], err.Error()))
-			return
+			return allowTargets, notAllowTargets, err
 		}
 
 		// check allowance for target
@@ -325,7 +350,36 @@ func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset a
 			notAllowTargets.Insert(targetName)
 			continue
 		}
-		allowTargets.Insert(targetName)
+
+		// check allowance for subresource
+		pvcsAllowed := true
+		if adapter, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
+			volumes := adapter.GetXSpecVolumes(target)
+			for i := range volumes {
+				volume := volumes[i]
+				if volume.PersistentVolumeClaim == nil {
+					continue
+				}
+				pvc := &corev1.PersistentVolumeClaim{}
+				err = r.Client.Get(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: volume.PersistentVolumeClaim.ClaimName}, pvc)
+				// if pvc not found, ignore it. In case of pvc is filtered by controller-mesh
+				if apierrors.IsNotFound(err) {
+					continue
+				} else if err != nil {
+					r.Recorder.Eventf(target, corev1.EventTypeWarning, "ExcludeIncludeNotAllowed", fmt.Sprintf("failed to check allowed to exclude/include from/to xset %s/%s: %s", xset.GetNamespace(), xset.GetName(), err.Error()))
+					pvcsAllowed = false
+				}
+				if allowed, reason := fn(pvc, xset.GetName(), xset.GetObjectKind().GroupVersionKind().Kind, labelMgr); !allowed {
+					r.Recorder.Eventf(target, corev1.EventTypeWarning, "ExcludeIncludeNotAllowed", fmt.Sprintf("failed to check allowed to exclude/include from/to xset %s/%s: %s", xset.GetNamespace(), xset.GetName(), reason))
+					pvcsAllowed = false
+				}
+			}
+		}
+		if pvcsAllowed {
+			allowTargets.Insert(targetName)
+		} else {
+			notAllowTargets.Insert(targetName)
+		}
 	}
 	return allowTargets, notAllowTargets, nil
 }
@@ -465,8 +519,13 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				if err != nil {
 					return fmt.Errorf("fail to new Target from revision %s: %w", revision.GetName(), err)
 				}
-
-				// TODO create pvcs for targets (pod)
+				// create pvcs for targets (pod)
+				if _, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
+					err = r.pvcControl.CreateTargetPvcs(ctx, xsetObject, target, syncContext.ExistingPvcs)
+					if err != nil {
+						return fmt.Errorf("fail to create PVCs for target %s: %w", target.GetName(), err)
+					}
+				}
 				newTarget := target.DeepCopyObject().(client.Object)
 				logger.Info("try to create Target with revision of "+r.xsetGVK.Kind, "revision", revision.GetName())
 				if target, err = r.xControl.CreateTarget(ctx, newTarget); err != nil {
@@ -590,8 +649,19 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			}
 
 			r.Recorder.Eventf(xsetObject, corev1.EventTypeNormal, "TargetDeleted", "succeed to scale in Target %s/%s", target.GetNamespace(), target.GetName())
-			// TODO delete pvcs if target is in update replace, or retention policy is "Deleted"
-			return r.cacheExpectations.ExpectDeletion(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName())
+			if err := r.cacheExpectations.ExpectDeletion(clientutil.ObjectKeyString(xsetObject), r.targetGVK, target.GetNamespace(), target.GetName()); err != nil {
+				return err
+			}
+
+			// delete pvcs if target is in update replace, or retention policy is "Deleted"
+			if _, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
+				_, replaceOrigin := r.xsetLabelAnnoMgr.Get(target.Object.GetLabels(), api.XReplacePairOriginName)
+				_, replaceNew := r.xsetLabelAnnoMgr.Get(target.Object.GetLabels(), api.XReplacePairNewId)
+				if replaceOrigin || replaceNew || r.pvcControl.RetainPvcWhenXSetScaled(xsetObject) {
+					return r.pvcControl.DeleteTargetPvcs(ctx, xsetObject, target.Object, syncContext.ExistingPvcs)
+				}
+			}
+			return nil
 		})
 		scaling = scaling || succCount > 0
 
@@ -643,7 +713,10 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	}
 
 	// 1. scan and analysis targets update info for active targets and PlaceHolder targets
-	targetUpdateInfos := r.attachTargetUpdateInfo(xsetObject, syncContext)
+	targetUpdateInfos, err := r.attachTargetUpdateInfo(xsetObject, syncContext)
+	if err != nil {
+		return false, recordedRequeueAfter, err
+	}
 
 	// 2. decide Target update candidates
 	candidates := r.decideTargetToUpdate(r.xsetController, xsetObject, targetUpdateInfos)
@@ -655,7 +728,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	// 3. filter already updated revision,
 	for i, targetInfo := range targetToUpdate {
 		// TODO check decoration and pvc template changed
-		if targetInfo.IsUpdatedRevision {
+		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged {
 			continue
 		}
 

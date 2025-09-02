@@ -88,6 +88,12 @@ const (
 	// XExcludeIndicationLabelKey is used to indicate a target is excluded by xset
 	XExcludeIndicationLabelKey
 
+	// SubResourcePvcTemplateLabelKey is used to attach pvc template name to pvc resources
+	SubResourcePvcTemplateLabelKey
+
+	// SubResourcePvcTemplateHashLabelKey is used to attach hash of pvc template to pvc subresource
+	SubResourcePvcTemplateHashLabelKey
+
 	// LastXStatusAnnotationKey is used to record the last status of a target by xset
 	LastXStatusAnnotationKey
 
@@ -110,18 +116,20 @@ var defaultXSetLabelAnnotationManager = map[XSetLabelAnnotationEnum]string{
 	ServiceAvailableLabel:        appsv1alpha1.PodServiceAvailableLabel,
 	PreparingDeleteLabel:         appsv1alpha1.PodPreparingDeleteLabel,
 
-	ControlledByXSetLabel:           appsv1alpha1.ControlledByKusionStackLabelKey,
-	XInstanceIdLabelKey:             appsv1alpha1.PodInstanceIDLabelKey,
-	XSetUpdateIndicationLabelKey:    appsv1alpha1.CollaSetUpdateIndicateLabelKey,
-	XDeletionIndicationLabelKey:     appsv1alpha1.PodDeletionIndicationLabelKey,
-	XReplaceIndicationLabelKey:      appsv1alpha1.PodReplaceIndicationLabelKey,
-	XReplacePairNewId:               appsv1alpha1.PodReplacePairNewId,
-	XReplacePairOriginName:          appsv1alpha1.PodReplacePairOriginName,
-	XReplaceByReplaceUpdateLabelKey: appsv1alpha1.PodReplaceByReplaceUpdateLabelKey,
-	XOrphanedIndicationLabelKey:     appsv1alpha1.PodOrphanedIndicateLabelKey,
-	XCreatingLabel:                  appsv1alpha1.PodCreatingLabel,
-	XCompletingLabel:                appsv1alpha1.PodCompletingLabel,
-	XExcludeIndicationLabelKey:      appsv1alpha1.PodExcludeIndicationLabelKey,
+	ControlledByXSetLabel:              appsv1alpha1.ControlledByKusionStackLabelKey,
+	XInstanceIdLabelKey:                appsv1alpha1.PodInstanceIDLabelKey,
+	XSetUpdateIndicationLabelKey:       appsv1alpha1.CollaSetUpdateIndicateLabelKey,
+	XDeletionIndicationLabelKey:        appsv1alpha1.PodDeletionIndicationLabelKey,
+	XReplaceIndicationLabelKey:         appsv1alpha1.PodReplaceIndicationLabelKey,
+	XReplacePairNewId:                  appsv1alpha1.PodReplacePairNewId,
+	XReplacePairOriginName:             appsv1alpha1.PodReplacePairOriginName,
+	XReplaceByReplaceUpdateLabelKey:    appsv1alpha1.PodReplaceByReplaceUpdateLabelKey,
+	XOrphanedIndicationLabelKey:        appsv1alpha1.PodOrphanedIndicateLabelKey,
+	XCreatingLabel:                     appsv1alpha1.PodCreatingLabel,
+	XCompletingLabel:                   appsv1alpha1.PodCompletingLabel,
+	XExcludeIndicationLabelKey:         appsv1alpha1.PodExcludeIndicationLabelKey,
+	SubResourcePvcTemplateLabelKey:     appsv1alpha1.PvcTemplateLabelKey,
+	SubResourcePvcTemplateHashLabelKey: appsv1alpha1.PvcTemplateHashLabelKey,
 
 	LastXStatusAnnotationKey: appsv1alpha1.LastPodStatusAnnotationKey,
 }

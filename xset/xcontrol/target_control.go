@@ -195,7 +195,7 @@ func setUpCache(cache cache.Cache, controller api.XSetController) error {
 		}
 		return []string{string(ownerRef.UID)}
 	}); err != nil {
-		return fmt.Errorf("failed to index by field %s: %s", FieldIndexOwnerRefUID, err.Error())
+		return fmt.Errorf("failed to index by field for x->xset %s: %s", FieldIndexOwnerRefUID, err.Error())
 	}
 	return nil
 }
@@ -205,8 +205,9 @@ func filterOutInactiveTargets(xsetController api.XSetController, targets []clien
 	for i := range targets {
 		target := targets[i]
 		if xsetController.CheckInactive(target) {
-			filteredTarget = append(filteredTarget, target)
+			continue
 		}
+		filteredTarget = append(filteredTarget, target)
 	}
 	return filteredTarget
 }
