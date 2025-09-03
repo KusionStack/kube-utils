@@ -17,6 +17,7 @@
 package synccontrols
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"time"
@@ -24,20 +25,22 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"kusionstack.io/kube-api/apps/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	clientutils "kusionstack.io/kube-utils/client"
+	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 )
 
-func GetInstanceID(target client.Object) (int, error) {
+func GetInstanceID(xsetLabelMgr api.XSetLabelManager, target client.Object) (int, error) {
 	if target.GetLabels() == nil {
 		return -1, fmt.Errorf("no labels found for instance ID")
 	}
 
-	val, exist := target.GetLabels()[TargetInstanceIDLabelKey]
+	instanceIdLabelKey := xsetLabelMgr.Label(api.EnumXSetInstanceIdLabel)
+	val, exist := target.GetLabels()[instanceIdLabelKey]
 	if !exist {
-		return -1, fmt.Errorf("failed to find instance ID label %s", TargetInstanceIDLabelKey)
+		return -1, fmt.Errorf("failed to find instance ID label %s", instanceIdLabelKey)
 	}
 
 	id, err := strconv.ParseInt(val, 10, 32)
@@ -49,7 +52,7 @@ func GetInstanceID(target client.Object) (int, error) {
 	return int(id), nil
 }
 
-func NewTargetFrom(setController api.XSetController, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
+func NewTargetFrom(setController api.XSetController, xsetLabelMgr api.XSetLabelManager, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
 	targetObj, err := setController.GetXObjectFromRevision(revision)
 	if err != nil {
 		return nil, err
@@ -61,10 +64,9 @@ func NewTargetFrom(setController api.XSetController, owner api.XSetObject, revis
 	targetObj.SetNamespace(owner.GetNamespace())
 	targetObj.SetGenerateName(GetTargetsPrefix(owner.GetName()))
 
-	labels := targetObj.GetLabels()
-	labels[TargetInstanceIDLabelKey] = fmt.Sprintf("%d", id)
-	labels[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
-	controlByKusionStack(targetObj)
+	xsetLabelMgr.Set(targetObj, api.EnumXSetInstanceIdLabel, fmt.Sprintf("%d", id))
+	targetObj.GetLabels()[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
+	controlByXSet(xsetLabelMgr, targetObj)
 
 	for _, fn := range updateFuncs {
 		if err := fn(targetObj); err != nil {
@@ -73,14 +75,6 @@ func NewTargetFrom(setController api.XSetController, owner api.XSetObject, revis
 	}
 
 	return targetObj, nil
-}
-
-func RealValue(val *int32) int32 {
-	if val == nil {
-		return 0
-	}
-
-	return *val
 }
 
 const ConditionUpdatePeriodBackOff = 30 * time.Second
@@ -171,12 +165,54 @@ func filterOutCondition(conditions []metav1.Condition, condType string) []metav1
 	return newConditions
 }
 
-func controlByKusionStack(obj client.Object) {
+func controlByXSet(xsetLabelMgr api.XSetLabelManager, obj client.Object) {
 	if obj.GetLabels() == nil {
 		obj.SetLabels(map[string]string{})
 	}
-
-	if v, ok := obj.GetLabels()[v1alpha1.ControlledByKusionStackLabelKey]; !ok || v != "true" {
-		obj.GetLabels()[v1alpha1.ControlledByKusionStackLabelKey] = "true"
+	if v, ok := xsetLabelMgr.Get(obj.GetLabels(), api.EnumXSetControlledLabel); !ok || v != "true" {
+		xsetLabelMgr.Set(obj, api.EnumXSetControlledLabel, "true")
 	}
+}
+
+func IsControlledByXSet(xsetLabelManager api.XSetLabelManager, obj client.Object) bool {
+	if obj.GetLabels() == nil {
+		return false
+	}
+
+	v, ok := xsetLabelManager.Get(obj.GetLabels(), api.EnumXSetControlledLabel)
+	return ok && v == "true"
+}
+
+func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController, c client.Client, xset api.XSetObject, targets []*targetWrapper) error {
+	_, patchErr := controllerutils.SlowStartBatch(len(targets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
+		if targets[i].Object == nil || targets[i].PlaceHolder {
+			return nil
+		}
+		_, err := clientutils.UpdateOnConflict(ctx, c, c, targets[i].Object, xsetController.GetXSetTemplatePatcher(xset))
+		return err
+	})
+	return patchErr
+}
+
+func CompareTarget(l, r client.Object,
+	checkReadyFunc func(object client.Object) bool,
+	getReadyTimeFunc func(object client.Object) *metav1.Time,
+) bool {
+	// If both targets are ready, the latest ready one is smaller
+	if checkReadyFunc(l) && checkReadyFunc(r) && !getReadyTimeFunc(l).Equal(getReadyTimeFunc(r)) {
+		return afterOrZero(getReadyTimeFunc(l), getReadyTimeFunc(r))
+	}
+	// Empty creation time targets < newer targets < older targets
+	lCreationTime, rCreationTime := l.GetCreationTimestamp(), r.GetCreationTimestamp()
+	if !(&lCreationTime).Equal(&rCreationTime) {
+		return afterOrZero(&lCreationTime, &rCreationTime)
+	}
+	return false
+}
+
+func afterOrZero(t1, t2 *metav1.Time) bool {
+	if t1.Time.IsZero() || t2.Time.IsZero() {
+		return t1.Time.IsZero()
+	}
+	return t1.After(t2.Time)
 }

@@ -20,16 +20,17 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
+
+	"kusionstack.io/kube-utils/xset/api"
 )
 
 // AllowResourceExclude checks if pod or pvc is allowed to exclude
-func AllowResourceExclude(obj metav1.Object, ownerName, ownerKind string) (bool, string) {
+func AllowResourceExclude(obj metav1.Object, ownerName, ownerKind string, manager api.XSetLabelManager) (bool, string) {
 	labels := obj.GetLabels()
 	// not controlled by ks manager
 	if labels == nil {
 		return false, "object's label is empty"
-	} else if val, exist := labels[appsv1alpha1.ControlledByKusionStackLabelKey]; !exist || val != "true" {
+	} else if val, exist := manager.Get(labels, api.EnumXSetControlledLabel); !exist || val != "true" {
 		return false, "object is not controlled by kusionstack system"
 	}
 
@@ -41,14 +42,14 @@ func AllowResourceExclude(obj metav1.Object, ownerName, ownerKind string) (bool,
 }
 
 // AllowResourceInclude checks if pod or pvc is allowed to include
-func AllowResourceInclude(obj metav1.Object, ownerName, ownerKind string) (bool, string) {
+func AllowResourceInclude(obj metav1.Object, ownerName, ownerKind string, manager api.XSetLabelManager) (bool, string) {
 	labels := obj.GetLabels()
 	ownerRefs := obj.GetOwnerReferences()
 
 	// not controlled by ks manager
 	if labels == nil {
 		return false, "object's label is empty"
-	} else if val, exist := labels[appsv1alpha1.ControlledByKusionStackLabelKey]; !exist || val != "true" {
+	} else if val, exist := manager.Get(labels, api.EnumXSetControlledLabel); !exist || val != "true" {
 		return false, "object is not controlled by kusionstack system"
 	}
 

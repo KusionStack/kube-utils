@@ -128,7 +128,7 @@ func TestAllowResourceExclude(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := AllowResourceExclude(tt.obj, ownerName, ownerKind)
+			got, got1 := AllowResourceExclude(tt.obj, ownerName, ownerKind, NewXSetControllerLabelManager())
 			if got != tt.allow {
 				t.Errorf("AllowResourceExclude() got = %v, want %v", got, tt.allow)
 			}
@@ -288,7 +288,7 @@ func TestAllowResourceInclude(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := AllowResourceInclude(tt.obj, ownerName, ownerKind)
+			got, got1 := AllowResourceInclude(tt.obj, ownerName, ownerKind, NewXSetControllerLabelManager())
 			if got != tt.allow {
 				t.Errorf("AllowResourceExclude() got = %v, want %v", got, tt.allow)
 			}

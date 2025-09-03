@@ -22,9 +22,12 @@ import (
 	"sort"
 	"strconv"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutil "kusionstack.io/kube-utils/client"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
@@ -32,8 +35,10 @@ import (
 	"kusionstack.io/kube-utils/xset/opslifecycle"
 )
 
-// getTargetsToDelete finds number of diff targets from filteredTargets to do scaleIn
-func (r *RealSyncControl) getTargetsToDelete(filteredTargets []*targetWrapper, replaceMapping map[string]*targetWrapper, diff int) []*targetWrapper {
+// getTargetsToDelete
+// 1. finds number of diff targets from filteredPods to do scaleIn
+// 2. finds targets allowed to scale in out of diff
+func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filteredTargets []*targetWrapper, replaceMapping map[string]*targetWrapper, diff int) []*targetWrapper {
 	var countedTargets []*targetWrapper
 	for _, target := range filteredTargets {
 		if _, exist := replaceMapping[target.GetName()]; exist {
@@ -42,14 +47,21 @@ func (r *RealSyncControl) getTargetsToDelete(filteredTargets []*targetWrapper, r
 	}
 
 	// 1. select targets to delete in first round according to diff
-	sort.Sort(newActiveTargetsForDeletion(countedTargets))
+	sort.Sort(newActiveTargetsForDeletion(countedTargets, r.xsetController.CheckReady, r.xsetController.GetReadyTime))
 	if diff > len(countedTargets) {
 		diff = len(countedTargets)
 	}
 
 	// 2. select targets to delete in second round according to replace, delete, exclude
 	var needDeleteTargets []*targetWrapper
-	for _, target := range countedTargets[:diff] {
+	for i, target := range countedTargets {
+		// find pods to be scaleIn out of diff, is allowed to ops
+		spec := r.xsetController.GetXSetSpec(xsetObject)
+		_, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
+		if i >= diff && !allowed {
+			continue
+		}
+
 		//  don't scaleIn exclude target and its newTarget (if exist)
 		if target.ToExclude {
 			continue
@@ -61,7 +73,7 @@ func (r *RealSyncControl) getTargetsToDelete(filteredTargets []*targetWrapper, r
 				continue
 			}
 			// when scaleIn origin Target, newTarget should be deleted if not service available
-			if serviceAvailable := opslifecycle.IsServiceAvailable(r.updateConfig.opsLifecycleMgr, target); !serviceAvailable {
+			if !r.xsetController.CheckAvailable(target.Object) {
 				needDeleteTargets = append(needDeleteTargets, replacePairTarget)
 			}
 		}
@@ -72,12 +84,20 @@ func (r *RealSyncControl) getTargetsToDelete(filteredTargets []*targetWrapper, r
 }
 
 type ActiveTargetsForDeletion struct {
-	targets []*targetWrapper
+	targets          []*targetWrapper
+	checkReadyFunc   func(object client.Object) bool
+	getReadyTimeFunc func(object client.Object) *metav1.Time
 }
 
-func newActiveTargetsForDeletion(targets []*targetWrapper) *ActiveTargetsForDeletion {
+func newActiveTargetsForDeletion(
+	targets []*targetWrapper,
+	checkReadyFunc func(object client.Object) bool,
+	getReadyTimeFunc func(object client.Object) *metav1.Time,
+) *ActiveTargetsForDeletion {
 	return &ActiveTargetsForDeletion{
-		targets: targets,
+		targets:          targets,
+		checkReadyFunc:   checkReadyFunc,
+		getReadyTimeFunc: getReadyTimeFunc,
 	}
 }
 
@@ -103,11 +123,22 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 		return l.IsDuringScaleInOps
 	}
 
-	// TODO consider service available timestamps
+	lReady, rReady := s.checkReadyFunc(l.Object), s.checkReadyFunc(r.Object)
+	if lReady != rReady {
+		return lReady
+	}
 
-	lCreationTime := l.Object.GetCreationTimestamp().Time
-	rCreationTime := r.Object.GetCreationTimestamp().Time
-	return lCreationTime.Before(rCreationTime)
+	if l.OpsPriority != nil && r.OpsPriority != nil {
+		if l.OpsPriority.PriorityClass != r.OpsPriority.PriorityClass {
+			return l.OpsPriority.PriorityClass < r.OpsPriority.PriorityClass
+		}
+		if l.OpsPriority.DeletionCost != r.OpsPriority.DeletionCost {
+			return l.OpsPriority.DeletionCost < r.OpsPriority.DeletionCost
+		}
+	}
+
+	// TODO consider service available timestamps
+	return CompareTarget(l.Object, r.Object, s.checkReadyFunc, s.getReadyTimeFunc)
 }
 
 // doIncludeExcludeTargets do real include and exclude for targets which are allowed to in/exclude
@@ -131,7 +162,7 @@ func (r *RealSyncControl) excludeTarget(ctx context.Context, xsetObject api.XSet
 		return err
 	}
 
-	target.GetLabels()[TargetOrphanedIndicateLabelKey] = "true"
+	r.xsetLabelMgr.Set(target, api.EnumXSetOrphanedLabel, "true")
 	return r.xControl.OrphanTarget(xsetObject, target)
 }
 
@@ -142,8 +173,8 @@ func (r *RealSyncControl) includeTarget(ctx context.Context, xsetObject api.XSet
 		return err
 	}
 
-	target.GetLabels()[TargetInstanceIDLabelKey] = instanceId
-	delete(target.GetLabels(), TargetOrphanedIndicateLabelKey)
+	r.xsetLabelMgr.Set(target, api.EnumXSetInstanceIdLabel, instanceId)
+	r.xsetLabelMgr.Delete(target.GetLabels(), api.EnumXSetOrphanedLabel)
 	return r.xControl.AdoptTarget(xsetObject, target)
 }
 
@@ -162,7 +193,7 @@ func (r *RealSyncControl) reclaimScaleStrategy(ctx context.Context, deletedTarge
 	toIncludeTargetNames := sets.NewString(xspec.ScaleStrategy.TargetToInclude...)
 	notIncludeTargets := toIncludeTargetNames.Delete(includedTargets.List()...)
 	xspec.ScaleStrategy.TargetToInclude = notIncludeTargets.List()
-	if err := r.xsetController.UpdateScaleStrategy(xsetObject, &xspec.ScaleStrategy); err != nil {
+	if err := r.xsetController.UpdateScaleStrategy(ctx, r.Client, xsetObject, &xspec.ScaleStrategy); err != nil {
 		return err
 	}
 	// update xsetObject.spec.scaleStrategy

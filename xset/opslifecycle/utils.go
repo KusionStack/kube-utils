@@ -31,12 +31,7 @@ import (
 
 type UpdateFunc func(object client.Object) (bool, error)
 
-func IsServiceAvailable(m api.LifeCycleLabelManager, target client.Object) bool {
-	_, exists := target.GetLabels()[m.Get(api.ServiceAvailableLabel)]
-	return exists
-}
-
-// IDToLabelsMap returns a map of pod id to labels map and a map of operation type to number of pods.
+// IDToLabelsMap returns a map of target id to labels map and a map of operation type to number of targets.
 func IDToLabelsMap(m *LabelManagerImpl, target client.Object) (map[string]map[string]string, map[string]int, error) {
 	idToLabelsMap := map[string]map[string]string{}
 	typeToNumsMap := map[string]int{}
@@ -77,7 +72,7 @@ func IDToLabelsMap(m *LabelManagerImpl, target client.Object) (map[string]map[st
 	return idToLabelsMap, typeToNumsMap, nil
 }
 
-// NumOfLifecycleOnTarget returns the nums of lifecycles on pod
+// NumOfLifecycleOnTarget returns the nums of lifecycles on target
 func NumOfLifecycleOnTarget(m *LabelManagerImpl, target client.Object) (int, error) {
 	if target == nil {
 		return 0, nil
@@ -308,6 +303,21 @@ func IsLifecycleOnTarget(m api.LifeCycleLabelManager, operatingID string, target
 	}
 
 	return false, nil
+}
+
+func CancelOpsLifecycle(m api.LifeCycleLabelManager, client client.Client, adapter api.LifecycleAdapter, target client.Object) error {
+	if target == nil {
+		return nil
+	}
+
+	// only cancel when lifecycle exist on target
+	if exist, err := IsLifecycleOnTarget(m, adapter.GetID(), target); err != nil {
+		return fmt.Errorf("fail to check %s TargetOpsLifecycle on Target %s/%s: %w", adapter.GetID(), target.GetNamespace(), target.GetName(), err)
+	} else if !exist {
+		return nil
+	}
+
+	return Undo(m, client, adapter, target)
 }
 
 func DefaultUpdateAll(target client.Object, updateFuncs ...UpdateFunc) (updated bool, err error) {

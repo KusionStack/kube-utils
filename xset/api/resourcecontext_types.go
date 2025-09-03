@@ -45,6 +45,8 @@ const (
 	EnumJustCreateContextDataKey
 	EnumRecreateUpdateContextDataKey
 	EnumScaleInContextDataKey
+	EnumReplaceNewTargetIDContextDataKey
+	EnumReplaceOriginTargetIDContextDataKey
 )
 
 // ResourceContextSpec defines the desired state of ResourceContext

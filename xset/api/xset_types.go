@@ -20,6 +20,7 @@ package api
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type XSetConditionType string
@@ -188,11 +189,56 @@ type XSetStatus struct {
 	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
 
 	// UpdatedAvailableReplicas indicates the number of available updated revision replicas for this replicas set.
-	// A model is updated available means the model is ready for updated revision and accessible
+	// A target is updated available means the target is ready for updated revision and accessible
 	// +optional
 	UpdatedAvailableReplicas int32 `json:"updatedAvailableReplicas,omitempty"`
 
 	// Represents the latest available observations of a XSet's current state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// OpsPriority is used to store the ops priority of a target
+type OpsPriority struct {
+	// PriorityClass is the priority class of the target
+	PriorityClass int32
+	// DeletionCost is the deletion cost of the target
+	DeletionCost int32
+}
+
+type XSetControllerLabelEnum int
+
+const (
+	EnumXSetControlledLabel XSetControllerLabelEnum = iota
+
+	EnumXSetInstanceIdLabel
+
+	EnumXSetUpdateIndicationLabel
+
+	EnumXSetDeletionIndicationLabel
+
+	EnumXSetReplaceIndicationLabel
+
+	EnumXSetReplacePairNewIdLabel
+
+	EnumXSetReplacePairOriginNameLabel
+
+	EnumXSetReplaceByReplaceUpdateLabel
+
+	EnumXSetOrphanedLabel
+
+	EnumXSetTargetCreatingLabel
+
+	EnumXSetTargetCompletingLabel
+
+	EnumXSetTargetExcludeIndicationLabel
+
+	EnumXSetLastTargetStatusAnnotationKey
+)
+
+type XSetLabelManager interface {
+	Get(labels map[string]string, labelType XSetControllerLabelEnum) (string, bool)
+	Set(obj client.Object, labelType XSetControllerLabelEnum, value string)
+	Delete(labels map[string]string, labelType XSetControllerLabelEnum)
+	Label(labelType XSetControllerLabelEnum) string
 }
