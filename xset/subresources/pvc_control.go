@@ -159,7 +159,9 @@ func (pc *RealPvcControl) provisionUpdatedPvc(ctx context.Context, id string, xs
 		return nil, err
 	}
 
-	for _, pvcTmp := range pc.pvcAdapter.GetXSetPvcTemplate(xset) {
+	templates := pc.pvcAdapter.GetXSetPvcTemplate(xset)
+	for i := range templates {
+		pvcTmp := templates[i]
 		// reuse pvc
 		if _, exist := updatedPvcs[pvcTmp.Name]; exist {
 			continue
@@ -280,7 +282,7 @@ func (pc *RealPvcControl) AdoptPvcsLeftByRetainPolicy(ctx context.Context, xset 
 		ownerSelector.MatchLabels = map[string]string{}
 	}
 	ownerSelector.MatchLabels[pc.xsetLabelAnnoMgr.Value(api.ControlledByXSetLabel)] = "true"
-	ownerSelector.MatchExpressions = append(ownerSelector.MatchExpressions, metav1.LabelSelectorRequirement{
+	ownerSelector.MatchExpressions = append(ownerSelector.MatchExpressions, metav1.LabelSelectorRequirement{ // nolint
 		Key:      pc.xsetLabelAnnoMgr.Value(api.XOrphanedIndicationLabelKey), // should not be excluded pvcs
 		Operator: metav1.LabelSelectorOpDoesNotExist,
 	})
@@ -299,7 +301,7 @@ func (pc *RealPvcControl) AdoptPvcsLeftByRetainPolicy(ctx context.Context, xset 
 	}
 
 	orphanedPvcList := &corev1.PersistentVolumeClaimList{}
-	if err = pc.client.List(ctx, orphanedPvcList, &client.ListOptions{Namespace: xset.GetNamespace(), LabelSelector: selector}); err != nil {
+	if err := pc.client.List(ctx, orphanedPvcList, &client.ListOptions{Namespace: xset.GetNamespace(), LabelSelector: selector}); err != nil {
 		return nil, err
 	}
 
@@ -354,7 +356,8 @@ func (pc *RealPvcControl) IsTargetPvcTmpChanged(xset api.XSetObject, x client.Ob
 	}
 
 	// check mounted pvcs changed
-	for _, volume := range xSpecVolumes {
+	for i := range xSpecVolumes {
+		volume := xSpecVolumes[i]
 		if volume.PersistentVolumeClaim == nil || volume.PersistentVolumeClaim.ClaimName == "" {
 			continue
 		}
@@ -377,8 +380,9 @@ func (pc *RealPvcControl) RetainPvcWhenXSetScaled(xset api.XSetObject) bool {
 
 func (pc *RealPvcControl) deleteUnclaimedPvcs(ctx context.Context, xset api.XSetObject, oldPvcs map[string]*corev1.PersistentVolumeClaim, mountedPvcNames sets.String) error {
 	inUsedPvcNames := sets.String{}
-	for _, pvcTmp := range pc.pvcAdapter.GetXSetPvcTemplate(xset) {
-		inUsedPvcNames.Insert(pvcTmp.Name)
+	templates := pc.pvcAdapter.GetXSetPvcTemplate(xset)
+	for i := range templates {
+		inUsedPvcNames.Insert(templates[i].Name)
 	}
 	for pvcTmpName, pvc := range oldPvcs {
 		// if pvc is still mounted on target, keep it
@@ -518,7 +522,8 @@ func PvcTmpHash(pvc *corev1.PersistentVolumeClaim) (string, error) {
 
 func PvcTmpHashMapping(pvcTmps []corev1.PersistentVolumeClaim) (map[string]string, error) {
 	pvcHashMapping := map[string]string{}
-	for _, pvcTmp := range pvcTmps {
+	for i := range pvcTmps {
+		pvcTmp := pvcTmps[i]
 		hash, err := PvcTmpHash(&pvcTmp)
 		if err != nil {
 			return nil, err

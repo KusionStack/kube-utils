@@ -210,7 +210,7 @@ func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset a
 			continue
 		} else if err != nil {
 			r.Recorder.Eventf(xset, corev1.EventTypeWarning, "ExcludeIncludeFailed", fmt.Sprintf("failed to find target %s: %s", targetNames[i], err.Error()))
-			return
+			return allowTargets, notAllowTargets, err
 		}
 
 		// check allowance for target
@@ -225,7 +225,9 @@ func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset a
 		pvcsAllowed := true
 		if subresources.SubresourcePvcEnabled(r.pvcControl) {
 			adapter, _ := r.xsetController.(api.SubResourcePvcAdapter)
-			for _, volume := range adapter.GetXSpecVolumes(target) {
+			volumes := adapter.GetXSpecVolumes(target)
+			for i := range volumes {
+				volume := volumes[i]
 				if volume.PersistentVolumeClaim == nil {
 					continue
 				}
@@ -277,7 +279,9 @@ func (r *RealSyncControl) excludeTarget(ctx context.Context, xsetObject api.XSet
 	// exclude subresource
 	if subresources.SubresourcePvcEnabled(r.pvcControl) {
 		adapter, _ := r.xsetController.(api.SubResourcePvcAdapter)
-		for _, volume := range adapter.GetXSpecVolumes(target) {
+		volumes := adapter.GetXSpecVolumes(target)
+		for i := range volumes {
+			volume := volumes[i]
 			if volume.PersistentVolumeClaim == nil {
 				continue
 			}
@@ -314,7 +318,9 @@ func (r *RealSyncControl) includeTarget(ctx context.Context, xsetObject api.XSet
 	// exclude subresource
 	if subresources.SubresourcePvcEnabled(r.pvcControl) {
 		adapter, _ := r.xsetController.(api.SubResourcePvcAdapter)
-		for _, volume := range adapter.GetXSpecVolumes(target) {
+		volumes := adapter.GetXSpecVolumes(target)
+		for i := range volumes {
+			volume := volumes[i]
 			if volume.PersistentVolumeClaim == nil {
 				continue
 			}

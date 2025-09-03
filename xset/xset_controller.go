@@ -91,6 +91,9 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 	cacheExpectations := expectations.NewxCacheExpectations(reconcilerMixin.Client, reconcilerMixin.Scheme, clock.RealClock{})
 	resourceContextControl := resourcecontexts.NewRealResourceContextControl(reconcilerMixin.Client, xsetController, resourceContextAdapter, resourceContextGVK, cacheExpectations)
 	pvcControl, err := subresources.NewRealPvcControl(reconcilerMixin, cacheExpectations, xsetLabelManager, xsetController)
+	if err != nil {
+		return errors.New("failed to create pvc control")
+	}
 	syncControl := synccontrols.NewRealSyncControl(reconcilerMixin, xsetController, targetControl, pvcControl, xsetLabelManager, resourceContextControl, cacheExpectations)
 	revisionControl := history.NewRevisionControl(reconcilerMixin.Client, reconcilerMixin.Client)
 	revisionOwner := revisionowner.NewRevisionOwner(xsetController, targetControl)
@@ -170,21 +173,21 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 	}
 
 	if instance.GetDeletionTimestamp() != nil {
-		if err := r.ensureReclaimTargetsDeletion(ctx, instance); err != nil {
-			// reclaim targets deletion before remove finalizers
-			return ctrl.Result{}, err
-		}
 		if controllerutil.ContainsFinalizer(instance, r.finalizerName) {
 			// reclaim owner IDs in ResourceContextControl
 			if err := r.resourceContextControl.UpdateToTargetContext(ctx, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
-			if err := clientutil.RemoveFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName); err != nil {
+			if err := r.ensureReclaimTargetsDeletion(ctx, instance); err != nil {
+				// reclaim targets deletion before remove finalizers
+				return ctrl.Result{}, err
+			}
+			// reclaim target sub resources before remove finalizers
+			if err := r.ensureReclaimTargetSubResources(ctx, instance); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
-
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, clientutil.RemoveFinalizerAndUpdate(ctx, r.Client, instance, r.finalizerName)
 	}
 
 	if !controllerutil.ContainsFinalizer(instance, r.finalizerName) {

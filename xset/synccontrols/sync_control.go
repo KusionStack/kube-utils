@@ -149,8 +149,8 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 		if adoptedPvcs, err = r.pvcControl.AdoptPvcsLeftByRetainPolicy(ctx, instance); err != nil {
 			return false, fmt.Errorf("fail to adopt orphaned left by whenDelete retention policy PVCs: %w", err)
 		}
-		syncContext.SubResources.ExistingPvcs = append(syncContext.ExistingPvcs, existingPvcs...)
-		syncContext.SubResources.ExistingPvcs = append(syncContext.ExistingPvcs, adoptedPvcs...)
+		syncContext.ExistingPvcs = append(syncContext.ExistingPvcs, existingPvcs...)
+		syncContext.ExistingPvcs = append(syncContext.ExistingPvcs, adoptedPvcs...)
 	}
 
 	// sync include exclude targets
