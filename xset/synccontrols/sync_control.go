@@ -468,9 +468,9 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				target, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, xsetObject, revision, availableIDContext.ID,
 					func(object client.Object) error {
 						if _, exist := r.resourceContextControl.Get(availableIDContext, api.EnumJustCreateContextDataKey); exist {
-							r.xsetLabelMgr.Set(object.GetLabels(), api.EnumXSetTargetCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+							r.xsetLabelMgr.Set(object, api.EnumXSetTargetCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 						} else {
-							r.xsetLabelMgr.Set(object.GetLabels(), api.EnumXSetTargetCompletingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+							r.xsetLabelMgr.Set(object, api.EnumXSetTargetCompletingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 						}
 						return nil
 					},

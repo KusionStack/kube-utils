@@ -18,6 +18,7 @@ package synccontrols
 
 import (
 	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"kusionstack.io/kube-utils/xset/api"
 )
@@ -57,12 +58,12 @@ func (m *xSetControllerLabelManager) Get(labels map[string]string, key api.XSetC
 	return val, exist
 }
 
-func (m *xSetControllerLabelManager) Set(labels map[string]string, key api.XSetControllerLabelEnum, val string) {
-	if labels == nil {
-		labels = make(map[string]string)
+func (m *xSetControllerLabelManager) Set(obj client.Object, key api.XSetControllerLabelEnum, val string) {
+	if obj.GetLabels() == nil {
+		obj.SetLabels(map[string]string{})
 	}
 	labelKey := m.labelManager[key]
-	labels[labelKey] = val
+	obj.GetLabels()[labelKey] = val
 }
 
 func (m *xSetControllerLabelManager) Delete(labels map[string]string, key api.XSetControllerLabelEnum) {

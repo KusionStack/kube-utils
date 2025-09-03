@@ -162,7 +162,7 @@ func (r *RealSyncControl) excludeTarget(ctx context.Context, xsetObject api.XSet
 		return err
 	}
 
-	r.xsetLabelMgr.Set(target.GetLabels(), api.EnumXSetOrphanedLabel, "true")
+	r.xsetLabelMgr.Set(target, api.EnumXSetOrphanedLabel, "true")
 	return r.xControl.OrphanTarget(xsetObject, target)
 }
 
@@ -173,7 +173,7 @@ func (r *RealSyncControl) includeTarget(ctx context.Context, xsetObject api.XSet
 		return err
 	}
 
-	r.xsetLabelMgr.Set(target.GetLabels(), api.EnumXSetInstanceIdLabel, instanceId)
+	r.xsetLabelMgr.Set(target, api.EnumXSetInstanceIdLabel, instanceId)
 	r.xsetLabelMgr.Delete(target.GetLabels(), api.EnumXSetOrphanedLabel)
 	return r.xControl.AdoptTarget(xsetObject, target)
 }

@@ -64,9 +64,8 @@ func NewTargetFrom(setController api.XSetController, xsetLabelMgr api.XSetLabelM
 	targetObj.SetNamespace(owner.GetNamespace())
 	targetObj.SetGenerateName(GetTargetsPrefix(owner.GetName()))
 
-	labels := targetObj.GetLabels()
-	xsetLabelMgr.Set(labels, api.EnumXSetInstanceIdLabel, fmt.Sprintf("%d", id))
-	labels[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
+	xsetLabelMgr.Set(targetObj, api.EnumXSetInstanceIdLabel, fmt.Sprintf("%d", id))
+	targetObj.GetLabels()[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
 	controlByXSet(xsetLabelMgr, targetObj)
 
 	for _, fn := range updateFuncs {
@@ -171,7 +170,7 @@ func controlByXSet(xsetLabelMgr api.XSetLabelManager, obj client.Object) {
 		obj.SetLabels(map[string]string{})
 	}
 	if v, ok := xsetLabelMgr.Get(obj.GetLabels(), api.EnumXSetControlledLabel); !ok || v != "true" {
-		xsetLabelMgr.Set(obj.GetLabels(), api.EnumXSetControlledLabel, "true")
+		xsetLabelMgr.Set(obj, api.EnumXSetControlledLabel, "true")
 	}
 }
 

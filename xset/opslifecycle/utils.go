@@ -31,7 +31,7 @@ import (
 
 type UpdateFunc func(object client.Object) (bool, error)
 
-// IDToLabelsMap returns a map of pod id to labels map and a map of operation type to number of pods.
+// IDToLabelsMap returns a map of target id to labels map and a map of operation type to number of targets.
 func IDToLabelsMap(m *LabelManagerImpl, target client.Object) (map[string]map[string]string, map[string]int, error) {
 	idToLabelsMap := map[string]map[string]string{}
 	typeToNumsMap := map[string]int{}
@@ -72,7 +72,7 @@ func IDToLabelsMap(m *LabelManagerImpl, target client.Object) (map[string]map[st
 	return idToLabelsMap, typeToNumsMap, nil
 }
 
-// NumOfLifecycleOnTarget returns the nums of lifecycles on pod
+// NumOfLifecycleOnTarget returns the nums of lifecycles on target
 func NumOfLifecycleOnTarget(m *LabelManagerImpl, target client.Object) (int, error) {
 	if target == nil {
 		return 0, nil
@@ -310,9 +310,9 @@ func CancelOpsLifecycle(m api.LifeCycleLabelManager, client client.Client, adapt
 		return nil
 	}
 
-	// only cancel when lifecycle exist on pod
+	// only cancel when lifecycle exist on target
 	if exist, err := IsLifecycleOnTarget(m, adapter.GetID(), target); err != nil {
-		return fmt.Errorf("fail to check %s PodOpsLifecycle on Pod %s/%s: %w", adapter.GetID(), target.GetNamespace(), target.GetName(), err)
+		return fmt.Errorf("fail to check %s TargetOpsLifecycle on Target %s/%s: %w", adapter.GetID(), target.GetNamespace(), target.GetName(), err)
 	} else if !exist {
 		return nil
 	}
