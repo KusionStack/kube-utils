@@ -23,7 +23,7 @@ import (
 
 type XSetLabelAnnotationEnum int
 
-const EnumXSetLabelAnnotationsNum = 19
+const EnumXSetLabelAnnotationsNum = int(wellKnownCount)
 const (
 	// OperatingLabelPrefix indicates a target is under operation
 	// set by xset controller
@@ -90,6 +90,9 @@ const (
 
 	// LastXStatusAnnotationKey is used to record the last status of a target by xset
 	LastXStatusAnnotationKey
+
+	// wellKnownCount is the number of XSetLabelAnnotationEnum
+	wellKnownCount
 )
 
 type XSetLabelAnnotationManager interface {
