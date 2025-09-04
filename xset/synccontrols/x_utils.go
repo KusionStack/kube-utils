@@ -65,9 +65,9 @@ func NewTargetFrom(setController api.XSetController, xsetLabelAnnoMgr api.XSetLa
 	targetObj.SetNamespace(owner.GetNamespace())
 	targetObj.SetGenerateName(GetTargetsPrefix(owner.GetName()))
 
-	xsetLabelMgr.Set(targetObj, api.EnumXSetInstanceIdLabel, fmt.Sprintf("%d", id))
+	xsetLabelAnnoMgr.Set(targetObj, api.XInstanceIdLabelKey, fmt.Sprintf("%d", id))
 	targetObj.GetLabels()[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
-	controlByXSet(xsetLabelMgr, targetObj)
+	controlByXSet(xsetLabelAnnoMgr, targetObj)
 
 	for _, fn := range updateFuncs {
 		if err := fn(targetObj); err != nil {
@@ -126,8 +126,8 @@ func controlByXSet(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, obj client.O
 	if obj.GetLabels() == nil {
 		obj.SetLabels(map[string]string{})
 	}
-	if v, ok := xsetLabelMgr.Get(obj.GetLabels(), api.EnumXSetControlledLabel); !ok || v != "true" {
-		xsetLabelMgr.Set(obj, api.EnumXSetControlledLabel, "true")
+	if v, ok := xsetLabelAnnoMgr.Get(obj.GetLabels(), api.ControlledByXSetLabel); !ok || v != "true" {
+		xsetLabelAnnoMgr.Set(obj, api.ControlledByXSetLabel, "true")
 	}
 }
 

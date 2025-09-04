@@ -16,7 +16,10 @@
 
 package api
 
-import appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
+import (
+	appsv1alpha1 "kusionstack.io/kube-api/apps/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
 
 type XSetLabelAnnotationEnum int
 
@@ -91,7 +94,7 @@ const (
 
 type XSetLabelAnnotationManager interface {
 	Get(labels map[string]string, labelType XSetLabelAnnotationEnum) (string, bool)
-	Set(labels map[string]string, labelType XSetLabelAnnotationEnum, value string)
+	Set(obj client.Object, labelType XSetLabelAnnotationEnum, value string)
 	Delete(labels map[string]string, labelType XSetLabelAnnotationEnum)
 	Value(labelType XSetLabelAnnotationEnum) string
 }
@@ -139,12 +142,12 @@ func (m *xSetLabelAnnotationManager) Get(labels map[string]string, key XSetLabel
 	return val, exist
 }
 
-func (m *xSetLabelAnnotationManager) Set(labels map[string]string, key XSetLabelAnnotationEnum, val string) {
-	if labels == nil {
-		labels = make(map[string]string)
+func (m *xSetLabelAnnotationManager) Set(obj client.Object, key XSetLabelAnnotationEnum, val string) {
+	if obj.GetLabels() == nil {
+		obj.SetLabels(map[string]string{})
 	}
 	labelKey := m.labelManager[key]
-	labels[labelKey] = val
+	obj.GetLabels()[labelKey] = val
 }
 
 func (m *xSetLabelAnnotationManager) Delete(labels map[string]string, key XSetLabelAnnotationEnum) {

@@ -17,14 +17,14 @@
 package validation
 
 import (
-	"errors"
+	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func validateMeta(t metav1.TypeMeta) error {
 	if len(t.String()) == 0 {
-		return errors.New("resource context meta is not valid")
+		return fmt.Errorf("type meta {%s} {%s} is inValid", t.APIVersion, t.Kind)
 	}
 	return nil
 }

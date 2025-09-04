@@ -32,7 +32,7 @@ import (
 type UpdateFunc func(object client.Object) (bool, error)
 
 // IDToLabelsMap returns a map of target id to labels map and a map of operation type to number of targets.
-func IDToLabelsMap(m *LabelManagerImpl, target client.Object) (map[string]map[string]string, map[string]int, error) {
+func IDToLabelsMap(m api.XSetLabelAnnotationManager, target client.Object) (map[string]map[string]string, map[string]int, error) {
 	idToLabelsMap := map[string]map[string]string{}
 	typeToNumsMap := map[string]int{}
 
@@ -73,7 +73,7 @@ func IDToLabelsMap(m *LabelManagerImpl, target client.Object) (map[string]map[st
 }
 
 // NumOfLifecycleOnTarget returns the nums of lifecycles on target
-func NumOfLifecycleOnTarget(m *LabelManagerImpl, target client.Object) (int, error) {
+func NumOfLifecycleOnTarget(m api.XSetLabelAnnotationManager, target client.Object) (int, error) {
 	if target == nil {
 		return 0, nil
 	}

@@ -143,7 +143,7 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTargetContext = contextDetail
 			// reuse targetContext ID if pair-relation exists
 			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			r.xsetLabelMgr.Set(newTarget, api.EnumXSetInstanceIdLabel, newInstanceId)
+			r.xsetLabelAnnoMgr.Set(newTarget, api.XInstanceIdLabelKey, newInstanceId)
 			logger.Info("replaceOriginTargets", "try to reuse new pod resourceContext id", newInstanceId)
 		} else {
 			if availableContexts[i] == nil {
@@ -153,13 +153,13 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTargetContext = availableContexts[i]
 			// add replace pair-relation to targetContexts for originTarget and newTarget
 			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			r.xsetLabelMgr.Set(newTarget, api.EnumXSetInstanceIdLabel, newInstanceId)
+			r.xsetLabelAnnoMgr.Set(newTarget, api.XInstanceIdLabelKey, newInstanceId)
 			r.resourceContextControl.Put(ownedIDs[originTargetId], api.EnumReplaceNewTargetIDContextDataKey, newInstanceId)
 			r.resourceContextControl.Put(ownedIDs[newTargetContext.ID], api.EnumReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
 			r.resourceContextControl.Remove(ownedIDs[newTargetContext.ID], api.EnumJustCreateContextDataKey)
 		}
-		r.xsetLabelMgr.Set(newTarget, api.EnumXSetReplacePairOriginNameLabel, originTarget.GetName())
-		r.xsetLabelMgr.Set(newTarget, api.EnumXSetTargetCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+		r.xsetLabelAnnoMgr.Set(newTarget, api.XReplacePairOriginName, originTarget.GetName())
+		r.xsetLabelAnnoMgr.Set(newTarget, api.XCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 		r.resourceContextControl.Put(newTargetContext, api.EnumRevisionContextDataKey, replaceRevision.GetName())
 
 		// TODO create pvcs for new target (pod)

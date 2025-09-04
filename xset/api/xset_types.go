@@ -20,7 +20,6 @@ package api
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type XSetConditionType string
@@ -204,41 +203,4 @@ type OpsPriority struct {
 	PriorityClass int32
 	// DeletionCost is the deletion cost of the target
 	DeletionCost int32
-}
-
-type XSetControllerLabelEnum int
-
-const (
-	EnumXSetControlledLabel XSetControllerLabelEnum = iota
-
-	EnumXSetInstanceIdLabel
-
-	EnumXSetUpdateIndicationLabel
-
-	EnumXSetDeletionIndicationLabel
-
-	EnumXSetReplaceIndicationLabel
-
-	EnumXSetReplacePairNewIdLabel
-
-	EnumXSetReplacePairOriginNameLabel
-
-	EnumXSetReplaceByReplaceUpdateLabel
-
-	EnumXSetOrphanedLabel
-
-	EnumXSetTargetCreatingLabel
-
-	EnumXSetTargetCompletingLabel
-
-	EnumXSetTargetExcludeIndicationLabel
-
-	EnumXSetLastTargetStatusAnnotationKey
-)
-
-type XSetLabelManager interface {
-	Get(labels map[string]string, labelType XSetControllerLabelEnum) (string, bool)
-	Set(obj client.Object, labelType XSetControllerLabelEnum, value string)
-	Delete(labels map[string]string, labelType XSetControllerLabelEnum)
-	Label(labelType XSetControllerLabelEnum) string
 }
