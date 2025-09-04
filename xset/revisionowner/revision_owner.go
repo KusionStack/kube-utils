@@ -23,7 +23,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"kusionstack.io/kube-api/apps/v1alpha1"
 
 	"kusionstack.io/kube-utils/controller/history"
 	"kusionstack.io/kube-utils/xset/api"
@@ -53,14 +52,8 @@ func (r *revisionOwner) GetGroupVersionKind() schema.GroupVersionKind {
 func (r *revisionOwner) GetMatchLabels(parent metav1.Object) map[string]string {
 	obj := parent.(api.XSetObject)
 	xsetSpec := r.XSetController.GetXSetSpec(obj)
-	if len(xsetSpec.Selector.MatchLabels) > 0 {
-		return xsetSpec.Selector.MatchLabels
-	} else {
-		return map[string]string{
-			v1alpha1.ControlledByKusionStackLabelKey: "xset",
-			"xset.kusionstack.io/name":               obj.GetName(),
-		}
-	}
+	// that's ok to return nil, manager will use nothingSelector instead
+	return xsetSpec.Selector.MatchLabels
 }
 
 func (r *revisionOwner) GetInUsedRevisions(parent metav1.Object) (sets.String, error) {

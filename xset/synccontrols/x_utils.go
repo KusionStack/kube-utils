@@ -28,16 +28,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutils "kusionstack.io/kube-utils/client"
+	"kusionstack.io/kube-utils/condition"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 )
 
-func GetInstanceID(xsetLabelMgr api.XSetLabelManager, target client.Object) (int, error) {
+func GetInstanceID(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, target client.Object) (int, error) {
 	if target.GetLabels() == nil {
 		return -1, fmt.Errorf("no labels found for instance ID")
 	}
 
-	instanceIdLabelKey := xsetLabelMgr.Label(api.EnumXSetInstanceIdLabel)
+	instanceIdLabelKey := xsetLabelAnnoMgr.Value(api.XInstanceIdLabelKey)
 	val, exist := target.GetLabels()[instanceIdLabelKey]
 	if !exist {
 		return -1, fmt.Errorf("failed to find instance ID label %s", instanceIdLabelKey)
@@ -52,7 +53,7 @@ func GetInstanceID(xsetLabelMgr api.XSetLabelManager, target client.Object) (int
 	return int(id), nil
 }
 
-func NewTargetFrom(setController api.XSetController, xsetLabelMgr api.XSetLabelManager, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
+func NewTargetFrom(setController api.XSetController, xsetLabelAnnoMgr api.XSetLabelAnnotationManager, owner api.XSetObject, revision *appsv1.ControllerRevision, id int, updateFuncs ...func(client.Object) error) (client.Object, error) {
 	targetObj, err := setController.GetXObjectFromRevision(revision)
 	if err != nil {
 		return nil, err
@@ -64,9 +65,9 @@ func NewTargetFrom(setController api.XSetController, xsetLabelMgr api.XSetLabelM
 	targetObj.SetNamespace(owner.GetNamespace())
 	targetObj.SetGenerateName(GetTargetsPrefix(owner.GetName()))
 
-	xsetLabelMgr.Set(targetObj, api.EnumXSetInstanceIdLabel, fmt.Sprintf("%d", id))
+	xsetLabelAnnoMgr.Set(targetObj, api.XInstanceIdLabelKey, fmt.Sprintf("%d", id))
 	targetObj.GetLabels()[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
-	controlByXSet(xsetLabelMgr, targetObj)
+	controlByXSet(xsetLabelAnnoMgr, targetObj)
 
 	for _, fn := range updateFuncs {
 		if err := fn(targetObj); err != nil {
@@ -85,7 +86,7 @@ func AddOrUpdateCondition(status *api.XSetStatus, conditionType api.XSetConditio
 		condStatus = metav1.ConditionFalse
 	}
 
-	existCond := GetCondition(status, string(conditionType))
+	existCond := condition.GetCondition(status.Conditions, string(conditionType))
 	if existCond != nil && existCond.Reason == reason && existCond.Status == condStatus {
 		now := metav1.Now()
 		if now.Sub(existCond.LastTransitionTime.Time) < ConditionUpdatePeriodBackOff {
@@ -93,40 +94,8 @@ func AddOrUpdateCondition(status *api.XSetStatus, conditionType api.XSetConditio
 		}
 	}
 
-	cond := NewCondition(string(conditionType), condStatus, reason, message)
-	SetCondition(status, cond)
-}
-
-func NewCondition(condType string, status metav1.ConditionStatus, reason, msg string) *metav1.Condition {
-	return &metav1.Condition{
-		Type:               condType,
-		Status:             status,
-		LastTransitionTime: metav1.Now(),
-		Reason:             reason,
-		Message:            msg,
-	}
-}
-
-// SetCondition adds/replaces the given condition in the replicaset status. If the condition that we
-// are about to add already exists and has the same status and reason then we are not going to update.
-func SetCondition(status *api.XSetStatus, condition *metav1.Condition) {
-	currentCond := GetCondition(status, condition.Type)
-	if currentCond != nil && currentCond.Status == condition.Status && currentCond.Reason == condition.Reason && currentCond.LastTransitionTime == condition.LastTransitionTime {
-		return
-	}
-	newConditions := filterOutCondition(status.Conditions, condition.Type)
-	newConditions = append(newConditions, *condition)
-	status.Conditions = newConditions
-}
-
-// GetCondition returns a inplace set condition with the provided type if it exists.
-func GetCondition(status *api.XSetStatus, condType string) *metav1.Condition {
-	for _, c := range status.Conditions {
-		if c.Type == condType {
-			return &c
-		}
-	}
-	return nil
+	cond := condition.NewCondition(string(conditionType), condStatus, reason, message)
+	status.Conditions = condition.SetCondition(status.Conditions, *cond)
 }
 
 func GetTargetsPrefix(controllerName string) string {
@@ -153,33 +122,21 @@ func ObjectKeyString(obj client.Object) string {
 	return obj.GetNamespace() + "/" + obj.GetName()
 }
 
-// filterOutCondition returns a new slice of replicaset conditions without conditions with the provided type.
-func filterOutCondition(conditions []metav1.Condition, condType string) []metav1.Condition {
-	var newConditions []metav1.Condition
-	for _, c := range conditions {
-		if c.Type == condType {
-			continue
-		}
-		newConditions = append(newConditions, c)
-	}
-	return newConditions
-}
-
-func controlByXSet(xsetLabelMgr api.XSetLabelManager, obj client.Object) {
+func controlByXSet(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, obj client.Object) {
 	if obj.GetLabels() == nil {
 		obj.SetLabels(map[string]string{})
 	}
-	if v, ok := xsetLabelMgr.Get(obj.GetLabels(), api.EnumXSetControlledLabel); !ok || v != "true" {
-		xsetLabelMgr.Set(obj, api.EnumXSetControlledLabel, "true")
+	if v, ok := xsetLabelAnnoMgr.Get(obj.GetLabels(), api.ControlledByXSetLabel); !ok || v != "true" {
+		xsetLabelAnnoMgr.Set(obj, api.ControlledByXSetLabel, "true")
 	}
 }
 
-func IsControlledByXSet(xsetLabelManager api.XSetLabelManager, obj client.Object) bool {
+func IsControlledByXSet(xsetLabelManager api.XSetLabelAnnotationManager, obj client.Object) bool {
 	if obj.GetLabels() == nil {
 		return false
 	}
 
-	v, ok := xsetLabelManager.Get(obj.GetLabels(), api.EnumXSetControlledLabel)
+	v, ok := xsetLabelManager.Get(obj.GetLabels(), api.ControlledByXSetLabel)
 	return ok && v == "true"
 }
 
@@ -194,13 +151,12 @@ func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController
 	return patchErr
 }
 
-func CompareTarget(l, r client.Object,
-	checkReadyFunc func(object client.Object) bool,
-	getReadyTimeFunc func(object client.Object) *metav1.Time,
-) bool {
+func CompareTarget(l, r client.Object, checkReadyFunc func(object client.Object) (bool, *metav1.Time)) bool {
 	// If both targets are ready, the latest ready one is smaller
-	if checkReadyFunc(l) && checkReadyFunc(r) && !getReadyTimeFunc(l).Equal(getReadyTimeFunc(r)) {
-		return afterOrZero(getReadyTimeFunc(l), getReadyTimeFunc(r))
+	lReady, lReadyTime := checkReadyFunc(l)
+	rReady, rReadyTime := checkReadyFunc(r)
+	if lReady && rReady && !lReadyTime.Equal(rReadyTime) {
+		return afterOrZero(lReadyTime, rReadyTime)
 	}
 	// Empty creation time targets < newer targets < older targets
 	lCreationTime, rCreationTime := l.GetCreationTimestamp(), r.GetCreationTimestamp()

@@ -66,9 +66,9 @@ func (r *RealSyncControl) cleanReplaceTargetLabels(
 			}
 			deletePatch = append(deletePatch, patchOperation)
 			// replace finished, (1) remove ReplaceNewTargetID, ReplaceOriginTargetID key from IDs, (2) try to delete origin Target's ID
-			if labelKey == r.xsetLabelMgr.Label(api.EnumXSetReplacePairOriginNameLabel) {
+			if labelKey == r.xsetLabelAnnoMgr.Value(api.XReplacePairOriginName) {
 				needUpdateContext = true
-				newTargetId, _ := GetInstanceID(r.xsetLabelMgr, target)
+				newTargetId, _ := GetInstanceID(r.xsetLabelAnnoMgr, target)
 				if originTargetContext, exist := mapOriginToNewTargetContext[newTargetId]; exist && originTargetContext != nil {
 					r.resourceContextControl.Remove(originTargetContext, api.EnumReplaceNewTargetIDContextDataKey)
 					if _, exist := currentIDs[originTargetContext.ID]; !exist {
@@ -80,10 +80,10 @@ func (r *RealSyncControl) cleanReplaceTargetLabels(
 				}
 			}
 			// replace canceled, (1) remove ReplaceNewTargetID, ReplaceOriginTargetID key from IDs, (2) try to delete new Target's ID
-			_, replaceIndicate := r.xsetLabelMgr.Get(target.GetLabels(), api.EnumXSetReplaceIndicationLabel)
-			if !replaceIndicate && labelKey == r.xsetLabelMgr.Label(api.EnumXSetReplacePairNewIdLabel) {
+			_, replaceIndicate := r.xsetLabelAnnoMgr.Get(target.GetLabels(), api.XReplaceIndicationLabelKey)
+			if !replaceIndicate && labelKey == r.xsetLabelAnnoMgr.Value(api.XReplacePairNewId) {
 				needUpdateContext = true
-				originTargetId, _ := GetInstanceID(r.xsetLabelMgr, target)
+				originTargetId, _ := GetInstanceID(r.xsetLabelAnnoMgr, target)
 				if newTargetContext, exist := mapNewToOriginTargetContext[originTargetId]; exist && newTargetContext != nil {
 					r.resourceContextControl.Remove(newTargetContext, api.EnumReplaceOriginTargetIDContextDataKey)
 					if _, exist := currentIDs[newTargetContext.ID]; !exist {
@@ -121,7 +121,7 @@ func (r *RealSyncControl) replaceOriginTargets(
 	mapNewToOriginTargetContext := r.mapReplaceNewToOriginTargetContext(ownedIDs)
 	successCount, err := controllerutils.SlowStartBatch(len(needReplaceOriginTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		originTarget := needReplaceOriginTargets[i]
-		originTargetId, _ := GetInstanceID(r.xsetLabelMgr, originTarget)
+		originTargetId, _ := GetInstanceID(r.xsetLabelAnnoMgr, originTarget)
 
 		if ownedIDs[originTargetId] == nil {
 			r.Recorder.Eventf(instance, corev1.EventTypeWarning, "OriginTargetContext", "cannot found resource context id %d of origin target %s/%s", originTargetId, originTarget.GetNamespace(), originTarget.GetName())
@@ -131,7 +131,7 @@ func (r *RealSyncControl) replaceOriginTargets(
 		replaceRevision := r.getReplaceRevision(originTarget, syncContext)
 
 		// create target using update revision if replaced by update, otherwise using current revision
-		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, instance, replaceRevision, originTargetId,
+		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, instance, replaceRevision, originTargetId,
 			r.xsetController.GetXSetTemplatePatcher(instance))
 		if err != nil {
 			return err
@@ -143,7 +143,7 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTargetContext = contextDetail
 			// reuse targetContext ID if pair-relation exists
 			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			r.xsetLabelMgr.Set(newTarget, api.EnumXSetInstanceIdLabel, newInstanceId)
+			r.xsetLabelAnnoMgr.Set(newTarget, api.XInstanceIdLabelKey, newInstanceId)
 			logger.Info("replaceOriginTargets", "try to reuse new pod resourceContext id", newInstanceId)
 		} else {
 			if availableContexts[i] == nil {
@@ -153,13 +153,13 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTargetContext = availableContexts[i]
 			// add replace pair-relation to targetContexts for originTarget and newTarget
 			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			r.xsetLabelMgr.Set(newTarget, api.EnumXSetInstanceIdLabel, newInstanceId)
+			r.xsetLabelAnnoMgr.Set(newTarget, api.XInstanceIdLabelKey, newInstanceId)
 			r.resourceContextControl.Put(ownedIDs[originTargetId], api.EnumReplaceNewTargetIDContextDataKey, newInstanceId)
 			r.resourceContextControl.Put(ownedIDs[newTargetContext.ID], api.EnumReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
 			r.resourceContextControl.Remove(ownedIDs[newTargetContext.ID], api.EnumJustCreateContextDataKey)
 		}
-		r.xsetLabelMgr.Set(newTarget, api.EnumXSetReplacePairOriginNameLabel, originTarget.GetName())
-		r.xsetLabelMgr.Set(newTarget, api.EnumXSetTargetCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+		r.xsetLabelAnnoMgr.Set(newTarget, api.XReplacePairOriginName, originTarget.GetName())
+		r.xsetLabelAnnoMgr.Set(newTarget, api.XCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 		r.resourceContextControl.Put(newTargetContext, api.EnumRevisionContextDataKey, replaceRevision.GetName())
 
 		// TODO create pvcs for new target (pod)
@@ -177,7 +177,7 @@ func (r *RealSyncControl) replaceOriginTargets(
 				return err
 			}
 
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:%q}}}`, r.xsetLabelMgr.Label(api.EnumXSetReplacePairNewIdLabel), newInstanceId)))
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:%q}}}`, r.xsetLabelAnnoMgr.Value(api.XReplacePairNewId), newInstanceId)))
 			if err = r.xControl.PatchTarget(ctx, originTarget, patch); err != nil {
 				return fmt.Errorf("fail to update origin target %s/%s pair label %s when updating by replaceUpdate: %s", originTarget.GetNamespace(), originTarget.GetName(), newCreatedTarget.GetName(), err.Error())
 			}
@@ -209,7 +209,7 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 	for _, target := range targets {
 		targetLabels := target.GetLabels()
 
-		if instanceId, ok := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetInstanceIdLabel); ok {
+		if instanceId, ok := r.xsetLabelAnnoMgr.Get(targetLabels, api.XInstanceIdLabelKey); ok {
 			targetInstanceIdMap[instanceId] = target
 		}
 		targetNameMap[target.GetName()] = target
@@ -220,25 +220,25 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 		targetLabels := target.GetLabels()
 
 		// no replace indication label
-		if _, exist := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplaceIndicationLabel); !exist {
+		if _, exist := r.xsetLabelAnnoMgr.Get(targetLabels, api.XReplaceIndicationLabelKey); !exist {
 			continue
 		}
 
 		// origin target is about to scaleIn, skip replace
-		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, target) {
+		if opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target) {
 			logger.Info("dealReplaceTargets", "target is during scaleIn ops lifecycle, skip replacing", target.GetName())
 			continue
 		}
 
 		// target is replace new created target, skip replace
-		if originTargetName, exist := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplacePairOriginNameLabel); exist {
+		if originTargetName, exist := r.xsetLabelAnnoMgr.Get(targetLabels, api.XReplacePairOriginName); exist {
 			if _, exist := targetNameMap[originTargetName]; exist {
 				continue
 			}
 		}
 
 		// target already has a new created target for replacement
-		if newPairTargetId, exist := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplacePairNewIdLabel); exist {
+		if newPairTargetId, exist := r.xsetLabelAnnoMgr.Get(targetLabels, api.XReplacePairNewId); exist {
 			if _, exist := targetInstanceIdMap[newPairTargetId]; exist {
 				continue
 			}
@@ -249,15 +249,15 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 
 	for _, target := range targets {
 		targetLabels := target.GetLabels()
-		_, replaceByUpdate := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplaceByReplaceUpdateLabel)
+		_, replaceByUpdate := r.xsetLabelAnnoMgr.Get(targetLabels, api.XReplaceByReplaceUpdateLabelKey)
 		var needCleanLabels []string
 
 		// target is replace new created target, skip replace
-		if originTargetName, exist := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplacePairOriginNameLabel); exist {
+		if originTargetName, exist := r.xsetLabelAnnoMgr.Get(targetLabels, api.XReplacePairOriginName); exist {
 			// replace pair origin target is not exist, clean label.
 			if originTarget, exist := targetNameMap[originTargetName]; !exist {
-				needCleanLabels = append(needCleanLabels, r.xsetLabelMgr.Label(api.EnumXSetReplacePairOriginNameLabel))
-			} else if _, exist := r.xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceIndicationLabel); !exist {
+				needCleanLabels = append(needCleanLabels, r.xsetLabelAnnoMgr.Value(api.XReplacePairOriginName))
+			} else if _, exist := r.xsetLabelAnnoMgr.Get(originTarget.GetLabels(), api.XReplaceIndicationLabelKey); !exist {
 				// replace canceled, delete replace new target if new target is not service available
 				if !r.xsetController.CheckAvailable(target) {
 					needDeleteTargets = append(needDeleteTargets, target)
@@ -270,9 +270,9 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 			}
 		}
 
-		if newPairTargetId, exist := r.xsetLabelMgr.Get(targetLabels, api.EnumXSetReplacePairNewIdLabel); exist {
+		if newPairTargetId, exist := r.xsetLabelAnnoMgr.Get(targetLabels, api.XReplacePairNewId); exist {
 			if _, exist := targetInstanceIdMap[newPairTargetId]; !exist {
-				needCleanLabels = append(needCleanLabels, r.xsetLabelMgr.Label(api.EnumXSetReplacePairNewIdLabel))
+				needCleanLabels = append(needCleanLabels, r.xsetLabelAnnoMgr.Value(api.XReplacePairNewId))
 			}
 		}
 
@@ -288,7 +288,7 @@ func updateReplaceOriginTarget(
 	ctx context.Context,
 	c client.Client,
 	recorder record.EventRecorder,
-	xsetLabelMgr api.XSetLabelManager,
+	xsetLabelAnnoMgr api.XSetLabelAnnotationManager,
 	originTargetUpdateInfo, newTargetUpdateInfo *targetUpdateInfo,
 ) error {
 	originTarget := originTargetUpdateInfo.Object
@@ -296,10 +296,10 @@ func updateReplaceOriginTarget(
 	// 1. delete the new target if not updated
 	if newTargetUpdateInfo != nil {
 		newTarget := newTargetUpdateInfo.Object
-		_, deletionIndicate := xsetLabelMgr.Get(newTarget.GetLabels(), api.EnumXSetDeletionIndicationLabel)
+		_, deletionIndicate := xsetLabelAnnoMgr.Get(newTarget.GetLabels(), api.XDeletionIndicationLabelKey)
 		currentRevision, exist := newTarget.GetLabels()[appsv1.ControllerRevisionHashLabelKey]
 		if exist && currentRevision != originTargetUpdateInfo.UpdateRevision.GetName() && !deletionIndicate {
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, xsetLabelMgr.Label(api.EnumXSetDeletionIndicationLabel), time.Now().UnixNano())))
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, xsetLabelAnnoMgr.Value(api.XDeletionIndicationLabelKey), time.Now().UnixNano())))
 			if patchErr := c.Patch(ctx, newTarget, patch); patchErr != nil {
 				err := fmt.Errorf("failed to delete replace pair new target %s/%s %s",
 					newTarget.GetNamespace(), newTarget.GetName(), patchErr.Error())
@@ -316,11 +316,11 @@ func updateReplaceOriginTarget(
 	}
 
 	// 2. replace the origin target with updated target
-	_, replaceIndicate := xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceIndicationLabel)
-	replaceRevision, replaceByUpdate := xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceByReplaceUpdateLabel)
+	_, replaceIndicate := xsetLabelAnnoMgr.Get(originTarget.GetLabels(), api.XReplaceIndicationLabelKey)
+	replaceRevision, replaceByUpdate := xsetLabelAnnoMgr.Get(originTarget.GetLabels(), api.XReplaceByReplaceUpdateLabelKey)
 	if !replaceIndicate || !replaceByUpdate || replaceRevision != originTargetUpdateInfo.UpdateRevision.Name {
 		now := time.Now().UnixNano()
-		patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%v", %q: "%v"}}}`, xsetLabelMgr.Label(api.EnumXSetReplaceIndicationLabel), now, xsetLabelMgr.Label(api.EnumXSetReplaceByReplaceUpdateLabel), originTargetUpdateInfo.UpdateRevision.Name)))
+		patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%v", %q: "%v"}}}`, xsetLabelAnnoMgr.Value(api.XReplaceIndicationLabelKey), now, xsetLabelAnnoMgr.Value(api.XReplaceByReplaceUpdateLabelKey), originTargetUpdateInfo.UpdateRevision.Name)))
 		if err := c.Patch(ctx, originTarget, patch); err != nil {
 			return fmt.Errorf("fail to label origin target %s/%s with replace indicate label by replaceUpdate: %s", originTarget.GetNamespace(), originTarget.GetName(), err.Error())
 		}
@@ -339,7 +339,7 @@ func updateReplaceOriginTarget(
 // getReplaceRevision finds replaceNewTarget's revision from originTarget
 func (r *RealSyncControl) getReplaceRevision(originTarget client.Object, syncContext *SyncContext) *appsv1.ControllerRevision {
 	// replace update, first find revision from label, if revision not found, just replace with updated revision
-	if updateRevisionName, exist := r.xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplaceByReplaceUpdateLabel); exist {
+	if updateRevisionName, exist := r.xsetLabelAnnoMgr.Get(originTarget.GetLabels(), api.XReplaceByReplaceUpdateLabelKey); exist {
 		for _, rv := range syncContext.Revisions {
 			if updateRevisionName == rv.Name {
 				return rv
@@ -364,7 +364,7 @@ func (r *RealSyncControl) getReplaceRevision(originTarget client.Object, syncCon
 }
 
 // classify the pair relationship for Target replacement.
-func classifyTargetReplacingMapping(xsetLabelMgr api.XSetLabelManager, targetWrappers []*targetWrapper) map[string]*targetWrapper {
+func classifyTargetReplacingMapping(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, targetWrappers []*targetWrapper) map[string]*targetWrapper {
 	targetNameMap := make(map[string]*targetWrapper)
 	targetIdMap := make(map[string]*targetWrapper)
 	for _, targetWrapper := range targetWrappers {
@@ -379,16 +379,16 @@ func classifyTargetReplacingMapping(xsetLabelMgr api.XSetLabelManager, targetWra
 			continue
 		}
 		name := targetWrapper.GetName()
-		if replacePairNewIdStr, exist := xsetLabelMgr.Get(targetWrapper.GetLabels(), api.EnumXSetReplacePairNewIdLabel); exist {
+		if replacePairNewIdStr, exist := xsetLabelAnnoMgr.Get(targetWrapper.GetLabels(), api.XReplacePairNewId); exist {
 			if pairNewTarget, exist := targetIdMap[replacePairNewIdStr]; exist {
 				replaceTargetMapping[name] = pairNewTarget
 				// if one of pair targets is to Exclude, both targets should not scaleIn
 				targetWrapper.ToExclude = targetWrapper.ToExclude || pairNewTarget.ToExclude
 				continue
 			}
-		} else if replaceOriginStr, exist := xsetLabelMgr.Get(targetWrapper.GetLabels(), api.EnumXSetReplacePairOriginNameLabel); exist {
+		} else if replaceOriginStr, exist := xsetLabelAnnoMgr.Get(targetWrapper.GetLabels(), api.XReplacePairOriginName); exist {
 			if originTarget, exist := targetNameMap[replaceOriginStr]; exist {
-				id, exist := xsetLabelMgr.Get(originTarget.GetLabels(), api.EnumXSetReplacePairNewIdLabel)
+				id, exist := xsetLabelAnnoMgr.Get(originTarget.GetLabels(), api.XReplacePairNewId)
 				if exist && id == strconv.Itoa(targetWrapper.ID) {
 					continue
 				}

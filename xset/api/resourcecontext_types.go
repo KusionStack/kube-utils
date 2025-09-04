@@ -37,7 +37,7 @@ type ResourceContextAdapter interface {
 // ResourceContextKeyEnum defines the key of resource context
 type ResourceContextKeyEnum int
 
-const EnumContextKeyNum = 6
+const EnumContextKeyNum = 8
 const (
 	EnumOwnerContextKey ResourceContextKeyEnum = iota
 	EnumRevisionContextDataKey

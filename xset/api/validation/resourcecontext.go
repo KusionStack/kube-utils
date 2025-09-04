@@ -19,8 +19,6 @@ package validation
 import (
 	"errors"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"kusionstack.io/kube-utils/xset/api"
 )
 
@@ -29,18 +27,10 @@ func ValidateResourceContextAdapter(adapter api.ResourceContextAdapter) error {
 	if adapter == nil {
 		return errors.New("resource context adapter is nil")
 	}
-	var errList []error
-	errList = append(errList,
-		validateResourceContextMeta(adapter.ResourceContextMeta()),
-		validateResourceContextKey(adapter.GetContextKeys()))
-	return errors.Join(errList...)
-}
-
-func validateResourceContextMeta(t metav1.TypeMeta) error {
-	if len(t.String()) == 0 {
-		return errors.New("resource context meta is not valid")
-	}
-	return nil
+	return errors.Join(
+		validateMeta(adapter.ResourceContextMeta()),
+		validateResourceContextKey(adapter.GetContextKeys()),
+	)
 }
 
 func validateResourceContextKey(m map[api.ResourceContextKeyEnum]string) error {
@@ -50,7 +40,7 @@ func validateResourceContextKey(m map[api.ResourceContextKeyEnum]string) error {
 
 	for i := range api.EnumContextKeyNum {
 		if _, ok := m[api.ResourceContextKeyEnum(i)]; !ok {
-			return errors.New("resource context keys is not valid, please add enough context keys")
+			return errors.New("resource context keys are not valid, please add enough context keys")
 		}
 	}
 	return nil

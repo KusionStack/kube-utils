@@ -65,18 +65,16 @@ type xSetCommonReconciler struct {
 }
 
 func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error {
-	// TODO: validate xsetController
-	resourceContextAdapter, err := getAndValidateResourceContextAdapter(xsetController)
-	if err != nil {
+	if err := validation.ValidateXSetController(xsetController); err != nil {
+		return err
+	}
+	resourceContextAdapter := resourcecontexts.GetResourceContextAdapter(xsetController)
+	if err := validation.ValidateResourceContextAdapter(resourceContextAdapter); err != nil {
 		return err
 	}
 
-	xsetLabelManager := xsetController.GetXSetControllerLabelManager()
-	if xsetLabelManager == nil {
-		xsetLabelManager = synccontrols.NewXSetControllerLabelManager()
-	}
-
 	reconcilerMixin := mixin.NewReconcilerMixin(xsetController.ControllerName(), mgr)
+	xsetLabelManager := api.GetXSetLabelAnnotationManager(xsetController)
 	xsetMeta := xsetController.XSetMeta()
 	xsetGVK := xsetMeta.GroupVersionKind()
 	resourceContextMeta := resourceContextAdapter.ResourceContextMeta()
@@ -141,17 +139,6 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 	}
 
 	return nil
-}
-
-func getAndValidateResourceContextAdapter(xsetController api.XSetController) (api.ResourceContextAdapter, error) {
-	resourceContextAdapter := xsetController.GetResourceContextAdapter()
-	if resourceContextAdapter == nil {
-		resourceContextAdapter = &resourcecontexts.DefaultResourceContextAdapter{}
-	}
-	if err := validation.ValidateResourceContextAdapter(resourceContextAdapter); err != nil {
-		return nil, err
-	}
-	return resourceContextAdapter, nil
 }
 
 func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {

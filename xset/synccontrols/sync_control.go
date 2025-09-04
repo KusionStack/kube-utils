@@ -64,37 +64,24 @@ type SyncControl interface {
 func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	xsetController api.XSetController,
 	xControl xcontrol.TargetControl,
-	xsetLabelManager api.XSetLabelManager,
+	xsetLabelAnnoManager api.XSetLabelAnnotationManager,
 	resourceContexts resourcecontexts.ResourceContextControl,
 	cacheExpectations expectations.CacheExpectationsInterface,
 ) SyncControl {
-	lifeCycleLabelManager := xsetController.GetLifeCycleLabelManager()
-	if lifeCycleLabelManager == nil {
-		lifeCycleLabelManager = opslifecycle.NewLabelManager(nil)
-	}
-	scaleInOpsLifecycleAdapter := xsetController.GetScaleInOpsLifecycleAdapter()
-	if scaleInOpsLifecycleAdapter == nil {
-		scaleInOpsLifecycleAdapter = &opslifecycle.DefaultScaleInLifecycleAdapter{LabelManager: lifeCycleLabelManager, XSetType: xsetController.XSetMeta()}
-	}
-	updateLifecycleAdapter := xsetController.GetUpdateOpsLifecycleAdapter()
-	if updateLifecycleAdapter == nil {
-		updateLifecycleAdapter = &opslifecycle.DefaultUpdateLifecycleAdapter{LabelManager: lifeCycleLabelManager, XSetType: xsetController.XSetMeta()}
-	}
-
 	xMeta := xsetController.XMeta()
 	targetGVK := xMeta.GroupVersionKind()
 	xsetMeta := xsetController.XSetMeta()
 	xsetGVK := xsetMeta.GroupVersionKind()
+	updateLifecycleAdapter, scaleInOpsLifecycleAdapter := opslifecycle.GetLifecycleAdapters(xsetController, xsetLabelAnnoManager, xsetMeta)
 
 	updateConfig := &UpdateConfig{
 		xsetController:         xsetController,
-		xsetLabelMgr:           xsetLabelManager,
+		xsetLabelAnnoMgr:       xsetLabelAnnoManager,
 		client:                 reconcileMixIn.Client,
 		targetControl:          xControl,
 		resourceContextControl: resourceContexts,
 		recorder:               reconcileMixIn.Recorder,
 
-		opsLifecycleLabelMgr:    lifeCycleLabelManager,
 		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
 		cacheExpectations:       cacheExpectations,
@@ -103,7 +90,7 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	return &RealSyncControl{
 		ReconcilerMixin:        *reconcileMixIn,
 		xsetController:         xsetController,
-		xsetLabelMgr:           xsetLabelManager,
+		xsetLabelAnnoMgr:       xsetLabelAnnoManager,
 		resourceContextControl: resourceContexts,
 		xControl:               xControl,
 
@@ -123,7 +110,7 @@ type RealSyncControl struct {
 	mixin.ReconcilerMixin
 	xControl               xcontrol.TargetControl
 	xsetController         api.XSetController
-	xsetLabelMgr           api.XSetLabelManager
+	xsetLabelAnnoMgr       api.XSetLabelAnnotationManager
 	resourceContextControl resourcecontexts.ResourceContextControl
 
 	updateConfig            *UpdateConfig
@@ -176,7 +163,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	for i := range syncContext.FilteredTarget {
 		target := syncContext.FilteredTarget[i]
 		xName := target.GetName()
-		id, _ := GetInstanceID(r.xsetLabelMgr, target)
+		id, _ := GetInstanceID(r.xsetLabelAnnoMgr, target)
 		toDelete := toDeleteTargetNames.Has(xName)
 		toExclude := toExcludeTargetNames.Has(xName)
 
@@ -185,7 +172,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			toDeleteTargetNames.Delete(xName)
 		}
 		if toExclude {
-			if targetDuringReplace(r.xsetLabelMgr, target) || toDelete {
+			if targetDuringReplace(r.xsetLabelAnnoMgr, target) || toDelete {
 				// skip exclude until replace and toDelete done
 				toExcludeTargetNames.Delete(xName)
 			} else {
@@ -200,7 +187,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 				idToReclaim.Insert(id)
 			}
 
-			_, replaceIndicate := r.xsetLabelMgr.Get(target.GetLabels(), api.EnumXSetReplaceIndicationLabel)
+			_, replaceIndicate := r.xsetLabelAnnoMgr.Get(target.GetLabels(), api.XReplaceIndicationLabelKey)
 			// 2. filter out Targets which are terminating and not replace indicate
 			if !replaceIndicate {
 				continue
@@ -208,7 +195,6 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 		}
 
 		// TODO delete unused pvcs (for pods)
-
 		targetWrappers = append(targetWrappers, &targetWrapper{
 			Object:        target,
 			ID:            id,
@@ -218,8 +204,8 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			ToDelete:  toDelete,
 			ToExclude: toExclude,
 
-			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, target),
-			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, target),
+			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target),
+			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.updateLifecycleAdapter, target),
 		})
 
 		if id >= 0 {
@@ -272,7 +258,7 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 
 	for _, target := range targets {
 		ownedTargets.Insert(target.GetName())
-		if _, exist := r.xsetLabelMgr.Get(target.GetLabels(), api.EnumXSetTargetExcludeIndicationLabel); exist {
+		if _, exist := r.xsetLabelAnnoMgr.Get(target.GetLabels(), api.XExcludeIndicationLabelKey); exist {
 			excludeTargetNames.Insert(target.GetName())
 		}
 	}
@@ -302,8 +288,8 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "DupExIncludedTarget", "duplicated targets %s in both excluding and including sets", strings.Join(intersection.List(), ", "))
 	}
 
-	toExcludeTargets, notAllowedExcludeTargets, exErr := r.allowIncludeExcludeTargets(ctx, xsetObject, excludeTargetNames.List(), AllowResourceExclude, r.xsetLabelMgr)
-	toIncludeTargets, notAllowedIncludeTargets, inErr := r.allowIncludeExcludeTargets(ctx, xsetObject, includeTargetNames.List(), AllowResourceInclude, r.xsetLabelMgr)
+	toExcludeTargets, notAllowedExcludeTargets, exErr := r.allowIncludeExcludeTargets(ctx, xsetObject, excludeTargetNames.List(), AllowResourceExclude, r.xsetLabelAnnoMgr)
+	toIncludeTargets, notAllowedIncludeTargets, inErr := r.allowIncludeExcludeTargets(ctx, xsetObject, includeTargetNames.List(), AllowResourceInclude, r.xsetLabelAnnoMgr)
 	if notAllowedExcludeTargets.Len() > 0 {
 		r.Recorder.Eventf(xsetObject, corev1.EventTypeWarning, "ExcludeNotAllowed", fmt.Sprintf("targets [%v] are not allowed to exclude, please find out the reason from target's event", notAllowedExcludeTargets.List()))
 	}
@@ -314,10 +300,10 @@ func (r *RealSyncControl) dealIncludeExcludeTargets(ctx context.Context, xsetObj
 }
 
 // checkAllowFunc refers to AllowResourceExclude and AllowResourceInclude
-type checkAllowFunc func(obj metav1.Object, ownerName, ownerKind string, labelMgr api.XSetLabelManager) (bool, string)
+type checkAllowFunc func(obj metav1.Object, ownerName, ownerKind string, labelMgr api.XSetLabelAnnotationManager) (bool, string)
 
 // allowIncludeExcludeTargets try to classify targetNames to allowedTargets and notAllowedTargets, using checkAllowFunc func
-func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, targetNames []string, fn checkAllowFunc, labelMgr api.XSetLabelManager) (allowTargets, notAllowTargets sets.String, err error) {
+func (r *RealSyncControl) allowIncludeExcludeTargets(ctx context.Context, xset api.XSetObject, targetNames []string, fn checkAllowFunc, labelMgr api.XSetLabelAnnotationManager) (allowTargets, notAllowTargets sets.String, err error) {
 	allowTargets = sets.String{}
 	notAllowTargets = sets.String{}
 	for i := range targetNames {
@@ -352,7 +338,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 
 	defer func() {
 		syncContext.activeTargets = FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
-		syncContext.replacingMap = classifyTargetReplacingMapping(r.xsetLabelMgr, syncContext.activeTargets)
+		syncContext.replacingMap = classifyTargetReplacingMapping(r.xsetLabelAnnoMgr, syncContext.activeTargets)
 	}()
 
 	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(ctx, syncContext.FilteredTarget)
@@ -465,12 +451,12 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				// scale out new Targets with updatedRevision
 				// TODO use cache
 				// TODO decoration for target template
-				target, err := NewTargetFrom(r.xsetController, r.xsetLabelMgr, xsetObject, revision, availableIDContext.ID,
+				target, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, xsetObject, revision, availableIDContext.ID,
 					func(object client.Object) error {
 						if _, exist := r.resourceContextControl.Get(availableIDContext, api.EnumJustCreateContextDataKey); exist {
-							r.xsetLabelMgr.Set(object, api.EnumXSetTargetCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+							r.xsetLabelAnnoMgr.Set(object, api.XCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 						} else {
-							r.xsetLabelMgr.Set(object, api.EnumXSetTargetCompletingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+							r.xsetLabelAnnoMgr.Set(object, api.XCompletingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 						}
 						return nil
 					},
@@ -530,7 +516,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 			// trigger TargetOpsLifecycle with scaleIn OperationType
 			logger.V(1).Info("try to begin TargetOpsLifecycle for scaling in Target in XSet", "wrapper", ObjectKeyString(object))
-			if updated, err := opslifecycle.Begin(r.updateConfig.opsLifecycleLabelMgr, r.Client, r.scaleInLifecycleAdapter, object); err != nil {
+			if updated, err := opslifecycle.Begin(r.updateConfig.xsetLabelAnnoMgr, r.Client, r.scaleInLifecycleAdapter, object); err != nil {
 				return fmt.Errorf("fail to begin TargetOpsLifecycle for Scaling in Target %s/%s: %w", object.GetNamespace(), object.GetName(), err)
 			} else if updated {
 				wrapper.IsDuringScaleInOps = true
@@ -554,7 +540,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 		needUpdateContext := false
 		for i, targetWrapper := range targetsToScaleIn {
-			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), targetWrapper.Object)
+			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), targetWrapper.Object)
 			if !allowed && targetWrapper.Object.GetDeletionTimestamp() == nil {
 				r.Recorder.Eventf(targetWrapper.Object, corev1.EventTypeNormal, "TargetScaleInLifecycle", "Target is not allowed to scale in")
 				continue
@@ -724,7 +710,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 		spec := r.xsetController.GetXSetSpec(xsetObject)
 		if targetInfo.IsInReplace && spec.UpdateStrategy.UpdatePolicy != api.XSetReplaceTargetUpdateStrategyType {
 			// a replacing target should be replaced by an updated revision target when encountering upgrade
-			if err := updateReplaceOriginTarget(ctx, r.Client, r.Recorder, r.xsetLabelMgr, targetInfo, targetInfo.ReplacePairNewTargetInfo); err != nil {
+			if err := updateReplaceOriginTarget(ctx, r.Client, r.Recorder, r.xsetLabelAnnoMgr, targetInfo, targetInfo.ReplacePairNewTargetInfo); err != nil {
 				return err
 			}
 		} else {
@@ -817,12 +803,12 @@ func (r *RealSyncControl) CalculateStatus(_ context.Context, instance api.XSetOb
 			updatedReplicas++
 		}
 
-		if opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.scaleInLifecycleAdapter, targetWrapper) ||
-			opslifecycle.IsDuringOps(r.updateConfig.opsLifecycleLabelMgr, r.updateLifecycleAdapter, targetWrapper) {
+		if opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, targetWrapper) ||
+			opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.updateLifecycleAdapter, targetWrapper) {
 			operatingReplicas++
 		}
 
-		if r.xsetController.CheckReady(targetWrapper.Object) {
+		if ready, _ := r.xsetController.CheckReadyTime(targetWrapper.Object); ready {
 			readyReplicas++
 			if isUpdated {
 				updatedReadyReplicas++
@@ -958,14 +944,14 @@ func FilterOutActiveTargetWrappers(targets []*targetWrapper) []*targetWrapper {
 	return filteredTargetWrappers
 }
 
-func targetDuringReplace(labelMgr api.XSetLabelManager, target client.Object) bool {
+func targetDuringReplace(labelMgr api.XSetLabelAnnotationManager, target client.Object) bool {
 	labels := target.GetLabels()
 	if labels == nil {
 		return false
 	}
-	_, replaceIndicate := labelMgr.Get(labels, api.EnumXSetReplaceIndicationLabel)
-	_, replaceOriginTarget := labelMgr.Get(labels, api.EnumXSetReplacePairOriginNameLabel)
-	_, replaceNewTarget := labelMgr.Get(labels, api.EnumXSetReplacePairNewIdLabel)
+	_, replaceIndicate := labelMgr.Get(labels, api.XReplaceIndicationLabelKey)
+	_, replaceOriginTarget := labelMgr.Get(labels, api.XReplacePairOriginName)
+	_, replaceNewTarget := labelMgr.Get(labels, api.XReplacePairNewId)
 	return replaceIndicate || replaceOriginTarget || replaceNewTarget
 }
 
@@ -973,8 +959,8 @@ func targetDuringReplace(labelMgr api.XSetLabelManager, target client.Object) bo
 func (r *RealSyncControl) BatchDeleteTargetsByLabel(ctx context.Context, targetControl xcontrol.TargetControl, needDeleteTargets []client.Object) error {
 	_, err := controllerutils.SlowStartBatch(len(needDeleteTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		target := needDeleteTargets[i]
-		if _, exist := r.xsetLabelMgr.Get(target.GetLabels(), api.EnumXSetDeletionIndicationLabel); !exist {
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%s":"%d"}}}`, r.xsetLabelMgr.Label(api.EnumXSetDeletionIndicationLabel), time.Now().UnixNano()))) // nolint
+		if _, exist := r.xsetLabelAnnoMgr.Get(target.GetLabels(), api.XDeletionIndicationLabelKey); !exist {
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{"%s":"%d"}}}`, r.xsetLabelAnnoMgr.Value(api.XDeletionIndicationLabelKey), time.Now().UnixNano()))) // nolint
 			if err := targetControl.PatchTarget(ctx, target, patch); err != nil {
 				return fmt.Errorf("failed to delete target when syncTargets %s/%s/%w", target.GetNamespace(), target.GetName(), err)
 			}

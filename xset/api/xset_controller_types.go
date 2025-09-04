@@ -27,33 +27,50 @@ import (
 type XSetController interface {
 	ControllerName() string
 	FinalizerName() string
-	XSetMeta() metav1.TypeMeta
-	XMeta() metav1.TypeMeta
 
+	XSetMeta() metav1.TypeMeta // todo gvk
+	XMeta() metav1.TypeMeta
 	NewXSetObject() XSetObject
 	NewXObject() client.Object
 	NewXObjectList() client.ObjectList
-	GetXObjectFromRevision(revision *appsv1.ControllerRevision) (client.Object, error)
 
-	GetXSetSpec(object XSetObject) *XSetSpec
-	GetXSetPatch(object metav1.Object) ([]byte, error)
-	GetXSetTemplatePatcher(object metav1.Object) func(client.Object) error
-	GetXSetStatus(object XSetObject) *XSetStatus
-	SetXSetStatus(object XSetObject, status *XSetStatus)
-	GetReadyTime(object client.Object) *metav1.Time
-
-	GetLifeCycleLabelManager() LifeCycleLabelManager
-	GetXSetControllerLabelManager() XSetLabelManager
-	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
-	GetUpdateOpsLifecycleAdapter() LifecycleAdapter
-	GetResourceContextAdapter() ResourceContextAdapter
-
-	CheckScheduled(object client.Object) bool
-	CheckReady(object client.Object) bool
-	CheckAvailable(object client.Object) bool
-
-	UpdateScaleStrategy(ctx context.Context, c client.Client, object XSetObject, scaleStrategy *ScaleStrategy) error
-	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
+	// XSetOperation are implemented to access XSetSpec, XSetStatus, etc.
+	XSetOperation
+	// XOperation are implemented to access X object and status, etc.
+	XOperation
 }
 
 type XSetObject client.Object
+
+type XSetOperation interface {
+	GetXSetSpec(object XSetObject) *XSetSpec
+	GetXSetPatch(object metav1.Object) ([]byte, error)
+	GetXSetStatus(object XSetObject) *XSetStatus
+	SetXSetStatus(object XSetObject, status *XSetStatus)
+	UpdateScaleStrategy(ctx context.Context, c client.Client, object XSetObject, scaleStrategy *ScaleStrategy) error
+	GetXSetTemplatePatcher(object metav1.Object) func(client.Object) error
+}
+
+type XOperation interface {
+	GetXObjectFromRevision(revision *appsv1.ControllerRevision) (client.Object, error)
+	CheckScheduled(object client.Object) bool
+	CheckReadyTime(object client.Object) (bool, *metav1.Time)
+	CheckAvailable(object client.Object) bool
+	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
+}
+
+// LifecycleAdapterGetter is used to get lifecycle adapters.
+type LifecycleAdapterGetter interface {
+	GetScaleInOpsLifecycleAdapter() LifecycleAdapter
+	GetUpdateOpsLifecycleAdapter() LifecycleAdapter
+}
+
+// ResourceContextAdapterGetter is used to get resource context adapter.
+type ResourceContextAdapterGetter interface {
+	GetResourceContextAdapter() ResourceContextAdapter
+}
+
+// LabelAnnotationManagerGetter is used to get label manager adapter.
+type LabelAnnotationManagerGetter interface {
+	GetLabelManagerAdapter() XSetLabelAnnotationManager
+}

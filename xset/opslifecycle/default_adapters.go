@@ -28,8 +28,8 @@ import (
 var _ api.LifecycleAdapter = &DefaultUpdateLifecycleAdapter{}
 
 type DefaultUpdateLifecycleAdapter struct {
-	LabelManager api.LifeCycleLabelManager
-	XSetType     metav1.TypeMeta
+	LabelAnnoManager api.XSetLabelAnnotationManager
+	XSetType         metav1.TypeMeta
 }
 
 func (d *DefaultUpdateLifecycleAdapter) GetID() string {
@@ -56,8 +56,8 @@ func (d *DefaultUpdateLifecycleAdapter) WhenFinish(target client.Object) (bool, 
 var _ api.LifecycleAdapter = &DefaultScaleInLifecycleAdapter{}
 
 type DefaultScaleInLifecycleAdapter struct {
-	LabelManager api.LifeCycleLabelManager
-	XSetType     metav1.TypeMeta
+	LabelAnnoManager api.XSetLabelAnnotationManager
+	XSetType         metav1.TypeMeta
 }
 
 func (d *DefaultScaleInLifecycleAdapter) GetID() string {
@@ -73,9 +73,16 @@ func (d *DefaultScaleInLifecycleAdapter) AllowMultiType() bool {
 }
 
 func (d *DefaultScaleInLifecycleAdapter) WhenBegin(target client.Object) (bool, error) {
-	return WhenBeginDelete(d.LabelManager, target)
+	return WhenBeginDelete(d.LabelAnnoManager, target)
 }
 
 func (d *DefaultScaleInLifecycleAdapter) WhenFinish(_ client.Object) (bool, error) {
 	return false, nil
+}
+
+func GetLifecycleAdapters(xsetController api.XSetController, labelAnnoMgr api.XSetLabelAnnotationManager, xsetTypeMeta metav1.TypeMeta) (api.LifecycleAdapter, api.LifecycleAdapter) {
+	if getter, ok := xsetController.(api.LifecycleAdapterGetter); ok {
+		return getter.GetUpdateOpsLifecycleAdapter(), getter.GetScaleInOpsLifecycleAdapter()
+	}
+	return &DefaultUpdateLifecycleAdapter{LabelAnnoManager: labelAnnoMgr, XSetType: xsetTypeMeta}, &DefaultScaleInLifecycleAdapter{LabelAnnoManager: labelAnnoMgr, XSetType: xsetTypeMeta}
 }

@@ -78,3 +78,10 @@ func (*DefaultResourceContextAdapter) GetContextKeys() map[api.ResourceContextKe
 func (*DefaultResourceContextAdapter) NewResourceContext() api.ResourceContextObject {
 	return &appsv1alpha1.ResourceContext{}
 }
+
+func GetResourceContextAdapter(controller api.XSetController) api.ResourceContextAdapter {
+	if getter, ok := controller.(api.ResourceContextAdapterGetter); ok {
+		return getter.GetResourceContextAdapter()
+	}
+	return &DefaultResourceContextAdapter{}
+}

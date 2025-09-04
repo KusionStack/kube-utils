@@ -55,7 +55,7 @@ func TestLifecycle(t *testing.T) {
 
 	a := &mockAdapter{id: "id-1", operationType: "type-1"}
 	b := &mockAdapter{id: "id-2", operationType: "type-1"}
-	mgr := NewLabelManager(nil)
+	mgr := api.NewXSetLabelAnnotationManager()
 
 	inputs := []struct {
 		hasOperating, hasConflictID bool
@@ -74,7 +74,7 @@ func TestLifecycle(t *testing.T) {
 		{
 			hasConflictID: true,
 			started:       false,
-			err:           fmt.Errorf("operationType %s exists: %v", a.GetType(), sets.NewString(fmt.Sprintf("%s/%s", mgr.Get(api.OperationTypeLabelPrefix), b.GetID()))),
+			err:           fmt.Errorf("operationType %s exists: %v", a.GetType(), sets.NewString(fmt.Sprintf("%s/%s", mgr.Value(api.OperationTypeLabelPrefix), b.GetID()))),
 		},
 		{
 			hasConflictID: true,
