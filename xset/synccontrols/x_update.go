@@ -94,7 +94,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 		// decide whether the TargetOpsLifecycle is during ops or not
 		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowUpdateOps = opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.updateLifecycleAdapter, ptr.Deref(spec.UpdateStrategy.OperationDelaySeconds, 0), target)
 		// check subresource pvc template changed
-		if subresources.GetSubresourcePvcAdapter(r.pvcControl) {
+		if _, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
 			updateInfo.PvcTmpHashChanged, err = r.pvcControl.IsTargetPvcTmpChanged(xsetObject, target.Object, syncContext.ExistingPvcs)
 			if err != nil {
 				return nil, err
