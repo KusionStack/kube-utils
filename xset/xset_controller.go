@@ -256,6 +256,8 @@ func (r *xSetCommonReconciler) ensureReclaimTargetSubResources(ctx context.Conte
 	return nil
 }
 
+// ensureReclaimPvcs removes xset ownerReference from pvcs if RetainPvcWhenXSetDeleted.
+// This allows pvcs to be retained for other xsets with same pvc template.
 func (r *xSetCommonReconciler) ensureReclaimPvcs(ctx context.Context, xset api.XSetObject) error {
 	if !r.pvcControl.RetainPvcWhenXSetDeleted(xset) {
 		return nil
