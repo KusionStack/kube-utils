@@ -178,7 +178,7 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 			if err := r.resourceContextControl.UpdateToTargetContext(ctx, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
-			if err := r.ensureReclaimTargetsDeletion(ctx, instance); err != nil {
+			if cleaned, err := r.ensureReclaimTargetsDeletion(ctx, instance); !cleaned || err != nil {
 				// reclaim targets deletion before remove finalizers
 				return ctrl.Result{}, err
 			}
@@ -282,13 +282,25 @@ func (r *xSetCommonReconciler) ensureReclaimPvcs(ctx context.Context, xset api.X
 	return nil
 }
 
-func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context, instance api.XSetObject) error {
+func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context, instance api.XSetObject) (bool, error) {
 	xSetSpec := r.XSetController.GetXSetSpec(instance)
 	targets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
 	if err != nil {
-		return fmt.Errorf("fail to get filtered Targets: %s", err.Error())
+		return false, fmt.Errorf("fail to get filtered Targets: %s", err.Error())
 	}
-	return r.syncControl.BatchDeleteTargetsByLabel(ctx, r.targetControl, targets)
+	// if targets are deleted, return true
+	if len(targets) == 0 {
+		return true, nil
+	}
+	// wait for all targets are terminating
+	for i := range targets {
+		target := targets[i]
+		if target.GetDeletionTimestamp() == nil {
+			r.Recorder.Eventf(instance, corev1.EventTypeNormal, "TargetsDeleted", "waiting for models to be deleted gracefully before xset deleted %s/%s", instance.GetNamespace(), instance.GetName())
+			return false, r.syncControl.BatchDeleteTargetsByLabel(ctx, r.targetControl, targets)
+		}
+	}
+	return true, nil
 }
 
 func (r *xSetCommonReconciler) updateStatus(ctx context.Context, instance api.XSetObject, status *api.XSetStatus) error {
