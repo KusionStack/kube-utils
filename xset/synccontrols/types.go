@@ -81,7 +81,7 @@ type targetUpdateInfo struct {
 	// carry the desired update revision
 	UpdateRevision *appsv1.ControllerRevision
 
-	// TODO decoration revisions
+	DecorationChanged bool
 	SubResourcesChanged
 
 	// indicates operate is allowed for TargetOpsLifecycle.

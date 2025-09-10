@@ -504,13 +504,31 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				}
 				// scale out new Targets with updatedRevision
 				// TODO use cache
-				// TODO decoration for target template
 				target, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, xsetObject, revision, availableIDContext.ID,
 					func(object client.Object) error {
 						if _, exist := r.resourceContextControl.Get(availableIDContext, api.EnumJustCreateContextDataKey); exist {
 							r.xsetLabelAnnoMgr.Set(object, api.XCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 						} else {
 							r.xsetLabelAnnoMgr.Set(object, api.XCompletingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+						}
+
+						// decoration for target template
+						if decorationAdapter, ok := r.xsetController.(api.DecorationAdapter); ok {
+							revisionsInfo, ok := r.resourceContextControl.Get(availableIDContext, api.EnumTargetDecorationRevisionKey)
+							if !ok {
+								needUpdateContext.Store(true)
+								revisions, err := decorationAdapter.GetDecorationRevisionFromTarget(ctx, object)
+								if err != nil {
+									return err
+								}
+								r.resourceContextControl.Put(availableIDContext, api.EnumTargetDecorationRevisionKey, revisions)
+								patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, object)
+								return patcherFn(object)
+							} else {
+								// upgrade by recreate target case
+								patcherFn := decorationAdapter.GetDecorationPatcherFromRevisions(ctx, revisionsInfo)
+								return patcherFn(object)
+							}
 						}
 						return nil
 					},
@@ -713,7 +731,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	}
 
 	// 1. scan and analysis targets update info for active targets and PlaceHolder targets
-	targetUpdateInfos, err := r.attachTargetUpdateInfo(xsetObject, syncContext)
+	targetUpdateInfos, err := r.attachTargetUpdateInfo(ctx, xsetObject, syncContext)
 	if err != nil {
 		return false, recordedRequeueAfter, err
 	}
