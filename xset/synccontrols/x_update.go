@@ -47,7 +47,7 @@ import (
 
 const UnknownRevision = "__unknownRevision__"
 
-func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, syncContext *SyncContext) ([]*targetUpdateInfo, error) {
+func (r *RealSyncControl) attachTargetUpdateInfo(ctx context.Context, xsetObject api.XSetObject, syncContext *SyncContext) ([]*targetUpdateInfo, error) {
 	activeTargets := FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
 	targetUpdateInfoList := make([]*targetUpdateInfo, len(activeTargets))
 
@@ -56,7 +56,15 @@ func (r *RealSyncControl) attachTargetUpdateInfo(xsetObject api.XSetObject, sync
 			targetWrapper: syncContext.TargetWrappers[i],
 		}
 
-		// TODO decoration for target template
+		// check for decoration changed
+		if decoration, ok := r.xsetController.(api.DecorationAdapter); ok {
+			var err error
+			updateInfo.DecorationChanged, err = decoration.IsDecorationChanged(ctx, updateInfo.targetWrapper.Object)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		updateInfo.UpdateRevision = syncContext.UpdatedRevision
 		// decide this target current revision, or nil if not indicated
 		if target.GetLabels() != nil {
@@ -184,7 +192,15 @@ func (r *RealSyncControl) decideTargetToUpdateByLabel(targetInfos []*targetUpdat
 			continue
 		}
 
-		// TODO separate decoration and xset update progress
+		// separate decoration and xset update progress
+		if targetInfos[i].DecorationChanged {
+			if targetInfos[i].IsInReplace {
+				continue
+			}
+			targetInfos[i].IsUpdatedRevision = true
+			targetInfos[i].UpdateRevision = targetInfos[i].CurrentRevision
+			targetToUpdate = append(targetToUpdate, targetInfos[i])
+		}
 	}
 	return targetToUpdate
 }
@@ -192,7 +208,7 @@ func (r *RealSyncControl) decideTargetToUpdateByLabel(targetInfos []*targetUpdat
 func (r *RealSyncControl) decideTargetToUpdateByPartition(xsetController api.XSetController, xset api.XSetObject, filteredTargetInfos []*targetUpdateInfo) []*targetUpdateInfo {
 	spec := xsetController.GetXSetSpec(xset)
 	replicas := ptr.Deref(spec.Replicas, 0)
-
+	currentTargetCount := int32(len(filteredTargetInfos))
 	partition := int32(0)
 
 	if spec.UpdateStrategy.RollingUpdate != nil && spec.UpdateStrategy.RollingUpdate.ByPartition != nil {
@@ -211,6 +227,14 @@ func (r *RealSyncControl) decideTargetToUpdateByPartition(xsetController api.XSe
 	ordered := newOrderedTargetUpdateInfos(filteredTargetInfos, xsetController.CheckReadyTime)
 	sort.Sort(ordered)
 	targetToUpdate := ordered.targets[:replicas-partition]
+	// separate decoration and xset update progress
+	for i := replicas - partition; i < int32Min(replicas, currentTargetCount); i++ {
+		if ordered.targets[i].DecorationChanged {
+			ordered.targets[i].IsUpdatedRevision = true
+			ordered.targets[i].UpdateRevision = ordered.targets[i].CurrentRevision
+			targetToUpdate = append(targetToUpdate, ordered.targets[i])
+		}
+	}
 	return targetToUpdate
 }
 
@@ -257,6 +281,10 @@ func (o *orderByDefault) Less(i, j int) bool {
 		return l.IsUpdatedRevision
 	}
 
+	if l.IsDuringUpdateOps != r.IsDuringUpdateOps {
+		return l.IsDuringUpdateOps
+	}
+
 	if l.PlaceHolder != r.PlaceHolder {
 		return r.PlaceHolder
 	}
@@ -265,14 +293,14 @@ func (o *orderByDefault) Less(i, j int) bool {
 		return true
 	}
 
-	if l.IsDuringUpdateOps != r.IsDuringUpdateOps {
-		return l.IsDuringUpdateOps
-	}
-
 	lReady, _ := o.checkReadyFunc(l.Object)
 	rReady, _ := o.checkReadyFunc(r.Object)
 	if lReady != rReady {
 		return !lReady
+	}
+
+	if l.DecorationChanged != r.DecorationChanged {
+		return l.DecorationChanged
 	}
 
 	if l.OpsPriority != nil && r.OpsPriority != nil {
@@ -375,7 +403,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 
 		targetInfo.IsAllowUpdateOps = true
 
-		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged {
+		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged && !targetInfo.DecorationChanged {
 			continue
 		}
 
@@ -395,6 +423,17 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 		isRecreateUpdatePolicy := spec.UpdateStrategy.UpdatePolicy == api.XSetRecreateTargetUpdateStrategyType
 		if (!targetInfo.OnlyMetadataChanged && !targetInfo.InPlaceUpdateSupport) || isRecreateUpdatePolicy {
 			u.resourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumRecreateUpdateContextDataKey, "true")
+		}
+
+		// add decoration revision to target context
+		if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok && targetInfo.DecorationChanged {
+			decorationRevision, err := decorationAdapter.GetDecorationRevisionFromTarget(ctx, targetInfo.Object)
+			if err != nil {
+				return recordedRequeueAfter, err
+			}
+			if val, ok := u.resourceContextControl.Get(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey); !ok || val != decorationRevision {
+				u.resourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey, decorationRevision)
+			}
 		}
 
 		if targetInfo.PlaceHolder {
@@ -479,17 +518,32 @@ type inPlaceIfPossibleUpdater struct {
 	GenericTargetUpdater
 }
 
-func (u *inPlaceIfPossibleUpdater) FulfillTargetUpdatedInfo(_ context.Context, revision *appsv1.ControllerRevision, targetUpdateInfo *targetUpdateInfo) error {
+func (u *inPlaceIfPossibleUpdater) FulfillTargetUpdatedInfo(ctx context.Context, revision *appsv1.ControllerRevision, targetUpdateInfo *targetUpdateInfo) error {
 	// 1. build target from current and updated revision
 	// TODO: use cache
-	currentTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.CurrentRevision, targetUpdateInfo.ID)
+	currentTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.CurrentRevision, targetUpdateInfo.ID,
+		func(object client.Object) error {
+			if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok {
+				patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, targetUpdateInfo.targetWrapper.Object)
+				return patcherFn(object)
+			}
+			return nil
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("fail to build Target from current revision %s: %v", targetUpdateInfo.CurrentRevision.GetName(), err.Error())
 	}
 
 	// TODO: use cache
 
-	UpdatedTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.UpdateRevision, targetUpdateInfo.ID)
+	UpdatedTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.UpdateRevision, targetUpdateInfo.ID, func(object client.Object) error {
+		if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok {
+			patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, targetUpdateInfo.UpdatedTarget)
+			return patcherFn(object)
+		}
+		return nil
+	},
+	)
 	if err != nil {
 		return fmt.Errorf("fail to build Target from updated revision %s: %v", targetUpdateInfo.UpdateRevision.GetName(), err.Error())
 	}
@@ -579,7 +633,7 @@ func (u *recreateTargetUpdater) UpgradeTarget(ctx context.Context, targetInfo *t
 
 func (u *recreateTargetUpdater) GetTargetUpdateFinishStatus(_ context.Context, targetInfo *targetUpdateInfo) (finished bool, msg string, err error) {
 	// Recreate policy always treat Target as update not finished
-	return targetInfo.IsUpdatedRevision, "", nil
+	return targetInfo.IsUpdatedRevision && !targetInfo.DecorationChanged, "", nil
 }
 
 type replaceUpdateTargetUpdater struct {
@@ -627,7 +681,7 @@ func (u *replaceUpdateTargetUpdater) BeginUpdateTarget(ctx context.Context, sync
 func (u *replaceUpdateTargetUpdater) FilterAllowOpsTargets(_ context.Context, candidates []*targetUpdateInfo, _ map[int]*api.ContextDetail, _ *SyncContext, targetCh chan *targetUpdateInfo) (requeueAfter *time.Duration, err error) {
 	activeTargetToUpdate := filterOutPlaceHolderUpdateInfos(candidates)
 	for i, targetInfo := range activeTargetToUpdate {
-		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged {
+		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged && !targetInfo.DecorationChanged {
 			continue
 		}
 
@@ -678,7 +732,11 @@ func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, tar
 }
 
 func (u *GenericTargetUpdater) isTargetUpdatedServiceAvailable(targetInfo *targetUpdateInfo) (finished bool, msg string, err error) {
-	// TODO check decoration changed
+	// check decoration changed
+	if targetInfo.DecorationChanged {
+		return false, "decoration changed", nil
+	}
+
 	if targetInfo.GetLabels() == nil {
 		return false, "no labels on target", nil
 	}
@@ -691,4 +749,12 @@ func (u *GenericTargetUpdater) isTargetUpdatedServiceAvailable(targetInfo *targe
 	}
 
 	return false, "target not service available", nil
+}
+
+func int32Min(l, r int32) int32 {
+	if l < r {
+		return l
+	}
+
+	return r
 }

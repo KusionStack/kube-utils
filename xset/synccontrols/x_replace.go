@@ -133,7 +133,15 @@ func (r *RealSyncControl) replaceOriginTargets(
 
 		// create target using update revision if replaced by update, otherwise using current revision
 		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, instance, replaceRevision, originTargetId,
-			r.xsetController.GetXSetTemplatePatcher(instance))
+			r.xsetController.GetXSetTemplatePatcher(instance),
+			func(object client.Object) error {
+				if decorationAdapter, ok := r.xsetController.(api.DecorationAdapter); ok {
+					patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, originTarget)
+					return patcherFn(object)
+				}
+				return nil
+			},
+		)
 		if err != nil {
 			return err
 		}
