@@ -506,7 +506,11 @@ func (r *RealSyncControl) newTargetUpdater(xset api.XSetObject) TargetUpdater {
 	case api.XSetReplaceTargetUpdateStrategyType:
 		targetUpdater = &replaceUpdateTargetUpdater{}
 	default:
-		targetUpdater = &recreateTargetUpdater{}
+		if inPlaceIfPossibleUpdater != nil {
+			targetUpdater = inPlaceIfPossibleUpdater
+		} else {
+			targetUpdater = &recreateTargetUpdater{}
+		}
 	}
 	targetUpdater.Setup(r.updateConfig, xset)
 	return targetUpdater
