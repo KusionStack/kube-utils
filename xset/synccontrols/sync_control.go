@@ -220,6 +220,26 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			}
 		}
 
+		// sync decoration revisions
+		var decorationInfo DecorationInfo
+		if decorationAdapter, enabled := r.xsetController.(api.DecorationAdapter); enabled {
+			if decorationInfo.DecorationCurrentRevisions, err = decorationAdapter.GetTargetCurrentDecorationRevisions(ctx, r.Client, target); err != nil {
+				return false, err
+			}
+			if decorationInfo.DecorationUpdatedRevisions, err = decorationAdapter.GetTargetUpdatedDecorationRevisions(ctx, r.Client, target); err != nil {
+				return false, err
+			}
+			if decorationInfo.DecorationChanged, err = decorationAdapter.IsTargetDecorationChanged(decorationInfo.DecorationCurrentRevisions, decorationInfo.DecorationUpdatedRevisions); err != nil {
+				return false, err
+			}
+		}
+
+		// sync target ops priority
+		var opsPriority *api.OpsPriority
+		if opsPriority, err = r.xsetController.GetXOpsPriority(ctx, r.Client, target); err != nil {
+			return false, err
+		}
+
 		targetWrappers = append(targetWrappers, &TargetWrapper{
 			Object:        target,
 			ID:            id,
@@ -231,6 +251,9 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 
 			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.updateConfig.XsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target),
 			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateConfig.XsetLabelAnnoMgr, r.updateLifecycleAdapter, target),
+
+			DecorationInfo: decorationInfo,
+			OpsPriority:    opsPriority,
 		})
 
 		if id >= 0 {
@@ -395,7 +418,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 		syncContext.replacingMap = classifyTargetReplacingMapping(r.xsetLabelAnnoMgr, syncContext.activeTargets)
 	}()
 
-	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(ctx, syncContext.FilteredTarget)
+	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(ctx, syncContext.TargetWrappers)
 
 	// delete origin targets for replace
 	err = r.BatchDeleteTargetsByLabel(ctx, r.xControl, needDeleteTargets)
@@ -516,18 +539,18 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 						if decorationAdapter, ok := r.xsetController.(api.DecorationAdapter); ok {
 							revisionsInfo, ok := r.resourceContextControl.Get(availableIDContext, api.EnumTargetDecorationRevisionKey)
 							if !ok {
-								needUpdateContext.Store(true)
-								revisions, err := decorationAdapter.GetDecorationRevisionFromTarget(ctx, object)
-								if err != nil {
+								// get updated decoration revisions from target and write to resource context
+								if revisionsInfo, err = decorationAdapter.GetTargetUpdatedDecorationRevisions(ctx, r.Client, object); err != nil {
 									return err
 								}
-								r.resourceContextControl.Put(availableIDContext, api.EnumTargetDecorationRevisionKey, revisions)
-								patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, object)
-								return patcherFn(object)
+								r.resourceContextControl.Put(availableIDContext, api.EnumTargetDecorationRevisionKey, revisionsInfo)
+								needUpdateContext.Store(true)
+							}
+							// get patcher from decoration revisions and patch target
+							if fn, err := decorationAdapter.GetDecorationPatcherByRevisions(ctx, r.Client, object, revisionsInfo); err != nil {
+								return err
 							} else {
-								// upgrade by recreate target case
-								patcherFn := decorationAdapter.GetDecorationPatcherFromRevisions(ctx, revisionsInfo)
-								return patcherFn(object)
+								return fn(object)
 							}
 						}
 						return nil
@@ -571,10 +594,6 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	}
 
 	if diff <= 0 {
-		// get targets ops priority
-		if err := r.getTargetsOpsPriority(ctx, r.Client, syncContext.activeTargets); err != nil {
-			return false, recordedRequeueAfter, err
-		}
 		// chose the targets to scale in
 		targetsToScaleIn := r.getTargetsToDelete(xsetObject, syncContext.activeTargets, syncContext.replacingMap, diff*-1)
 		// filter out Targets need to trigger TargetOpsLifecycle
@@ -725,11 +744,6 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	var err error
 	var recordedRequeueAfter *time.Duration
 
-	// 0. get targets ops priority
-	if err := r.getTargetsOpsPriority(ctx, r.Client, syncContext.TargetWrappers); err != nil {
-		return false, recordedRequeueAfter, err
-	}
-
 	// 1. scan and analysis targets update info for active targets and PlaceHolder targets
 	targetUpdateInfos, err := r.attachTargetUpdateInfo(ctx, xsetObject, syncContext)
 	if err != nil {
@@ -746,7 +760,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	// 3. filter already updated revision,
 	for i, targetInfo := range targetToUpdate {
 		// TODO check decoration and pvc template changed
-		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged {
+		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged && !targetInfo.DecorationChanged {
 			continue
 		}
 
@@ -1005,22 +1019,6 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 		}
 	}
 	return nil
-}
-
-// getTargetsOpsPriority try to set targets' ops priority
-func (r *RealSyncControl) getTargetsOpsPriority(ctx context.Context, c client.Client, targets []*TargetWrapper) error {
-	_, err := controllerutils.SlowStartBatch(len(targets), controllerutils.SlowStartInitialBatchSize, true, func(i int, _ error) error {
-		if targets[i].PlaceHolder || targets[i].Object == nil || targets[i].OpsPriority != nil {
-			return nil
-		}
-		var iErr error
-		targets[i].OpsPriority, iErr = r.xsetController.GetXOpsPriority(ctx, c, targets[i].Object)
-		if iErr != nil {
-			return fmt.Errorf("failed to get target %s/%s ops priority: %w", targets[i].Object.GetNamespace(), targets[i].Object.GetName(), iErr)
-		}
-		return nil
-	})
-	return err
 }
 
 // FilterOutActiveTargetWrappers filter out non placeholder targets

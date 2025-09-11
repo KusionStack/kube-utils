@@ -53,15 +53,6 @@ func (r *RealSyncControl) attachTargetUpdateInfo(ctx context.Context, xsetObject
 			TargetWrapper: syncContext.TargetWrappers[i],
 		}
 
-		// check for decoration changed
-		if decoration, ok := r.xsetController.(api.DecorationAdapter); ok {
-			var err error
-			updateInfo.DecorationChanged, err = decoration.IsDecorationChanged(ctx, updateInfo.TargetWrapper.Object)
-			if err != nil {
-				return nil, err
-			}
-		}
-
 		updateInfo.UpdateRevision = syncContext.UpdatedRevision
 		// decide this target current revision, or nil if not indicated
 		if target.GetLabels() != nil {
@@ -427,13 +418,10 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 		}
 
 		// add decoration revision to target context
-		if decorationAdapter, ok := u.XsetController.(api.DecorationAdapter); ok && targetInfo.DecorationChanged {
-			decorationRevision, err := decorationAdapter.GetDecorationRevisionFromTarget(ctx, targetInfo.Object)
-			if err != nil {
-				return recordedRequeueAfter, err
-			}
-			if val, ok := u.ResourceContextControl.Get(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey); !ok || val != decorationRevision {
-				u.ResourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey, decorationRevision)
+		if targetInfo.DecorationChanged {
+			if val, ok := u.ResourceContextControl.Get(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey); !ok || val != targetInfo.DecorationUpdatedRevisions {
+				needUpdateContext = true
+				u.ResourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey, targetInfo.DecorationUpdatedRevisions)
 			}
 		}
 

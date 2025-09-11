@@ -105,12 +105,12 @@ type DecorationAdapter interface {
 	WatchDecoration(c controller.Controller) error
 	// GetDecorationGroupVersionKind returns decoration gvk.
 	GetDecorationGroupVersionKind() metav1.GroupVersionKind
-	// GetDecorationPatcherFromTarget returns patcher for decoration from target.
-	GetDecorationPatcherFromTarget(ctx context.Context, target client.Object) func(client.Object) error
-	// GetDecorationPatcherFromRevisions returns patcher for decoration from revisions.
-	GetDecorationPatcherFromRevisions(ctx context.Context, revision ...string) func(client.Object) error
-	// GetDecorationRevisionFromTarget returns decoration revision on target.
-	GetDecorationRevisionFromTarget(ctx context.Context, target client.Object) (string, error)
-	// IsDecorationChanged returns true if decoration on target is changed.
-	IsDecorationChanged(ctx context.Context, target client.Object) (bool, error)
+	// GetTargetCurrentDecorationRevisions returns decoration revision on target.
+	GetTargetCurrentDecorationRevisions(ctx context.Context, c client.Client, target client.Object) (string, error)
+	// GetTargetUpdatedDecorationRevisions returns decoration revision on target.
+	GetTargetUpdatedDecorationRevisions(ctx context.Context, c client.Client, target client.Object) (string, error)
+	// GetDecorationPatcherByRevisions returns patcher for decoration from revisions.
+	GetDecorationPatcherByRevisions(ctx context.Context, c client.Client, target client.Object, revision string) (func(client.Object) error, error)
+	// IsTargetDecorationChanged returns true if decoration on target is changed.
+	IsTargetDecorationChanged(currentRevision, updatedRevision string) (bool, error)
 }

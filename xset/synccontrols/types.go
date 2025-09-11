@@ -63,7 +63,18 @@ type TargetWrapper struct {
 	IsDuringScaleInOps bool
 	IsDuringUpdateOps  bool
 
+	DecorationInfo
+
 	OpsPriority *api.OpsPriority
+}
+
+type DecorationInfo struct {
+	// indicate if the decoration changed
+	DecorationChanged bool
+	// updated revisions of decoration
+	DecorationUpdatedRevisions string
+	// current revisions of decoration
+	DecorationCurrentRevisions string
 }
 
 type TargetUpdateInfo struct {
@@ -81,7 +92,6 @@ type TargetUpdateInfo struct {
 	// carry the desired update revision
 	UpdateRevision *appsv1.ControllerRevision
 
-	DecorationChanged bool
 	SubResourcesChanged
 
 	// indicates operate is allowed for TargetOpsLifecycle.

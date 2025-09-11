@@ -182,20 +182,20 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 
 	if instance.GetDeletionTimestamp() != nil {
 		if controllerutil.ContainsFinalizer(instance, r.finalizerName) {
-			// reclaim owner IDs in ResourceContextControl
-			if err := r.resourceContextControl.UpdateToTargetContext(ctx, instance, nil); err != nil {
-				return ctrl.Result{}, err
-			}
-			if cleaned, err := r.ensureReclaimTargetsDeletion(ctx, instance); !cleaned || err != nil {
-				// reclaim targets deletion before remove finalizers
-				return ctrl.Result{}, err
-			}
 			// reclaim target sub resources before remove finalizers
 			if err := r.ensureReclaimTargetSubResources(ctx, instance); err != nil {
 				return ctrl.Result{}, err
 			}
 			// reclaim decoration ownerReferences before remove finalizers
 			if err := r.ensureReclaimOwnerReferences(ctx, instance); err != nil {
+				return ctrl.Result{}, err
+			}
+			if cleaned, err := r.ensureReclaimTargetsDeletion(ctx, instance); !cleaned || err != nil {
+				// reclaim targets deletion before remove finalizers
+				return ctrl.Result{}, err
+			}
+			// reclaim owner IDs in ResourceContextControl
+			if err := r.resourceContextControl.UpdateToTargetContext(ctx, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
 		}

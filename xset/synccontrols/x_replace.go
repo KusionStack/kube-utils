@@ -114,14 +114,15 @@ func (r *RealSyncControl) replaceOriginTargets(
 	ctx context.Context,
 	instance api.XSetObject,
 	syncContext *SyncContext,
-	needReplaceOriginTargets []client.Object,
+	needReplaceOriginTargets []*TargetWrapper,
 	ownedIDs map[int]*api.ContextDetail,
 	availableContexts []*api.ContextDetail,
 ) (int, error) {
 	logger := logr.FromContext(ctx)
 	mapNewToOriginTargetContext := r.mapReplaceNewToOriginTargetContext(ownedIDs)
 	successCount, err := controllerutils.SlowStartBatch(len(needReplaceOriginTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
-		originTarget := needReplaceOriginTargets[i]
+		originWrapper := needReplaceOriginTargets[i]
+		originTarget := needReplaceOriginTargets[i].Object
 		originTargetId, _ := GetInstanceID(r.xsetLabelAnnoMgr, originTarget)
 
 		if ownedIDs[originTargetId] == nil {
@@ -136,8 +137,12 @@ func (r *RealSyncControl) replaceOriginTargets(
 			r.xsetController.GetXSetTemplatePatcher(instance),
 			func(object client.Object) error {
 				if decorationAdapter, ok := r.xsetController.(api.DecorationAdapter); ok {
-					patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, originTarget)
-					return patcherFn(object)
+					// get current decoration patcher from origin target, and patch new target
+					if fn, err := decorationAdapter.GetDecorationPatcherByRevisions(ctx, r.Client, originTarget, originWrapper.DecorationUpdatedRevisions); err != nil {
+						return err
+					} else {
+						return fn(object)
+					}
 				}
 				return nil
 			},
@@ -214,14 +219,15 @@ func (r *RealSyncControl) replaceOriginTargets(
 	return successCount, err
 }
 
-func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []client.Object) (
-	needReplaceTargets, needCleanLabelTargets []client.Object, targetNeedCleanLabels [][]string, needDeleteTargets []client.Object,
+func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []*TargetWrapper) (
+	needReplaceTargets []*TargetWrapper, needCleanLabelTargets []client.Object, targetNeedCleanLabels [][]string, needDeleteTargets []client.Object,
 ) {
 	logger := logr.FromContext(ctx)
 	targetInstanceIdMap := make(map[string]client.Object)
-	targetNameMap := make(map[string]client.Object)
+	targetNameMap := make(map[string]*TargetWrapper)
+	filteredTargets := FilterOutActiveTargetWrappers(targets)
 
-	for _, target := range targets {
+	for _, target := range filteredTargets {
 		targetLabels := target.GetLabels()
 
 		if instanceId, ok := r.xsetLabelAnnoMgr.Get(targetLabels, api.XInstanceIdLabelKey); ok {
@@ -231,7 +237,7 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 	}
 
 	// deal need replace targets
-	for _, target := range targets {
+	for _, target := range filteredTargets {
 		targetLabels := target.GetLabels()
 
 		// no replace indication label
@@ -262,7 +268,8 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 		needReplaceTargets = append(needReplaceTargets, target)
 	}
 
-	for _, target := range targets {
+	for _, wrapper := range filteredTargets {
+		target := wrapper.Object
 		targetLabels := target.GetLabels()
 		_, replaceByUpdate := r.xsetLabelAnnoMgr.Get(targetLabels, api.XReplaceByReplaceUpdateLabelKey)
 		var needCleanLabels []string
@@ -280,7 +287,7 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 			} else if !replaceByUpdate {
 				// not replace update, delete origin target when new created target is service available
 				if r.xsetController.CheckAvailable(target) {
-					needDeleteTargets = append(needDeleteTargets, originTarget)
+					needDeleteTargets = append(needDeleteTargets, originTarget.Object)
 				}
 			}
 		}
