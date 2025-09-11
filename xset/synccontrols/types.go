@@ -34,9 +34,9 @@ type SyncContext struct {
 	ExistingSubResource []client.Object
 
 	FilteredTarget []client.Object
-	TargetWrappers []*targetWrapper
-	activeTargets  []*targetWrapper
-	replacingMap   map[string]*targetWrapper
+	TargetWrappers []*TargetWrapper
+	activeTargets  []*TargetWrapper
+	replacingMap   map[string]*TargetWrapper
 
 	CurrentIDs sets.Int
 	OwnedIds   map[int]*api.ContextDetail
@@ -50,7 +50,7 @@ type SubResources struct {
 	ExistingPvcs []*corev1.PersistentVolumeClaim
 }
 
-type targetWrapper struct {
+type TargetWrapper struct {
 	// parameters must be set during creation
 	client.Object
 	ID            int
@@ -66,8 +66,8 @@ type targetWrapper struct {
 	OpsPriority *api.OpsPriority
 }
 
-type targetUpdateInfo struct {
-	*targetWrapper
+type TargetUpdateInfo struct {
+	*TargetWrapper
 
 	UpdatedTarget client.Object
 
@@ -95,7 +95,7 @@ type targetUpdateInfo struct {
 	IsInReplaceUpdate bool
 
 	// replace new created target
-	ReplacePairNewTargetInfo *targetUpdateInfo
+	ReplacePairNewTargetInfo *TargetUpdateInfo
 
 	// replace origin target
 	ReplacePairOriginTargetName string

@@ -304,7 +304,7 @@ func updateReplaceOriginTarget(
 	c client.Client,
 	recorder record.EventRecorder,
 	xsetLabelAnnoMgr api.XSetLabelAnnotationManager,
-	originTargetUpdateInfo, newTargetUpdateInfo *targetUpdateInfo,
+	originTargetUpdateInfo, newTargetUpdateInfo *TargetUpdateInfo,
 ) error {
 	originTarget := originTargetUpdateInfo.Object
 
@@ -379,16 +379,16 @@ func (r *RealSyncControl) getReplaceRevision(originTarget client.Object, syncCon
 }
 
 // classify the pair relationship for Target replacement.
-func classifyTargetReplacingMapping(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, targetWrappers []*targetWrapper) map[string]*targetWrapper {
-	targetNameMap := make(map[string]*targetWrapper)
-	targetIdMap := make(map[string]*targetWrapper)
+func classifyTargetReplacingMapping(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, targetWrappers []*TargetWrapper) map[string]*TargetWrapper {
+	targetNameMap := make(map[string]*TargetWrapper)
+	targetIdMap := make(map[string]*TargetWrapper)
 	for _, targetWrapper := range targetWrappers {
 		targetNameMap[targetWrapper.GetName()] = targetWrapper
 		targetIdMap[strconv.Itoa(targetWrapper.ID)] = targetWrapper
 	}
 
 	// old target name => new target wrapper
-	replaceTargetMapping := make(map[string]*targetWrapper)
+	replaceTargetMapping := make(map[string]*TargetWrapper)
 	for _, targetWrapper := range targetWrappers {
 		if targetWrapper.Object == nil {
 			continue
