@@ -53,7 +53,7 @@ func (w *ownerRefWriter) Adopt(ctx context.Context, parent metav1.Object, parent
 	}
 
 	upsertOwner(child, *newOwner)
-	clientObj, ok := parent.(client.Object)
+	clientObj, ok := child.(client.Object)
 	if !ok {
 		return fmt.Errorf("failed to convert parent object to controller-runtime client.Object")
 	}
