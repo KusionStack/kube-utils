@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/samber/lo"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -250,7 +251,7 @@ func (s *ownerReferenceTestSute) TestClaimWhenCanAdoptFailed() {
 func (s *ownerReferenceTestSute) TestClaimAllOf() {
 	writer := NewOwnerRefWriter(s.client)
 	match, err := LabelSelectorAsMatch(s.owner.Spec.Selector)
-	s.NoError(err)
+	s.Require().NoError(err)
 	m := NewObjectControllerRefManager(writer, s.owner, s.ownerGVK, match)
 
 	adopted := []metav1.Object{
@@ -273,15 +274,43 @@ func (s *ownerReferenceTestSute) TestClaimAllOf() {
 	allObjects = append(allObjects, released...)
 	allObjects = append(allObjects, noChanged...)
 
-	result, err := m.ClaimAllOf(context.Background(), allObjects)
-	if s.NoError(err) {
-		s.Len(result, len(adopted))
-		resultNames := lo.Map(result, func(o metav1.Object, _ int) string {
-			return o.GetName()
-		})
-		adoptedNames := lo.Map(adopted, func(o metav1.Object, _ int) string {
-			return o.GetName()
-		})
-		s.EqualValues(adoptedNames, resultNames)
+	for _, obj := range allObjects {
+		err := s.client.Create(context.TODO(), obj.(client.Object))
+		s.Require().NoError(err)
 	}
+
+	result, err := m.ClaimAllOf(context.Background(), allObjects)
+	s.Require().NoError(err)
+	// check adopted objects
+	s.Len(result, len(adopted))
+	resultNames := lo.Map(result, func(o metav1.Object, _ int) string {
+		return o.GetName()
+	})
+	adoptedNames := lo.Map(adopted, func(o metav1.Object, _ int) string {
+		return o.GetName()
+	})
+	s.EqualValues(adoptedNames, resultNames)
+
+	forEarch := func(objs []metav1.Object, check func(ownerRef *metav1.OwnerReference)) {
+		for _, obj := range objs {
+			pod := &corev1.Pod{}
+			err := s.client.Get(context.Background(), client.ObjectKeyFromObject(obj.(client.Object)), pod)
+			s.Require().NoError(err)
+			ownerRef := metav1.GetControllerOf(pod)
+			check(ownerRef)
+		}
+	}
+
+	// check adopted object owners
+	forEarch(adopted, func(ownerRef *metav1.OwnerReference) {
+		s.True(ReferSameObject(*ownerRef, s.ownerRef), "object should be adopted")
+	})
+	// check released objects
+	forEarch(released, func(ownerRef *metav1.OwnerReference) {
+		s.Require().Nil(ownerRef)
+	})
+	// check no changed objects
+	forEarch(noChanged, func(ownerRef *metav1.OwnerReference) {
+		s.True(ReferSameObject(*ownerRef, s.deferentOwnerRef), "object should not be changed")
+	})
 }

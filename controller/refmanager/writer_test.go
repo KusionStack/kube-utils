@@ -19,6 +19,7 @@ package refmanager
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -28,20 +29,20 @@ func (s *ownerReferenceTestSute) TestAdopt() {
 
 	testcase := []struct {
 		name    string
-		object  client.Object
+		pod     *corev1.Pod
 		wantErr bool
 	}{
 		{
-			name:   "adopt orpha pod",
-			object: newFakePod(nil),
+			name: "adopt orpha pod",
+			pod:  newFakePod(nil),
 		},
 		{
-			name:   "adopt owned pod",
-			object: newFakePod(s.owner),
+			name: "adopt owned pod",
+			pod:  newFakePod(s.owner),
 		},
 		{
 			name:    "adopt pod with conflict",
-			object:  newFakePod(s.deferentOwner),
+			pod:     newFakePod(s.deferentOwner),
 			wantErr: true,
 		},
 	}
@@ -50,15 +51,20 @@ func (s *ownerReferenceTestSute) TestAdopt() {
 		test := testcase[i]
 		s.Run(test.name, func() {
 			// create object
-			err := s.client.Create(context.TODO(), test.object)
+			err := s.client.Create(context.TODO(), test.pod)
 			s.NoError(err)
 
-			err = writer.Adopt(context.TODO(), s.owner, s.ownerGVK, test.object)
+			err = writer.Adopt(context.TODO(), s.owner, s.ownerGVK, test.pod)
 			if test.wantErr {
 				s.Error(err)
 			} else {
 				s.NoError(err)
-				owner := metav1.GetControllerOfNoCopy(test.object)
+				// get pod from client
+				pod := &corev1.Pod{}
+				err = s.client.Get(context.TODO(), client.ObjectKeyFromObject(test.pod), pod)
+				s.Require().NoError(err)
+				owner := metav1.GetControllerOfNoCopy(pod)
+				s.Require().NotNil(owner)
 				s.True(ReferSameObject(s.ownerRef, *owner), "the controller owner reference must be the same")
 			}
 		})
@@ -69,20 +75,20 @@ func (s *ownerReferenceTestSute) TestRelease() {
 	writer := NewOwnerRefWriter(s.client)
 
 	testcase := []struct {
-		name   string
-		object client.Object
+		name string
+		pod  client.Object
 	}{
 		{
-			name:   "release orphan pod, nothing changed",
-			object: newFakePod(nil),
+			name: "release orphan pod, nothing changed",
+			pod:  newFakePod(nil),
 		},
 		{
-			name:   "release owned pod",
-			object: newFakePod(s.owner),
+			name: "release owned pod",
+			pod:  newFakePod(s.owner),
 		},
 		{
-			name:   "release pod controlled by other object",
-			object: newFakePod(s.deferentOwner),
+			name: "release pod controlled by other object",
+			pod:  newFakePod(s.deferentOwner),
 		},
 	}
 
@@ -90,12 +96,16 @@ func (s *ownerReferenceTestSute) TestRelease() {
 		test := testcase[i]
 		s.Run(test.name, func() {
 			// create object
-			err := s.client.Create(context.TODO(), test.object)
+			err := s.client.Create(context.TODO(), test.pod)
 			s.NoError(err)
 
-			writer.Release(context.TODO(), s.owner, test.object) // nolint
-			owner := metav1.GetControllerOfNoCopy(test.object)
+			writer.Release(context.TODO(), s.owner, test.pod) // nolint
 
+			// get pod from client
+			pod := &corev1.Pod{}
+			err = s.client.Get(context.TODO(), client.ObjectKeyFromObject(test.pod), pod)
+			s.Require().NoError(err)
+			owner := metav1.GetControllerOfNoCopy(pod)
 			if owner != nil {
 				s.False(ReferSameObject(s.ownerRef, *owner), "the controller owner reference must not be the same")
 			}
