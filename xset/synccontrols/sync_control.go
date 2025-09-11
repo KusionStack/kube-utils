@@ -173,7 +173,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	}
 
 	// stateless case
-	var targetWrappers []*targetWrapper
+	var targetWrappers []*TargetWrapper
 	syncContext.CurrentIDs = sets.Int{}
 	idToReclaim := sets.Int{}
 	toDeleteTargetNames := sets.NewString(xspec.ScaleStrategy.TargetToDelete...)
@@ -220,7 +220,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			}
 		}
 
-		targetWrappers = append(targetWrappers, &targetWrapper{
+		targetWrappers = append(targetWrappers, &TargetWrapper{
 			Object:        target,
 			ID:            id,
 			ContextDetail: ownedIDs[id],
@@ -438,7 +438,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 		if _, inUsed := syncContext.CurrentIDs[id]; inUsed {
 			continue
 		}
-		syncContext.TargetWrappers = append(syncContext.TargetWrappers, &targetWrapper{
+		syncContext.TargetWrappers = append(syncContext.TargetWrappers, &TargetWrapper{
 			ID:            id,
 			Object:        nil,
 			ContextDetail: contextDetail,
@@ -578,7 +578,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 		// chose the targets to scale in
 		targetsToScaleIn := r.getTargetsToDelete(xsetObject, syncContext.activeTargets, syncContext.replacingMap, diff*-1)
 		// filter out Targets need to trigger TargetOpsLifecycle
-		wrapperCh := make(chan *targetWrapper, len(targetsToScaleIn))
+		wrapperCh := make(chan *TargetWrapper, len(targetsToScaleIn))
 		for i := range targetsToScaleIn {
 			if targetsToScaleIn[i].IsDuringScaleInOps {
 				continue
@@ -739,7 +739,7 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	// 2. decide Target update candidates
 	candidates := r.decideTargetToUpdate(r.xsetController, xsetObject, targetUpdateInfos)
 	targetToUpdate := filterOutPlaceHolderUpdateInfos(candidates)
-	targetCh := make(chan *targetUpdateInfo, len(targetToUpdate))
+	targetCh := make(chan *TargetUpdateInfo, len(targetToUpdate))
 	updater := r.newTargetUpdater(xsetObject)
 	updating := false
 
@@ -1008,7 +1008,7 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 }
 
 // getTargetsOpsPriority try to set targets' ops priority
-func (r *RealSyncControl) getTargetsOpsPriority(ctx context.Context, c client.Client, targets []*targetWrapper) error {
+func (r *RealSyncControl) getTargetsOpsPriority(ctx context.Context, c client.Client, targets []*TargetWrapper) error {
 	_, err := controllerutils.SlowStartBatch(len(targets), controllerutils.SlowStartInitialBatchSize, true, func(i int, _ error) error {
 		if targets[i].PlaceHolder || targets[i].Object == nil || targets[i].OpsPriority != nil {
 			return nil
@@ -1024,8 +1024,8 @@ func (r *RealSyncControl) getTargetsOpsPriority(ctx context.Context, c client.Cl
 }
 
 // FilterOutActiveTargetWrappers filter out non placeholder targets
-func FilterOutActiveTargetWrappers(targets []*targetWrapper) []*targetWrapper {
-	var filteredTargetWrappers []*targetWrapper
+func FilterOutActiveTargetWrappers(targets []*TargetWrapper) []*TargetWrapper {
+	var filteredTargetWrappers []*TargetWrapper
 	for i, target := range targets {
 		if target.PlaceHolder {
 			continue
