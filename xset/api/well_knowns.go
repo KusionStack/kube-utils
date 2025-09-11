@@ -94,9 +94,6 @@ const (
 	// SubResourcePvcTemplateHashLabelKey is used to attach hash of pvc template to pvc subresource
 	SubResourcePvcTemplateHashLabelKey
 
-	// LastXStatusAnnotationKey is used to record the last status of a target by xset
-	LastXStatusAnnotationKey
-
 	// wellKnownCount is the number of XSetLabelAnnotationEnum
 	wellKnownCount
 )
@@ -130,8 +127,6 @@ var defaultXSetLabelAnnotationManager = map[XSetLabelAnnotationEnum]string{
 	XExcludeIndicationLabelKey:         appsv1alpha1.PodExcludeIndicationLabelKey,
 	SubResourcePvcTemplateLabelKey:     appsv1alpha1.PvcTemplateLabelKey,
 	SubResourcePvcTemplateHashLabelKey: appsv1alpha1.PvcTemplateHashLabelKey,
-
-	LastXStatusAnnotationKey: appsv1alpha1.LastPodStatusAnnotationKey,
 }
 
 func NewXSetLabelAnnotationManager() XSetLabelAnnotationManager {
