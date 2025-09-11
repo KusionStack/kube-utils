@@ -97,7 +97,7 @@ func (r *RealSyncControl) attachTargetUpdateInfo(ctx context.Context, xsetObject
 		var err error
 		spec := r.xsetController.GetXSetSpec(xsetObject)
 		// decide whether the TargetOpsLifecycle is during ops or not
-		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowUpdateOps = opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.updateLifecycleAdapter, ptr.Deref(spec.UpdateStrategy.OperationDelaySeconds, 0), target)
+		updateInfo.RequeueForOperationDelay, updateInfo.IsAllowUpdateOps = opslifecycle.AllowOps(r.updateConfig.XsetLabelAnnoMgr, r.updateLifecycleAdapter, ptr.Deref(spec.UpdateStrategy.OperationDelaySeconds, 0), target)
 		// check subresource pvc template changed
 		if _, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
 			updateInfo.PvcTmpHashChanged, err = r.pvcControl.IsTargetPvcTmpChanged(xsetObject, target.Object, syncContext.ExistingPvcs)
@@ -313,18 +313,18 @@ func (o *orderByDefault) Less(i, j int) bool {
 }
 
 type UpdateConfig struct {
-	xsetController         api.XSetController
-	xsetLabelAnnoMgr       api.XSetLabelAnnotationManager
-	client                 client.Client
-	targetControl          xcontrol.TargetControl
-	resourceContextControl resourcecontexts.ResourceContextControl
-	recorder               record.EventRecorder
+	XsetController         api.XSetController
+	XsetLabelAnnoMgr       api.XSetLabelAnnotationManager
+	Client                 client.Client
+	TargetControl          xcontrol.TargetControl
+	ResourceContextControl resourcecontexts.ResourceContextControl
+	Recorder               record.EventRecorder
 
 	scaleInLifecycleAdapter api.LifecycleAdapter
 	updateLifecycleAdapter  api.LifecycleAdapter
 
-	cacheExpectations expectations.CacheExpectationsInterface
-	targetGVK         schema.GroupVersionKind
+	CacheExpectations expectations.CacheExpectationsInterface
+	TargetGVK         schema.GroupVersionKind
 }
 
 type TargetUpdater interface {
@@ -351,18 +351,18 @@ func (u *GenericTargetUpdater) Setup(config *UpdateConfig, xset api.XSetObject) 
 func (u *GenericTargetUpdater) BeginUpdateTarget(_ context.Context, syncContext *SyncContext, targetCh chan *TargetUpdateInfo) (bool, error) {
 	succCount, err := controllerutils.SlowStartBatch(len(targetCh), controllerutils.SlowStartInitialBatchSize, false, func(int, error) error {
 		targetInfo := <-targetCh
-		u.recorder.Eventf(targetInfo.Object, corev1.EventTypeNormal, "TargetUpdateLifecycle", "try to begin TargetOpsLifecycle for updating Target of XSet")
+		u.Recorder.Eventf(targetInfo.Object, corev1.EventTypeNormal, "TargetUpdateLifecycle", "try to begin TargetOpsLifecycle for updating Target of XSet")
 
-		if updated, err := opslifecycle.BeginWithCleaningOld(u.xsetLabelAnnoMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object, func(obj client.Object) (bool, error) {
+		if updated, err := opslifecycle.BeginWithCleaningOld(u.XsetLabelAnnoMgr, u.Client, u.updateLifecycleAdapter, targetInfo.Object, func(obj client.Object) (bool, error) {
 			if !targetInfo.OnlyMetadataChanged && !targetInfo.InPlaceUpdateSupport {
-				return opslifecycle.WhenBeginDelete(u.xsetLabelAnnoMgr, obj)
+				return opslifecycle.WhenBeginDelete(u.XsetLabelAnnoMgr, obj)
 			}
 			return false, nil
 		}); err != nil {
 			return fmt.Errorf("fail to begin TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 		} else if updated {
 			// add an expectation for this target update, before next reconciling
-			if err := u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
+			if err := u.CacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.TargetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
 				return err
 			}
 		}
@@ -390,7 +390,7 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 				continue
 			}
 			if targetInfo.RequeueForOperationDelay != nil {
-				u.recorder.Eventf(targetInfo, corev1.EventTypeNormal, "TargetUpdateLifecycle", "delay Target update for %f seconds", targetInfo.RequeueForOperationDelay.Seconds())
+				u.Recorder.Eventf(targetInfo, corev1.EventTypeNormal, "TargetUpdateLifecycle", "delay Target update for %f seconds", targetInfo.RequeueForOperationDelay.Seconds())
 				if recordedRequeueAfter == nil || *targetInfo.RequeueForOperationDelay < *recordedRequeueAfter {
 					recordedRequeueAfter = targetInfo.RequeueForOperationDelay
 				}
@@ -405,31 +405,31 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 		}
 
 		if _, exist := ownedIDs[targetInfo.ID]; !exist {
-			u.recorder.Eventf(u.OwnerObject, corev1.EventTypeWarning, "TargetBeforeUpdate", "target %s/%s is not allowed to update because cannot find context id %s in resourceContext", targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetLabels()[u.xsetLabelAnnoMgr.Value(api.XInstanceIdLabelKey)])
+			u.Recorder.Eventf(u.OwnerObject, corev1.EventTypeWarning, "TargetBeforeUpdate", "target %s/%s is not allowed to update because cannot find context id %s in resourceContext", targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetLabels()[u.XsetLabelAnnoMgr.Value(api.XInstanceIdLabelKey)])
 			continue
 		}
 
-		if !u.resourceContextControl.Contains(ownedIDs[targetInfo.ID], api.EnumRevisionContextDataKey, targetInfo.UpdateRevision.GetName()) {
+		if !u.ResourceContextControl.Contains(ownedIDs[targetInfo.ID], api.EnumRevisionContextDataKey, targetInfo.UpdateRevision.GetName()) {
 			needUpdateContext = true
-			u.resourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumRevisionContextDataKey, targetInfo.UpdateRevision.GetName())
+			u.ResourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumRevisionContextDataKey, targetInfo.UpdateRevision.GetName())
 		}
 
-		spec := u.xsetController.GetXSetSpec(u.OwnerObject)
+		spec := u.XsetController.GetXSetSpec(u.OwnerObject)
 
 		// mark targetContext "TargetRecreateUpgrade" if upgrade by recreate
 		isRecreateUpdatePolicy := spec.UpdateStrategy.UpdatePolicy == api.XSetRecreateTargetUpdateStrategyType
 		if (!targetInfo.OnlyMetadataChanged && !targetInfo.InPlaceUpdateSupport) || isRecreateUpdatePolicy {
-			u.resourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumRecreateUpdateContextDataKey, "true")
+			u.ResourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumRecreateUpdateContextDataKey, "true")
 		}
 
 		// add decoration revision to target context
-		if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok && targetInfo.DecorationChanged {
+		if decorationAdapter, ok := u.XsetController.(api.DecorationAdapter); ok && targetInfo.DecorationChanged {
 			decorationRevision, err := decorationAdapter.GetDecorationRevisionFromTarget(ctx, targetInfo.Object)
 			if err != nil {
 				return recordedRequeueAfter, err
 			}
-			if val, ok := u.resourceContextControl.Get(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey); !ok || val != decorationRevision {
-				u.resourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey, decorationRevision)
+			if val, ok := u.ResourceContextControl.Get(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey); !ok || val != decorationRevision {
+				u.ResourceContextControl.Put(ownedIDs[targetInfo.ID], api.EnumTargetDecorationRevisionKey, decorationRevision)
 			}
 		}
 
@@ -442,9 +442,9 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 	}
 	// mark Target to use updated revision before updating it.
 	if needUpdateContext {
-		u.recorder.Eventf(u.OwnerObject, corev1.EventTypeNormal, "UpdateToTargetContext", "try to update ResourceContext for XSet")
+		u.Recorder.Eventf(u.OwnerObject, corev1.EventTypeNormal, "UpdateToTargetContext", "try to update ResourceContext for XSet")
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return u.resourceContextControl.UpdateToTargetContext(ctx, u.OwnerObject, ownedIDs)
+			return u.ResourceContextControl.UpdateToTargetContext(ctx, u.OwnerObject, ownedIDs)
 		})
 		return recordedRequeueAfter, err
 	}
@@ -454,18 +454,18 @@ func (u *GenericTargetUpdater) FilterAllowOpsTargets(ctx context.Context, candid
 func (u *GenericTargetUpdater) FinishUpdateTarget(_ context.Context, targetInfo *TargetUpdateInfo, finishByCancelUpdate bool) error {
 	if finishByCancelUpdate {
 		// cancel update lifecycle
-		return opslifecycle.CancelOpsLifecycle(u.xsetLabelAnnoMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object)
+		return opslifecycle.CancelOpsLifecycle(u.XsetLabelAnnoMgr, u.Client, u.updateLifecycleAdapter, targetInfo.Object)
 	}
 
 	// target is ops finished, finish the lifecycle gracefully
-	if updated, err := opslifecycle.Finish(u.xsetLabelAnnoMgr, u.client, u.updateLifecycleAdapter, targetInfo.Object); err != nil {
+	if updated, err := opslifecycle.Finish(u.XsetLabelAnnoMgr, u.Client, u.updateLifecycleAdapter, targetInfo.Object); err != nil {
 		return fmt.Errorf("failed to finish TargetOpsLifecycle for updating Target %s/%s: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 	} else if updated {
 		// add an expectation for this target update, before next reconciling
-		if err := u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
+		if err := u.CacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.TargetGVK, targetInfo.GetNamespace(), targetInfo.GetName(), targetInfo.GetResourceVersion()); err != nil {
 			return err
 		}
-		u.recorder.Eventf(targetInfo.Object,
+		u.Recorder.Eventf(targetInfo.Object,
 			corev1.EventTypeNormal,
 			"UpdateReady", "target %s/%s update finished", targetInfo.GetNamespace(), targetInfo.GetName())
 	}
@@ -528,9 +528,9 @@ type ContainerStatus struct {
 //func (u *inPlaceIfPossibleUpdater) FulfillTargetUpdatedInfo(ctx context.Context, revision *appsv1.ControllerRevision, TargetUpdateInfo *TargetUpdateInfo) error {
 //	// 1. build target from current and updated revision
 //	// TODO: use cache
-//	currentTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, TargetUpdateInfo.CurrentRevision, TargetUpdateInfo.ID,
-//		func(object client.Object) error {
-//			if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok {
+//	currentTarget, err := NewTargetFrom(u.XsetController, u.XsetLabelAnnoMgr, u.OwnerObject, TargetUpdateInfo.CurrentRevision, TargetUpdateInfo.ID,
+//		func(object Client.Object) error {
+//			if decorationAdapter, ok := u.XsetController.(api.DecorationAdapter); ok {
 //				patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, TargetUpdateInfo.TargetWrapper.Object)
 //				return patcherFn(object)
 //			}
@@ -543,8 +543,8 @@ type ContainerStatus struct {
 //
 //	// TODO: use cache
 //
-//	UpdatedTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, TargetUpdateInfo.UpdateRevision, TargetUpdateInfo.ID, func(object client.Object) error {
-//		if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok {
+//	UpdatedTarget, err := NewTargetFrom(u.XsetController, u.XsetLabelAnnoMgr, u.OwnerObject, TargetUpdateInfo.UpdateRevision, TargetUpdateInfo.ID, func(object Client.Object) error {
+//		if decorationAdapter, ok := u.XsetController.(api.DecorationAdapter); ok {
 //			patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, TargetUpdateInfo.UpdatedTarget)
 //			return patcherFn(object)
 //		}
@@ -561,8 +561,8 @@ type ContainerStatus struct {
 //
 //	// TODO check diff
 //
-//	newUpdatedTarget := TargetUpdateInfo.TargetWrapper.Object.DeepCopyObject().(client.Object)
-//	if err = merge.ThreeWayMergeToTarget(currentTarget, UpdatedTarget, newUpdatedTarget, u.xsetController.NewXObject()); err != nil {
+//	newUpdatedTarget := TargetUpdateInfo.TargetWrapper.Object.DeepCopyObject().(Client.Object)
+//	if err = merge.ThreeWayMergeToTarget(currentTarget, UpdatedTarget, newUpdatedTarget, u.XsetController.NewXObject()); err != nil {
 //		return fmt.Errorf("fail to patch Target %s/%s: %v", TargetUpdateInfo.GetNamespace(), TargetUpdateInfo.GetName(), err.Error())
 //	}
 //	TargetUpdateInfo.UpdatedTarget = newUpdatedTarget
@@ -573,18 +573,18 @@ type ContainerStatus struct {
 //func (u *inPlaceIfPossibleUpdater) UpgradeTarget(ctx context.Context, targetInfo *TargetUpdateInfo) error {
 //	if targetInfo.OnlyMetadataChanged || targetInfo.InPlaceUpdateSupport {
 //		// if target template changes only include metadata or support in-place update, just apply these changes to target directly
-//		if err := u.targetControl.UpdateTarget(ctx, targetInfo.UpdatedTarget); err != nil {
+//		if err := u.TargetControl.UpdateTarget(ctx, targetInfo.UpdatedTarget); err != nil {
 //			return fmt.Errorf("fail to update Target %s/%s when updating by in-place: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 //		}
 //		targetInfo.Object = targetInfo.UpdatedTarget
-//		u.recorder.Eventf(targetInfo.Object,
+//		u.Recorder.Eventf(targetInfo.Object,
 //			corev1.EventTypeNormal,
 //			"UpdateTarget",
 //			"succeed to update Target %s/%s to from revision %s to revision %s by in-place",
 //			targetInfo.GetNamespace(), targetInfo.GetName(),
 //			targetInfo.CurrentRevision.GetName(),
 //			targetInfo.UpdateRevision.GetName())
-//		return u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.Object.GetNamespace(), targetInfo.Object.GetName(), targetInfo.Object.GetResourceVersion())
+//		return u.CacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.TargetGVK, targetInfo.Object.GetNamespace(), targetInfo.Object.GetName(), targetInfo.Object.GetResourceVersion())
 //	} else {
 //		// if target has changes not in-place supported, recreate it
 //		return u.GenericTargetUpdater.RecreateTarget(ctx, targetInfo)
@@ -592,11 +592,11 @@ type ContainerStatus struct {
 //}
 
 func (u *GenericTargetUpdater) RecreateTarget(ctx context.Context, targetInfo *TargetUpdateInfo) error {
-	if err := u.targetControl.DeleteTarget(ctx, targetInfo.Object); err != nil {
+	if err := u.TargetControl.DeleteTarget(ctx, targetInfo.Object); err != nil {
 		return fmt.Errorf("fail to delete Target %s/%s when updating by recreate: %v", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
 	}
 
-	u.recorder.Eventf(targetInfo.Object,
+	u.Recorder.Eventf(targetInfo.Object,
 		corev1.EventTypeNormal,
 		"UpdateTarget",
 		"succeed to update Target %s/%s to from revision %s to revision %s by recreate",
@@ -614,7 +614,7 @@ func (u *GenericTargetUpdater) RecreateTarget(ctx context.Context, targetInfo *T
 //	}
 //
 //	targetLastState := &TargetStatus{}
-//	if lastStateJson, exist := u.xsetLabelAnnoMgr.Get(TargetUpdateInfo.GetAnnotations(), api.LastXStatusAnnotationKey); !exist {
+//	if lastStateJson, exist := u.XsetLabelAnnoMgr.Get(TargetUpdateInfo.GetAnnotations(), api.LastXStatusAnnotationKey); !exist {
 //		return false, "no target last state annotation", nil
 //	} else if err := json.Unmarshal([]byte(lastStateJson), targetLastState); err != nil {
 //		msg := fmt.Sprintf("malformat target last state annotation [%s]: %s", lastStateJson, err.Error())
@@ -662,11 +662,11 @@ func (u *replaceUpdateTargetUpdater) BeginUpdateTarget(ctx context.Context, sync
 			if exist && newTargetRevision == targetInfo.UpdateRevision.GetName() {
 				return nil
 			}
-			if _, exist := u.xsetLabelAnnoMgr.Get(replacePairNewTarget.GetLabels(), api.XDeletionIndicationLabelKey); exist {
+			if _, exist := u.XsetLabelAnnoMgr.Get(replacePairNewTarget.GetLabels(), api.XDeletionIndicationLabelKey); exist {
 				return nil
 			}
 
-			u.recorder.Eventf(targetInfo.Object,
+			u.Recorder.Eventf(targetInfo.Object,
 				corev1.EventTypeNormal,
 				"ReplaceUpdateTarget",
 				"label to-delete on new pair target %s/%s because it is not updated revision, current revision: %s, updated revision: %s",
@@ -674,8 +674,8 @@ func (u *replaceUpdateTargetUpdater) BeginUpdateTarget(ctx context.Context, sync
 				replacePairNewTarget.GetName(),
 				newTargetRevision,
 				syncContext.UpdatedRevision.GetName())
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, u.xsetLabelAnnoMgr.Value(api.XDeletionIndicationLabelKey), time.Now().UnixNano())))
-			if patchErr := u.client.Patch(ctx, targetInfo.ReplacePairNewTargetInfo.Object, patch); patchErr != nil {
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, u.XsetLabelAnnoMgr.Value(api.XDeletionIndicationLabelKey), time.Now().UnixNano())))
+			if patchErr := u.Client.Patch(ctx, targetInfo.ReplacePairNewTargetInfo.Object, patch); patchErr != nil {
 				err := fmt.Errorf("failed to delete replace pair new target %s/%s %s",
 					targetInfo.ReplacePairNewTargetInfo.GetNamespace(), targetInfo.ReplacePairNewTargetInfo.GetName(), patchErr.Error())
 				return err
@@ -704,7 +704,7 @@ func (u *replaceUpdateTargetUpdater) FulfillTargetUpdatedInfo(_ context.Context,
 }
 
 func (u *replaceUpdateTargetUpdater) UpgradeTarget(ctx context.Context, targetInfo *TargetUpdateInfo) error {
-	return updateReplaceOriginTarget(ctx, u.client, u.recorder, u.xsetLabelAnnoMgr, targetInfo, targetInfo.ReplacePairNewTargetInfo)
+	return updateReplaceOriginTarget(ctx, u.Client, u.Recorder, u.XsetLabelAnnoMgr, targetInfo, targetInfo.ReplacePairNewTargetInfo)
 }
 
 func (u *replaceUpdateTargetUpdater) GetTargetUpdateFinishStatus(_ context.Context, targetUpdateInfo *TargetUpdateInfo) (finished bool, msg string, err error) {
@@ -720,8 +720,8 @@ func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, tar
 	if finishByCancelUpdate {
 		// cancel replace update by removing to-replace and replace-by-update label from origin target
 		if targetInfo.IsInReplace {
-			patch := client.RawPatch(types.MergePatchType, fmt.Appendf(nil, `{"metadata":{"labels":{"%s":null, "%s":null}}}`, u.xsetLabelAnnoMgr.Value(api.XReplaceIndicationLabelKey), u.xsetLabelAnnoMgr.Value(api.XReplaceByReplaceUpdateLabelKey)))
-			if err := u.targetControl.PatchTarget(ctx, targetInfo.Object, patch); err != nil {
+			patch := client.RawPatch(types.MergePatchType, fmt.Appendf(nil, `{"metadata":{"labels":{"%s":null, "%s":null}}}`, u.XsetLabelAnnoMgr.Value(api.XReplaceIndicationLabelKey), u.XsetLabelAnnoMgr.Value(api.XReplaceByReplaceUpdateLabelKey)))
+			if err := u.TargetControl.PatchTarget(ctx, targetInfo.Object, patch); err != nil {
 				return fmt.Errorf("failed to patch replace pair target %s/%s %w when cancel replace update", targetInfo.GetNamespace(), targetInfo.GetName(), err)
 			}
 		}
@@ -730,9 +730,9 @@ func (u *replaceUpdateTargetUpdater) FinishUpdateTarget(ctx context.Context, tar
 
 	ReplacePairNewTargetInfo := targetInfo.ReplacePairNewTargetInfo
 	if ReplacePairNewTargetInfo != nil {
-		if _, exist := u.xsetLabelAnnoMgr.Get(targetInfo.GetLabels(), api.XDeletionIndicationLabelKey); !exist {
-			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, u.xsetLabelAnnoMgr.Value(api.XDeletionIndicationLabelKey), time.Now().UnixNano())))
-			if err := u.targetControl.PatchTarget(ctx, targetInfo.Object, patch); err != nil {
+		if _, exist := u.XsetLabelAnnoMgr.Get(targetInfo.GetLabels(), api.XDeletionIndicationLabelKey); !exist {
+			patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:"%d"}}}`, u.XsetLabelAnnoMgr.Value(api.XDeletionIndicationLabelKey), time.Now().UnixNano())))
+			if err := u.TargetControl.PatchTarget(ctx, targetInfo.Object, patch); err != nil {
 				return fmt.Errorf("failed to delete replace pair origin target %s/%s %s", targetInfo.GetNamespace(), targetInfo.ReplacePairNewTargetInfo.GetName(), err.Error())
 			}
 		}
@@ -753,7 +753,7 @@ func (u *GenericTargetUpdater) isTargetUpdatedServiceAvailable(targetInfo *Targe
 		return false, "replace origin target", nil
 	}
 
-	if u.xsetController.CheckAvailable(targetInfo.Object) {
+	if u.XsetController.CheckAvailable(targetInfo.Object) {
 		return true, "", nil
 	}
 
