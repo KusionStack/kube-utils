@@ -18,8 +18,6 @@ package synccontrols
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -36,7 +34,6 @@ import (
 
 	clientutil "kusionstack.io/kube-utils/client"
 	"kusionstack.io/kube-utils/controller/expectations"
-	"kusionstack.io/kube-utils/controller/merge"
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
@@ -482,6 +479,13 @@ func RegisterInPlaceOnlyUpdater(targetUpdater TargetUpdater) {
 	inPlaceOnlyTargetUpdater = targetUpdater
 }
 
+// Support users to define inPlaceIfPossibleUpdater and register through RegistryInPlaceIfPossibleUpdater
+var inPlaceIfPossibleUpdater TargetUpdater
+
+func RegistryInPlaceIfPossibleUpdater(targetUpdater TargetUpdater) {
+	inPlaceIfPossibleUpdater = targetUpdater
+}
+
 func (r *RealSyncControl) newTargetUpdater(xset api.XSetObject) TargetUpdater {
 	spec := r.xsetController.GetXSetSpec(xset)
 	var targetUpdater TargetUpdater
@@ -491,15 +495,18 @@ func (r *RealSyncControl) newTargetUpdater(xset api.XSetObject) TargetUpdater {
 	case api.XSetInPlaceOnlyTargetUpdateStrategyType:
 		if inPlaceOnlyTargetUpdater != nil {
 			targetUpdater = inPlaceOnlyTargetUpdater
-		} else {
+		} else if inPlaceIfPossibleUpdater != nil {
 			// In case of using native K8s, Target is only allowed to update with container image, so InPlaceOnly policy is
 			// implemented with InPlaceIfPossible policy as default for compatibility.
-			targetUpdater = &inPlaceIfPossibleUpdater{}
+			targetUpdater = inPlaceIfPossibleUpdater
+		} else {
+			// if none of InplaceOnly and InplaceIfPossible updater is registered, use default Recreate updater
+			targetUpdater = &recreateTargetUpdater{}
 		}
 	case api.XSetReplaceTargetUpdateStrategyType:
 		targetUpdater = &replaceUpdateTargetUpdater{}
 	default:
-		targetUpdater = &inPlaceIfPossibleUpdater{}
+		targetUpdater = &recreateTargetUpdater{}
 	}
 	targetUpdater.Setup(r.updateConfig, xset)
 	return targetUpdater
@@ -514,73 +521,75 @@ type ContainerStatus struct {
 	LastImageID string `json:"lastImageID,omitempty"`
 }
 
-type inPlaceIfPossibleUpdater struct {
-	GenericTargetUpdater
-}
+//type inPlaceIfPossibleUpdater struct {
+//	GenericTargetUpdater
+//}
 
-func (u *inPlaceIfPossibleUpdater) FulfillTargetUpdatedInfo(ctx context.Context, revision *appsv1.ControllerRevision, targetUpdateInfo *targetUpdateInfo) error {
-	// 1. build target from current and updated revision
-	// TODO: use cache
-	currentTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.CurrentRevision, targetUpdateInfo.ID,
-		func(object client.Object) error {
-			if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok {
-				patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, targetUpdateInfo.targetWrapper.Object)
-				return patcherFn(object)
-			}
-			return nil
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("fail to build Target from current revision %s: %v", targetUpdateInfo.CurrentRevision.GetName(), err.Error())
-	}
+//func (u *inPlaceIfPossibleUpdater) FulfillTargetUpdatedInfo(ctx context.Context, revision *appsv1.ControllerRevision, targetUpdateInfo *targetUpdateInfo) error {
+//	// 1. build target from current and updated revision
+//	// TODO: use cache
+//	currentTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.CurrentRevision, targetUpdateInfo.ID,
+//		func(object client.Object) error {
+//			if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok {
+//				patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, targetUpdateInfo.targetWrapper.Object)
+//				return patcherFn(object)
+//			}
+//			return nil
+//		},
+//	)
+//	if err != nil {
+//		return fmt.Errorf("fail to build Target from current revision %s: %v", targetUpdateInfo.CurrentRevision.GetName(), err.Error())
+//	}
+//
+//	// TODO: use cache
+//
+//	UpdatedTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.UpdateRevision, targetUpdateInfo.ID, func(object client.Object) error {
+//		if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok {
+//			patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, targetUpdateInfo.UpdatedTarget)
+//			return patcherFn(object)
+//		}
+//		return nil
+//	},
+//	)
+//	if err != nil {
+//		return fmt.Errorf("fail to build Target from updated revision %s: %v", targetUpdateInfo.UpdateRevision.GetName(), err.Error())
+//	}
+//
+//	if targetUpdateInfo.PvcTmpHashChanged {
+//		targetUpdateInfo.InPlaceUpdateSupport, targetUpdateInfo.OnlyMetadataChanged = false, false
+//	}
+//
+//	// TODO check diff
+//
+//	newUpdatedTarget := targetUpdateInfo.targetWrapper.Object.DeepCopyObject().(client.Object)
+//	if err = merge.ThreeWayMergeToTarget(currentTarget, UpdatedTarget, newUpdatedTarget, u.xsetController.NewXObject()); err != nil {
+//		return fmt.Errorf("fail to patch Target %s/%s: %v", targetUpdateInfo.GetNamespace(), targetUpdateInfo.GetName(), err.Error())
+//	}
+//	targetUpdateInfo.UpdatedTarget = newUpdatedTarget
+//
+//	return nil
+//}
 
-	// TODO: use cache
-
-	UpdatedTarget, err := NewTargetFrom(u.xsetController, u.xsetLabelAnnoMgr, u.OwnerObject, targetUpdateInfo.UpdateRevision, targetUpdateInfo.ID, func(object client.Object) error {
-		if decorationAdapter, ok := u.xsetController.(api.DecorationAdapter); ok {
-			patcherFn := decorationAdapter.GetDecorationPatcherFromTarget(ctx, targetUpdateInfo.UpdatedTarget)
-			return patcherFn(object)
-		}
-		return nil
-	},
-	)
-	if err != nil {
-		return fmt.Errorf("fail to build Target from updated revision %s: %v", targetUpdateInfo.UpdateRevision.GetName(), err.Error())
-	}
-
-	if targetUpdateInfo.PvcTmpHashChanged {
-		targetUpdateInfo.InPlaceUpdateSupport, targetUpdateInfo.OnlyMetadataChanged = false, false
-	}
-
-	newUpdatedTarget := targetUpdateInfo.targetWrapper.Object.DeepCopyObject().(client.Object)
-	if err = merge.ThreeWayMergeToTarget(currentTarget, UpdatedTarget, newUpdatedTarget, u.xsetController.NewXObject()); err != nil {
-		return fmt.Errorf("fail to patch Target %s/%s: %v", targetUpdateInfo.GetNamespace(), targetUpdateInfo.GetName(), err.Error())
-	}
-	targetUpdateInfo.UpdatedTarget = newUpdatedTarget
-
-	return nil
-}
-
-func (u *inPlaceIfPossibleUpdater) UpgradeTarget(ctx context.Context, targetInfo *targetUpdateInfo) error {
-	if targetInfo.OnlyMetadataChanged || targetInfo.InPlaceUpdateSupport {
-		// if target template changes only include metadata or support in-place update, just apply these changes to target directly
-		if err := u.targetControl.UpdateTarget(ctx, targetInfo.UpdatedTarget); err != nil {
-			return fmt.Errorf("fail to update Target %s/%s when updating by in-place: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
-		}
-		targetInfo.Object = targetInfo.UpdatedTarget
-		u.recorder.Eventf(targetInfo.Object,
-			corev1.EventTypeNormal,
-			"UpdateTarget",
-			"succeed to update Target %s/%s to from revision %s to revision %s by in-place",
-			targetInfo.GetNamespace(), targetInfo.GetName(),
-			targetInfo.CurrentRevision.GetName(),
-			targetInfo.UpdateRevision.GetName())
-		return u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.Object.GetNamespace(), targetInfo.Object.GetName(), targetInfo.Object.GetResourceVersion())
-	} else {
-		// if target has changes not in-place supported, recreate it
-		return u.GenericTargetUpdater.RecreateTarget(ctx, targetInfo)
-	}
-}
+//func (u *inPlaceIfPossibleUpdater) UpgradeTarget(ctx context.Context, targetInfo *targetUpdateInfo) error {
+//	if targetInfo.OnlyMetadataChanged || targetInfo.InPlaceUpdateSupport {
+//		// if target template changes only include metadata or support in-place update, just apply these changes to target directly
+//		if err := u.targetControl.UpdateTarget(ctx, targetInfo.UpdatedTarget); err != nil {
+//			return fmt.Errorf("fail to update Target %s/%s when updating by in-place: %s", targetInfo.GetNamespace(), targetInfo.GetName(), err.Error())
+//		}
+//		targetInfo.Object = targetInfo.UpdatedTarget
+//		u.recorder.Eventf(targetInfo.Object,
+//			corev1.EventTypeNormal,
+//			"UpdateTarget",
+//			"succeed to update Target %s/%s to from revision %s to revision %s by in-place",
+//			targetInfo.GetNamespace(), targetInfo.GetName(),
+//			targetInfo.CurrentRevision.GetName(),
+//			targetInfo.UpdateRevision.GetName())
+//		return u.cacheExpectations.ExpectUpdation(clientutil.ObjectKeyString(u.OwnerObject), u.targetGVK, targetInfo.Object.GetNamespace(), targetInfo.Object.GetName(), targetInfo.Object.GetResourceVersion())
+//	} else {
+//		// if target has changes not in-place supported, recreate it
+//		return u.GenericTargetUpdater.RecreateTarget(ctx, targetInfo)
+//	}
+//}
 
 func (u *GenericTargetUpdater) RecreateTarget(ctx context.Context, targetInfo *targetUpdateInfo) error {
 	if err := u.targetControl.DeleteTarget(ctx, targetInfo.Object); err != nil {
@@ -599,25 +608,25 @@ func (u *GenericTargetUpdater) RecreateTarget(ctx context.Context, targetInfo *t
 	return nil
 }
 
-func (u *inPlaceIfPossibleUpdater) GetTargetUpdateFinishStatus(_ context.Context, targetUpdateInfo *targetUpdateInfo) (finished bool, msg string, err error) {
-	if targetUpdateInfo.GetAnnotations() == nil {
-		return false, "no annotations for last container status", nil
-	}
-
-	targetLastState := &TargetStatus{}
-	if lastStateJson, exist := u.xsetLabelAnnoMgr.Get(targetUpdateInfo.GetAnnotations(), api.LastXStatusAnnotationKey); !exist {
-		return false, "no target last state annotation", nil
-	} else if err := json.Unmarshal([]byte(lastStateJson), targetLastState); err != nil {
-		msg := fmt.Sprintf("malformat target last state annotation [%s]: %s", lastStateJson, err.Error())
-		return false, msg, errors.New(msg)
-	}
-
-	if targetLastState.ContainerStates == nil {
-		return true, "empty last container state recorded", nil
-	}
-
-	return true, "", nil
-}
+//func (u *inPlaceIfPossibleUpdater) GetTargetUpdateFinishStatus(_ context.Context, targetUpdateInfo *targetUpdateInfo) (finished bool, msg string, err error) {
+//	if targetUpdateInfo.GetAnnotations() == nil {
+//		return false, "no annotations for last container status", nil
+//	}
+//
+//	targetLastState := &TargetStatus{}
+//	if lastStateJson, exist := u.xsetLabelAnnoMgr.Get(targetUpdateInfo.GetAnnotations(), api.LastXStatusAnnotationKey); !exist {
+//		return false, "no target last state annotation", nil
+//	} else if err := json.Unmarshal([]byte(lastStateJson), targetLastState); err != nil {
+//		msg := fmt.Sprintf("malformat target last state annotation [%s]: %s", lastStateJson, err.Error())
+//		return false, msg, errors.New(msg)
+//	}
+//
+//	if targetLastState.ContainerStates == nil {
+//		return true, "empty last container state recorded", nil
+//	}
+//
+//	return true, "", nil
+//}
 
 type recreateTargetUpdater struct {
 	GenericTargetUpdater
