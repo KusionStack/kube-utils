@@ -236,7 +236,7 @@ func (pc *RealPvcControl) DeleteTargetUnusedPvcs(ctx context.Context, xset api.X
 	return nil
 }
 
-func (pc *RealPvcControl) OrphanPvc(ctx context.Context, xset api.XSetObject, pvc *corev1.PersistentVolumeClaim) error {
+func (pc *RealPvcControl) AdoptPvc(ctx context.Context, xset api.XSetObject, pvc *corev1.PersistentVolumeClaim) error {
 	xsetSpec := pc.xsetController.GetXSetSpec(xset)
 	if xsetSpec.Selector.MatchLabels == nil {
 		return nil
@@ -254,13 +254,16 @@ func (pc *RealPvcControl) OrphanPvc(ctx context.Context, xset api.XSetObject, pv
 	return nil
 }
 
-func (pc *RealPvcControl) AdoptPvc(ctx context.Context, xset api.XSetObject, pvc *corev1.PersistentVolumeClaim) error {
+func (pc *RealPvcControl) OrphanPvc(ctx context.Context, xset api.XSetObject, pvc *corev1.PersistentVolumeClaim) error {
 	xsetSpec := pc.xsetController.GetXSetSpec(xset)
 	if xsetSpec.Selector.MatchLabels == nil {
 		return nil
 	}
-	if pvc.Labels == nil || pvc.Annotations == nil {
-		return nil
+	if pvc.Labels == nil {
+		pvc.Labels = make(map[string]string)
+	}
+	if pvc.Annotations == nil {
+		pvc.Annotations = make(map[string]string)
 	}
 
 	refWriter := refmanagerutil.NewOwnerRefWriter(pc.client)

@@ -36,6 +36,7 @@ import (
 	controllerutils "kusionstack.io/kube-utils/controller/utils"
 	"kusionstack.io/kube-utils/xset/api"
 	"kusionstack.io/kube-utils/xset/opslifecycle"
+	"kusionstack.io/kube-utils/xset/subresources"
 )
 
 func (r *RealSyncControl) cleanReplaceTargetLabels(
@@ -162,7 +163,13 @@ func (r *RealSyncControl) replaceOriginTargets(
 		r.xsetLabelAnnoMgr.Set(newTarget, api.XCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 		r.resourceContextControl.Put(newTargetContext, api.EnumRevisionContextDataKey, replaceRevision.GetName())
 
-		// TODO create pvcs for new target (pod)
+		// create pvcs for new target
+		if _, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
+			err = r.pvcControl.CreateTargetPvcs(ctx, instance, newTarget, syncContext.ExistingPvcs)
+			if err != nil {
+				return fmt.Errorf("fail to create PVCs for target %s: %w", newTarget.GetName(), err)
+			}
+		}
 
 		if newCreatedTarget, err := r.xControl.CreateTarget(ctx, newTarget); err == nil {
 			r.Recorder.Eventf(originTarget,
