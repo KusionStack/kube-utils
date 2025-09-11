@@ -657,7 +657,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 			if _, enabled := subresources.GetSubresourcePvcAdapter(r.xsetController); enabled {
 				_, replaceOrigin := r.xsetLabelAnnoMgr.Get(target.Object.GetLabels(), api.XReplacePairOriginName)
 				_, replaceNew := r.xsetLabelAnnoMgr.Get(target.Object.GetLabels(), api.XReplacePairNewId)
-				if replaceOrigin || replaceNew || r.pvcControl.RetainPvcWhenXSetScaled(xsetObject) {
+				if replaceOrigin || replaceNew || !r.pvcControl.RetainPvcWhenXSetScaled(xsetObject) {
 					return r.pvcControl.DeleteTargetPvcs(ctx, xsetObject, target.Object, syncContext.ExistingPvcs)
 				}
 			}

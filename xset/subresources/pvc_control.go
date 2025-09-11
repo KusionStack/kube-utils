@@ -230,7 +230,7 @@ func (pc *RealPvcControl) DeleteTargetUnusedPvcs(ctx context.Context, xset api.X
 		return err
 	}
 	// delete old pvc if new pvc is provisioned and not RetainPVCWhenXSetScaled
-	if pc.pvcAdapter.RetainPvcWhenXSetScaled(xset) {
+	if !pc.pvcAdapter.RetainPvcWhenXSetScaled(xset) {
 		return pc.deleteOldPvcs(ctx, xset, newPvcs, oldPvcs)
 	}
 	return nil
@@ -399,7 +399,7 @@ func (pc *RealPvcControl) deleteUnclaimedPvcs(ctx context.Context, xset api.XSet
 
 func (pc *RealPvcControl) deleteOldPvcs(ctx context.Context, xset api.XSetObject, newPvcs, oldPvcs map[string]*corev1.PersistentVolumeClaim) error {
 	for pvcTmpName, pvc := range oldPvcs {
-		if newPvcExist := newPvcs[pvcTmpName]; newPvcExist != nil {
+		if _, newPvcExist := newPvcs[pvcTmpName]; !newPvcExist {
 			continue
 		}
 		if err := deletePvcWithExpectations(ctx, pc.client, xset, pc.expectations, pvc); err != nil {
