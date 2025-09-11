@@ -482,7 +482,7 @@ func RegisterInPlaceOnlyUpdater(targetUpdater TargetUpdater) {
 // Support users to define inPlaceIfPossibleUpdater and register through RegistryInPlaceIfPossibleUpdater
 var inPlaceIfPossibleUpdater TargetUpdater
 
-func RegistryInPlaceIfPossibleUpdater(targetUpdater TargetUpdater) {
+func RegisterInPlaceIfPossibleUpdater(targetUpdater TargetUpdater) {
 	inPlaceIfPossibleUpdater = targetUpdater
 }
 
