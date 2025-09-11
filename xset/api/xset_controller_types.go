@@ -102,7 +102,7 @@ type SubResourcePvcAdapter interface {
 // X target when creating, (3) manage decoration update when decoration changed.
 type DecorationAdapter interface {
 	// WatchDecoration allows controller to watch decoration change.
-	WatchDecoration(c *controller.Controller) error
+	WatchDecoration(c controller.Controller) error
 	// GetDecorationGroupVersionKind returns decoration gvk.
 	GetDecorationGroupVersionKind() metav1.GroupVersionKind
 	// GetDecorationPatcherFromTarget returns patcher for decoration from target.

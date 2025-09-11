@@ -148,7 +148,7 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 
 	// watch for decoration changed
 	if adapter, ok := xsetController.(api.DecorationAdapter); ok {
-		err = adapter.WatchDecoration(&c)
+		err = adapter.WatchDecoration(c)
 		if err != nil {
 			return err
 		}
