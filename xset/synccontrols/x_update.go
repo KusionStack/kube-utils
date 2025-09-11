@@ -282,6 +282,10 @@ func (o *orderByDefault) Less(i, j int) bool {
 		return l.IsDuringUpdateOps
 	}
 
+	if l.IsInReplaceUpdate != r.IsInReplaceUpdate {
+		return l.IsInReplaceUpdate
+	}
+
 	if l.PlaceHolder != r.PlaceHolder {
 		return r.PlaceHolder
 	}
