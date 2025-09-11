@@ -240,7 +240,7 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 		}
 
 		// origin target is about to scaleIn, skip replace
-		if opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target) {
+		if opslifecycle.IsDuringOps(r.updateConfig.XsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target) {
 			logger.Info("dealReplaceTargets", "target is during scaleIn ops lifecycle, skip replacing", target.GetName())
 			continue
 		}

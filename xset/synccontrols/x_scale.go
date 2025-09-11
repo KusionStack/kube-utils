@@ -60,7 +60,7 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 	for i, target := range countedTargets {
 		// find targets to be scaleIn out of diff, is allowed to ops
 		spec := r.xsetController.GetXSetSpec(xsetObject)
-		_, allowed := opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
+		_, allowed := opslifecycle.AllowOps(r.updateConfig.XsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
 		if i >= diff && !allowed {
 			continue
 		}
