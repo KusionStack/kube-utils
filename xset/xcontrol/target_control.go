@@ -39,7 +39,7 @@ const (
 )
 
 type TargetControl interface {
-	GetFilteredTargets(ctx context.Context, selector *metav1.LabelSelector, owner api.XSetObject) ([]client.Object, error)
+	GetFilteredTargets(ctx context.Context, selector *metav1.LabelSelector, owner api.XSetObject) ([]client.Object, []client.Object, error)
 	CreateTarget(ctx context.Context, target client.Object) (client.Object, error)
 	DeleteTarget(ctx context.Context, target client.Object) error
 	UpdateTarget(ctx context.Context, target client.Object) error
@@ -71,19 +71,19 @@ func NewTargetControl(mixin *mixin.ReconcilerMixin, xsetController api.XSetContr
 	}, nil
 }
 
-func (r *targetControl) GetFilteredTargets(ctx context.Context, selector *metav1.LabelSelector, owner api.XSetObject) ([]client.Object, error) {
+func (r *targetControl) GetFilteredTargets(ctx context.Context, selector *metav1.LabelSelector, owner api.XSetObject) ([]client.Object, []client.Object, error) {
 	targetList := r.xsetController.NewXObjectList()
 	if err := r.client.List(ctx, targetList, &client.ListOptions{
 		Namespace:     owner.GetNamespace(),
 		FieldSelector: fields.OneTermEqualSelector(FieldIndexOwnerRefUID, string(owner.GetUID())),
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	targetListVal := reflect.Indirect(reflect.ValueOf(targetList))
 	itemsVal := targetListVal.FieldByName("Items")
 	if !itemsVal.IsValid() {
-		return nil, fmt.Errorf("target list items is invalid")
+		return nil, nil, fmt.Errorf("target list items is invalid")
 	}
 
 	var items []client.Object
@@ -94,12 +94,18 @@ func (r *targetControl) GetFilteredTargets(ctx context.Context, selector *metav1
 			items[i] = itemVal.(client.Object)
 		}
 	} else {
-		return nil, fmt.Errorf("target list items is invalid")
+		return nil, nil, fmt.Errorf("target list items is invalid")
+	}
+
+	allTargets, err := r.getTargets(items, selector, owner)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	items = filterOutInactiveTargets(r.xsetController, items)
-	targets, err := r.getTargets(items, selector, owner)
-	return targets, err
+	filteredTargets, err := r.getTargets(items, selector, owner)
+
+	return filteredTargets, allTargets, err
 }
 
 func (r *targetControl) CreateTarget(ctx context.Context, target client.Object) (client.Object, error) {

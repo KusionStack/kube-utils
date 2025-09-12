@@ -66,7 +66,7 @@ func (r *revisionOwner) GetInUsedRevisions(parent metav1.Object) (sets.String, e
 	res.Insert(status.UpdatedRevision)
 	res.Insert(status.CurrentRevision)
 
-	targets, err := r.TargetControl.GetFilteredTargets(context.TODO(), spec.Selector, xSetObject)
+	targets, _, err := r.TargetControl.GetFilteredTargets(context.TODO(), spec.Selector, xSetObject)
 	if err != nil {
 		return nil, err
 	}

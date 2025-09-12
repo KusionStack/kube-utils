@@ -132,8 +132,29 @@ func (r *RealSyncControl) replaceOriginTargets(
 
 		replaceRevision := r.getReplaceRevision(originTarget, syncContext)
 
+		// add instance id and replace pair label
+		var newInstanceId string
+		var newTargetContext *api.ContextDetail
+		if contextDetail, exist := mapNewToOriginTargetContext[originTargetId]; exist && contextDetail != nil {
+			newTargetContext = contextDetail
+			// reuse targetContext ID if pair-relation exists
+			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
+			logger.Info("replaceOriginTargets", "try to reuse new pod resourceContext id", newInstanceId)
+		} else {
+			if availableContexts[i] == nil {
+				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "AvailableContext", "cannot found available context for replace origin target %s/%s", originTarget.GetNamespace(), originTarget.GetName())
+				return fmt.Errorf("cannot found available context for replace new target when replacing origin target %s/%s", originTarget.GetNamespace(), originTarget.GetName())
+			}
+			newTargetContext = availableContexts[i]
+			// add replace pair-relation to targetContexts for originTarget and newTarget
+			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
+			r.resourceContextControl.Put(ownedIDs[originTargetId], api.EnumReplaceNewTargetIDContextDataKey, newInstanceId)
+			r.resourceContextControl.Put(ownedIDs[newTargetContext.ID], api.EnumReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
+			r.resourceContextControl.Remove(ownedIDs[newTargetContext.ID], api.EnumJustCreateContextDataKey)
+		}
+
 		// create target using update revision if replaced by update, otherwise using current revision
-		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, instance, replaceRevision, originTargetId,
+		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, instance, replaceRevision, newTargetContext.ID,
 			r.xsetController.GetXSetTemplatePatcher(instance),
 			func(object client.Object) error {
 				if decorationAdapter, ok := r.xsetController.(api.DecorationAdapter); ok {
@@ -150,28 +171,7 @@ func (r *RealSyncControl) replaceOriginTargets(
 		if err != nil {
 			return err
 		}
-		// add instance id and replace pair label
-		var newInstanceId string
-		var newTargetContext *api.ContextDetail
-		if contextDetail, exist := mapNewToOriginTargetContext[originTargetId]; exist && contextDetail != nil {
-			newTargetContext = contextDetail
-			// reuse targetContext ID if pair-relation exists
-			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			r.xsetLabelAnnoMgr.Set(newTarget, api.XInstanceIdLabelKey, newInstanceId)
-			logger.Info("replaceOriginTargets", "try to reuse new pod resourceContext id", newInstanceId)
-		} else {
-			if availableContexts[i] == nil {
-				r.Recorder.Eventf(instance, corev1.EventTypeWarning, "AvailableContext", "cannot found available context for replace origin target %s/%s", originTarget.GetNamespace(), originTarget.GetName())
-				return fmt.Errorf("cannot found available context for replace new target when replacing origin target %s/%s", originTarget.GetNamespace(), originTarget.GetName())
-			}
-			newTargetContext = availableContexts[i]
-			// add replace pair-relation to targetContexts for originTarget and newTarget
-			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			r.xsetLabelAnnoMgr.Set(newTarget, api.XInstanceIdLabelKey, newInstanceId)
-			r.resourceContextControl.Put(ownedIDs[originTargetId], api.EnumReplaceNewTargetIDContextDataKey, newInstanceId)
-			r.resourceContextControl.Put(ownedIDs[newTargetContext.ID], api.EnumReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
-			r.resourceContextControl.Remove(ownedIDs[newTargetContext.ID], api.EnumJustCreateContextDataKey)
-		}
+
 		r.xsetLabelAnnoMgr.Set(newTarget, api.XReplacePairOriginName, originTarget.GetName())
 		r.xsetLabelAnnoMgr.Set(newTarget, api.XCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 		r.resourceContextControl.Put(newTargetContext, api.EnumRevisionContextDataKey, replaceRevision.GetName())

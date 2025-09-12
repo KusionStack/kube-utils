@@ -55,6 +55,10 @@ type XSetSpec struct {
 	// +optional
 	ScaleStrategy ScaleStrategy `json:"scaleStrategy,omitempty"`
 
+	// NamigPolicy indicates the strategy detail that will be used for replica naming
+	// +optional
+	NamingStrategy *NamingStrategy `json:"namingStrategy,omitempty"`
+
 	// Indicate the number of histories to be conserved
 	// If unspecified, defaults to 20
 	// +optional
@@ -118,6 +122,25 @@ type ScaleStrategy struct {
 	// OperationDelaySeconds indicates how many seconds it should delay before operating scale.
 	// +optional
 	OperationDelaySeconds *int32 `json:"operationDelaySeconds,omitempty"`
+}
+
+// TargetNamingSuffixPolicy indicates how a new pod name suffix part is generated.
+type TargetNamingSuffixPolicy string
+
+const (
+	// TargetNamingSuffixPolicyPersistentSequence uses persistent sequential numbers as pod name suffix.
+	TargetNamingSuffixPolicyPersistentSequence TargetNamingSuffixPolicy = "PersistentSequence"
+	// TargetNamingSuffixPolicyRandom uses collaset name as pod generateName, which is the prefix
+	// of pod name. Kubernetes then adds a random string as suffix after the generateName.
+	// This is defaulting policy.
+	TargetNamingSuffixPolicyRandom TargetNamingSuffixPolicy = "Random"
+)
+
+type NamingStrategy struct {
+	// TargetNamingSuffixPolicy is a string enumeration that determaines how pod name suffix will be generated.
+	// A collaset pod name contains two parts to be placed in a string formation %s-%s; the prefix is collaset
+	// name, and the suffix is determined by TargetNamingSuffixPolicy.
+	TargetNamingSuffixPolicy TargetNamingSuffixPolicy `json:"TargetNamingSuffixPolicy,omitempty"`
 }
 
 // UpdateStrategyType is a string enumeration type that enumerates

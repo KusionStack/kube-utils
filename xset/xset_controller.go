@@ -296,7 +296,7 @@ func (r *xSetCommonReconciler) ensureReclaimPvcs(ctx context.Context, xset api.X
 
 func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context, instance api.XSetObject) (bool, error) {
 	xSetSpec := r.XSetController.GetXSetSpec(instance)
-	targets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
+	_, targets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
 	if err != nil {
 		return false, fmt.Errorf("fail to get filtered Targets: %s", err.Error())
 	}
@@ -322,7 +322,7 @@ func (r *xSetCommonReconciler) ensureReclaimOwnerReferences(ctx context.Context,
 		return nil
 	}
 	xSetSpec := r.XSetController.GetXSetSpec(instance)
-	filteredTargets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
+	_, filteredTargets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
 	if err != nil {
 		return fmt.Errorf("fail to get filtered Targets: %s", err.Error())
 	}

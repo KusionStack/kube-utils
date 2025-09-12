@@ -135,10 +135,17 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 		return false, fmt.Errorf("fail to get XSetSpec")
 	}
 
-	var err error
-	syncContext.FilteredTarget, err = r.xControl.GetFilteredTargets(ctx, xspec.Selector, instance)
+	filteredTargets, allTargets, err := r.xControl.GetFilteredTargets(ctx, xspec.Selector, instance)
 	if err != nil {
 		return false, fmt.Errorf("fail to get filtered Targets: %w", err)
+	}
+
+	if IsTargetNamingSuffixPolicyPersistentSequence(xspec) {
+		// for naming with persistent sequences suffix, targets with same name should not exist at same time
+		syncContext.FilteredTarget = allTargets
+	} else {
+		// for naming with random suffix, targets with random names can be created at same time
+		syncContext.FilteredTarget = filteredTargets
 	}
 
 	// sync subresource
@@ -199,7 +206,8 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			}
 		}
 
-		if target.GetDeletionTimestamp() != nil {
+		// for naming with persistent sequences suffix, targets with same name should not exist at same time
+		if target.GetDeletionTimestamp() != nil && !IsTargetNamingSuffixPolicyPersistentSequence(xspec) {
 			// 1. Reclaim ID from Target which is scaling in and terminating.
 			if contextDetail, exist := ownedIDs[id]; exist && r.resourceContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") {
 				idToReclaim.Insert(id)
@@ -897,7 +905,9 @@ func (r *RealSyncControl) CalculateStatus(_ context.Context, instance api.XSetOb
 
 	activeTargets := FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
 	for _, targetWrapper := range activeTargets {
-		if targetWrapper.GetDeletionTimestamp() != nil {
+
+		// for naming with persistent sequences suffix, terminating targets can be shown in status
+		if targetWrapper.GetDeletionTimestamp() != nil && !IsTargetNamingSuffixPolicyPersistentSequence(r.xsetController.GetXSetSpec(instance)) {
 			continue
 		}
 
