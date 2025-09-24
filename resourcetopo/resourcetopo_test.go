@@ -72,7 +72,7 @@ var _ = Describe("test suite with ists config(label selector and virtual rersour
 		Expect(podStorage).NotTo(BeNil())
 		Expect(istsStorage).NotTo(BeNil())
 
-		ctx, cancel = context.WithCancel((context.Background()))
+		ctx, cancel = context.WithCancel(context.Background())
 		podHandler = &objecthandler{}
 		Expect(manager.AddNodeHandler(PodMeta, podHandler)).Should(Succeed())
 		stsHandler = &objecthandler{}
@@ -471,7 +471,7 @@ var _ = Describe("test suite with cluster role config(cluster role and direct re
 		Expect(clusterroleStorage).NotTo(BeNil())
 		Expect(saStorage).NotTo(BeNil())
 
-		ctx, cancel = context.WithCancel((context.Background()))
+		ctx, cancel = context.WithCancel(context.Background())
 		clusterRoleBindingHandler = &objecthandler{}
 		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, clusterRoleBindingHandler)).NotTo(HaveOccurred())
 		clusterRoleHandler = &objecthandler{}
@@ -804,7 +804,7 @@ var _ = Describe("test suite with svc and pod config(label selector and reverse 
 		svcStorage, _ = manager.GetTopoNodeStorage(ServiceMeta)
 		Expect(svcStorage).NotTo(BeNil())
 
-		ctx, cancel = context.WithCancel((context.Background()))
+		ctx, cancel = context.WithCancel(context.Background())
 		podHandler = &objecthandler{}
 		Expect(manager.AddNodeHandler(PodMeta, podHandler)).To(Succeed())
 		svcHandler = &objecthandler{}
@@ -1143,7 +1143,7 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 		Expect(podStorage).NotTo(BeNil())
 		Expect(deployStorage).NotTo(BeNil())
 
-		ctx, cancel = context.WithCancel((context.Background()))
+		ctx, cancel = context.WithCancel(context.Background())
 		podHandler = &objecthandler{}
 		Expect(manager.AddNodeHandler(PodMeta, podHandler)).Should(Succeed())
 		replicasetHandler = &objecthandler{}
@@ -1356,7 +1356,7 @@ var _ = Describe("test suite with deploy config(label selector and owner referen
 	})
 })
 
-var _ = Describe("test suite with relations update", func() {
+var _ = Describe("test suite with labelRelations update", func() {
 	var manager Manager
 	var fakeClient *fake.Clientset
 	var clusterRoleBindingHandler, clusterRoleHandler, saHandler *objecthandler
@@ -1389,7 +1389,7 @@ var _ = Describe("test suite with relations update", func() {
 		Expect(clusterroleStorage).NotTo(BeNil())
 		Expect(saStorage).NotTo(BeNil())
 
-		ctx, cancel = context.WithCancel((context.Background()))
+		ctx, cancel = context.WithCancel(context.Background())
 		clusterRoleBindingHandler = &objecthandler{}
 		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, clusterRoleBindingHandler)).NotTo(HaveOccurred())
 		clusterRoleHandler = &objecthandler{}
@@ -1552,6 +1552,35 @@ var _ = Describe("test suite with relations update", func() {
 		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{})).NotTo(BeNil())
 		syncStatus(checkAll)
 	})
+	It("create and update clusterRoleBinding with objects not existed", func() {
+		ns := "testclusterresource"
+		crbName := "crbtest"
+		crName := "crName"
+		saName := "saName"
+		saName2 := "saName2"
+
+		clusterRoleBindingHandler.addCallExpected()
+		crb := newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}})
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.updateCallExpected()
+		crb = newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}, {Name: saName2, Namespace: ns}})
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.updateCallExpected()
+		crb = newClusterRoleBinding(crbName, crName, []types.NamespacedName{{Name: saName2, Namespace: ns}})
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.updateCallExpected()
+		crb = newClusterRoleBinding(crbName, crName, []types.NamespacedName{})
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+	})
 })
 
 var _ = Describe("test suite with mock relation for fed namespaces and local cluster pods", func() {
@@ -1579,7 +1608,7 @@ var _ = Describe("test suite with mock relation for fed namespaces and local clu
 		nsStorage, _ = manager.GetTopoNodeStorage(NamespaceMeta)
 		Expect(nsStorage).NotTo(BeNil())
 
-		ctx, cancel = context.WithCancel((context.Background()))
+		ctx, cancel = context.WithCancel(context.Background())
 		nsHandler = &objecthandler{}
 		Expect(manager.AddNodeHandler(NamespaceMeta, nsHandler)).NotTo(HaveOccurred())
 
@@ -1780,7 +1809,7 @@ var _ = Describe("test suite for multi routine", func() {
 		Expect(deployStorage).NotTo(BeNil())
 		Expect(inspectDeployStorage).NotTo(BeNil())
 
-		ctx, cancel = context.WithCancel((context.Background()))
+		ctx, cancel = context.WithCancel(context.Background())
 		podHandler = &objecthandler{needRangePostOrder: true, needRangePreOrder: true}
 		Expect(manager.AddNodeHandler(PodMeta, podHandler)).Should(Succeed())
 		replicasetHandler = &objecthandler{needRangePostOrder: true, needRangePreOrder: true}

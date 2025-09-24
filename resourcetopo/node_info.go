@@ -58,8 +58,10 @@ type nodeInfo struct {
 	// will be updated to true after the object added to cache or the manager is of virtual type.
 	objectExisted bool
 
-	relationsLock sync.RWMutex
-	relations     []ResourceRelation
+	// always call relationsLock.Lock() before relation change, so when locked, the relation is stable.
+	// kind like a lock.RLock() in relation change scenario.
+	relationsLock  sync.RWMutex
+	labelRelations []ResourceRelation
 }
 
 func newNode(s *nodeStorage, cluster, namespace, name string) *nodeInfo {
@@ -129,10 +131,10 @@ func (node *nodeInfo) checkLabelUpdateForPostNode(postNode *nodeInfo) {
 
 	node.relationsLock.RLock()
 	defer node.relationsLock.RUnlock()
-	if len(node.relations) == 0 {
+	if len(node.labelRelations) == 0 {
 		return
 	}
-	for _, relation := range node.relations {
+	for _, relation := range node.labelRelations {
 		if !typeEqual(relation.PostMeta, postNode.storageRef.meta) {
 			return
 		}
@@ -181,13 +183,10 @@ func (n *nodeInfo) updateNodeMeta(obj Object) {
 func (n *nodeInfo) objectDeleted() {
 	n.metaLock.Lock()
 	defer n.metaLock.Unlock()
-	n.relationsLock.Lock()
-	defer n.relationsLock.Unlock()
 
 	n.objectExisted = false
 	n.labels = nil
 	n.ownerNodes = nil
-	n.relations = nil
 }
 
 func (n *nodeInfo) matched(selector labels.Selector) bool {

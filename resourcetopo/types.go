@@ -159,6 +159,7 @@ type ResourceRelation struct {
 	DirectRefs []types.NamespacedName
 
 	// LabelSelector offers a kubernetes label-selector way for svc-pod type relation, could be nil if it's empty.
+	// If Set, will ignore DirectRefs.
 	LabelSelector *metav1.LabelSelector
 }
 

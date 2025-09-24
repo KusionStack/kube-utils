@@ -24,6 +24,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+type nodeMeta struct {
+	apiVersion, kind         string
+	cluster, namespace, name string
+}
+
 var _ cache.ResourceEventHandler = &nodeStorage{}
 
 func (s *nodeStorage) OnAdd(obj interface{}) {
@@ -63,23 +68,40 @@ func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
 		return
 	}
 
-	var resolvedRelations []ResourceRelation
+	var resolvedLabelRelations []ResourceRelation
+	resolvedDirectRelations := make(map[nodeMeta]interface{})
 	for _, resolver := range s.resolvers {
 		relations := resolver.Resolve(newTopoObj)
-		resolvedRelations = append(resolvedRelations, relations...)
+		for _, relation := range relations {
+			if relation.LabelSelector != nil {
+				resolvedLabelRelations = append(resolvedLabelRelations, relation)
+			} else {
+				for _, directRef := range relation.DirectRefs {
+					resolvedDirectRelations[nodeMeta{
+						apiVersion: relation.PostMeta.APIVersion,
+						kind:       relation.PostMeta.Kind,
+						cluster:    relation.Cluster,
+						namespace:  directRef.Namespace,
+						name:       directRef.Name,
+					}] = nil
+				}
+			}
+		}
 	}
 
-	slices.SortFunc(resolvedRelations, compareResourceRelation)
+	slices.SortFunc(resolvedLabelRelations, compareLabelResourceRelation)
 	node.relationsLock.Lock()
-	sortedSlicesCompare(node.relations, resolvedRelations,
+	sortedSlicesCompare(node.labelRelations, resolvedLabelRelations,
 		func(relation ResourceRelation) {
-			s.removeResourceRelation(node, &relation)
+			s.removeLabelResourceRelation(node, &relation)
 		},
 		func(relation ResourceRelation) {
-			s.addResourceRelation(node, &relation)
+			s.addLabelResourceRelation(node, &relation)
 		},
-		compareResourceRelation)
-	node.relations = resolvedRelations
+		compareLabelResourceRelation)
+	node.labelRelations = resolvedLabelRelations
+
+	s.setDirectResourceRelation(node, resolvedDirectRelations)
 	node.relationsLock.Unlock()
 
 	if !node.labelEqualed(newTopoObj.GetLabels()) ||
@@ -132,7 +154,6 @@ func (s *nodeStorage) OnDelete(obj interface{}) {
 		return
 	}
 
-	node.objectDeleted()
 	deleteAllRelation(node)
 	node.checkGC()
 
@@ -142,18 +163,24 @@ func (s *nodeStorage) OnDelete(obj interface{}) {
 
 func (s *nodeStorage) addNode(obj Object, node *nodeInfo) {
 	node.updateNodeMeta(obj)
-	if len(node.relations) != 0 {
-		klog.Warningf("unexpected relations {%v}", node.relations)
-		node.relations = nil
+	if len(node.labelRelations) != 0 {
+		klog.Warningf("unexpected labelRelations {%v}", node.labelRelations)
+		node.labelRelations = nil
 	}
 	node.relationsLock.Lock()
 	for _, resolver := range s.resolvers {
 		relations := resolver.Resolve(obj)
-		node.relations = append(node.relations, relations...)
+		for _, relation := range relations {
+			if relation.LabelSelector != nil {
+				node.labelRelations = append(node.labelRelations, relation)
+			} else {
+				s.addDirectResourceRelation(node, &relation)
+			}
+		}
 	}
-	slices.SortFunc(node.relations, compareResourceRelation)
-	for _, relation := range node.relations {
-		s.addResourceRelation(node, &relation)
+	slices.SortFunc(node.labelRelations, compareLabelResourceRelation)
+	for _, relation := range node.labelRelations {
+		s.addLabelResourceRelation(node, &relation)
 	}
 	node.relationsLock.Unlock()
 
@@ -171,19 +198,13 @@ func (s *nodeStorage) addNode(obj Object, node *nodeInfo) {
 	}
 }
 
-func (s *nodeStorage) addResourceRelation(node *nodeInfo, relation *ResourceRelation) {
+func (s *nodeStorage) addLabelResourceRelation(node *nodeInfo, relation *ResourceRelation) {
 	postMeta := relation.PostMeta
 	postMetaKey := generateMetaKey(postMeta)
 	postStorage := s.manager.getStorage(postMeta)
 	if postStorage == nil {
 		klog.Errorf("Failed to get node storage by meta %s, ignore this relation", postMetaKey)
 		return
-	}
-	if len(relation.DirectRefs) > 0 {
-		for _, ref := range relation.DirectRefs {
-			postNode := postStorage.getOrCreateNode(relation.Cluster, ref.Namespace, ref.Name)
-			rangeAndSetDirectRefRelation(node, postNode, s.manager)
-		}
 	}
 
 	if relation.LabelSelector != nil {
@@ -199,7 +220,77 @@ func (s *nodeStorage) addResourceRelation(node *nodeInfo, relation *ResourceRela
 	}
 }
 
-func (s *nodeStorage) removeResourceRelation(node *nodeInfo, relation *ResourceRelation) {
+func (s *nodeStorage) setDirectResourceRelation(node *nodeInfo, directRefs map[nodeMeta]interface{}) {
+	var toDel []*nodeInfo
+	rangeNodeList(node.directReferredPostOrders, func(postNode *nodeInfo) {
+		postNodeMeta := nodeMeta{
+			apiVersion: postNode.storageRef.meta.APIVersion,
+			kind:       postNode.storageRef.meta.Kind,
+			cluster:    postNode.cluster,
+			namespace:  postNode.namespace,
+			name:       postNode.name,
+		}
+		if _, ok := directRefs[postNodeMeta]; !ok {
+			toDel = append(toDel, postNode)
+		} else {
+			delete(directRefs, postNodeMeta)
+		}
+	})
+
+	for _, postNode := range toDel {
+		if deleteDirectRelation(node, postNode) {
+			node.noticePostOrderRelationDeleted(postNode)
+			postNode.checkGC()
+		}
+	}
+
+	for postNodeMeta := range directRefs {
+		postStorage := s.manager.getStorage(metav1.TypeMeta{APIVersion: postNodeMeta.apiVersion, Kind: postNodeMeta.kind})
+		if postStorage == nil {
+			klog.Errorf("Failed to get node storage by meta %s, ignore this relation", generateKey(postNodeMeta.apiVersion, postNodeMeta.kind))
+			continue
+		}
+		postNode := postStorage.getOrCreateNode(postNodeMeta.cluster, postNodeMeta.namespace, postNodeMeta.name)
+		rangeAndSetDirectRefRelation(node, postNode, s.manager)
+	}
+}
+
+func (s *nodeStorage) addDirectResourceRelation(node *nodeInfo, relation *ResourceRelation) {
+	postMeta := relation.PostMeta
+	postMetaKey := generateMetaKey(postMeta)
+	postStorage := s.manager.getStorage(postMeta)
+	if postStorage == nil {
+		klog.Errorf("Failed to get node storage by meta %s, ignore this relation", postMetaKey)
+		return
+	}
+
+	if len(relation.DirectRefs) > 0 {
+		for _, ref := range relation.DirectRefs {
+			postNode := postStorage.getOrCreateNode(relation.Cluster, ref.Namespace, ref.Name)
+			rangeAndSetDirectRefRelation(node, postNode, s.manager)
+		}
+	}
+}
+
+func (s *nodeStorage) removeLabelResourceRelation(node *nodeInfo, relation *ResourceRelation) {
+	postStorage := s.manager.getStorage(relation.PostMeta)
+	if postStorage == nil {
+		klog.Error("Failed to get node Storage by %s, ignore this delete request",
+			generateMetaKey(relation.PostMeta))
+		return
+	}
+
+	if relation.LabelSelector != nil {
+		postNodes := postStorage.getMatchedNodeList(node.cluster, node.namespace, relation.LabelSelector)
+		for _, postNode := range postNodes {
+			if deleteLabelRelation(node, postNode) {
+				node.noticePostOrderRelationDeleted(postNode)
+			}
+		}
+	}
+}
+
+func (s *nodeStorage) removeDirectResourceRelation(node *nodeInfo, relation *ResourceRelation) {
 	postStorage := s.manager.getStorage(relation.PostMeta)
 	if postStorage == nil {
 		klog.Error("Failed to get node Storage by %s, ignore this delete request",
@@ -212,15 +303,6 @@ func (s *nodeStorage) removeResourceRelation(node *nodeInfo, relation *ResourceR
 			if deleteDirectRelation(node, postNode) {
 				node.noticePostOrderRelationDeleted(postNode)
 				postNode.checkGC()
-			}
-		}
-	}
-
-	if relation.LabelSelector != nil {
-		postNodes := postStorage.getMatchedNodeList(node.cluster, node.namespace, relation.LabelSelector)
-		for _, postNode := range postNodes {
-			if deleteLabelRelation(node, postNode) {
-				node.noticePostOrderRelationDeleted(postNode)
 			}
 		}
 	}

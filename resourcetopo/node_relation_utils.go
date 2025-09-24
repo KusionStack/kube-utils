@@ -99,6 +99,13 @@ func deleteAllRelation(node *nodeInfo) {
 	// we always lock preOrder before postOrder, expect in this function.
 	// but to keep transition atomic, and in object deletion scenario,
 	// this is okay to hold the lock in whole process, and lock preOrderNode as needed.
+	// node.metaLock.Lock()
+	// defer node.metaLock.Unlock()
+	node.relationsLock.Lock()
+	node.objectDeleted()
+	node.labelRelations = nil
+	defer node.relationsLock.Unlock()
+
 	node.lock.Lock()
 	defer node.lock.Unlock()
 
