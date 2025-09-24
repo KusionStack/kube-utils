@@ -289,21 +289,3 @@ func (s *nodeStorage) removeLabelResourceRelation(node *nodeInfo, relation *Reso
 		}
 	}
 }
-
-func (s *nodeStorage) removeDirectResourceRelation(node *nodeInfo, relation *ResourceRelation) {
-	postStorage := s.manager.getStorage(relation.PostMeta)
-	if postStorage == nil {
-		klog.Error("Failed to get node Storage by %s, ignore this delete request",
-			generateMetaKey(relation.PostMeta))
-		return
-	}
-	if len(relation.DirectRefs) > 0 {
-		for _, ref := range relation.DirectRefs {
-			postNode := postStorage.getNode(relation.Cluster, ref.Namespace, ref.Name)
-			if deleteDirectRelation(node, postNode) {
-				node.noticePostOrderRelationDeleted(postNode)
-				postNode.checkGC()
-			}
-		}
-	}
-}
