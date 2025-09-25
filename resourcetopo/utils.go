@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strings"
 
-	"golang.org/x/exp/slices"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -108,27 +107,13 @@ func existInList(l *list.List, value interface{}) bool {
 	return false
 }
 
-func compareResourceRelation(a, b ResourceRelation) int {
+func compareLabelResourceRelation(a, b ResourceRelation) int {
 	var res int
 	if res = strings.Compare(a.PostMeta.APIVersion, b.PostMeta.APIVersion); res != 0 {
 		return res
 	}
 	if res = strings.Compare(a.PostMeta.Kind, b.PostMeta.Kind); res != 0 {
 		return res
-	}
-
-	if res = len(a.DirectRefs) - len(b.DirectRefs); res != 0 {
-		return res
-	}
-	slices.SortFunc(a.DirectRefs, compareNodeName)
-	slices.SortFunc(b.DirectRefs, compareNodeName)
-	for i := 0; i < len(a.DirectRefs); i++ {
-		if res = strings.Compare(a.DirectRefs[i].Namespace, b.DirectRefs[i].Namespace); res != 0 {
-			return res
-		}
-		if res = strings.Compare(a.DirectRefs[i].Name, b.DirectRefs[i].Name); res != 0 {
-			return res
-		}
 	}
 
 	if res = strings.Compare(a.Cluster, b.Cluster); res != 0 {

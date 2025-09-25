@@ -119,8 +119,8 @@ func Test_compareResourceRelation(t *testing.T) {
 		},
 
 		{
-			name: "direct ref size not equal",
-			want: -2,
+			name: "direct ref size not equal, but ignore diff",
+			want: 0,
 			argsA: ResourceRelation{
 				PostMeta: PodMeta,
 				DirectRefs: []types.NamespacedName{
@@ -149,8 +149,8 @@ func Test_compareResourceRelation(t *testing.T) {
 			},
 		},
 		{
-			name: "direct ref not equal",
-			want: 1,
+			name: "direct ref size not equal, but ignore diff",
+			want: 0,
 			argsA: ResourceRelation{
 				PostMeta: PodMeta,
 				DirectRefs: []types.NamespacedName{
@@ -173,8 +173,8 @@ func Test_compareResourceRelation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := compareResourceRelation(tt.argsA, tt.argsB); got != tt.want {
-				t.Errorf("compareResourceRelation() = %v, want %v", got, tt.want)
+			if got := compareLabelResourceRelation(tt.argsA, tt.argsB); got != tt.want {
+				t.Errorf("compareLabelResourceRelation() = %v, want %v", got, tt.want)
 			}
 		})
 	}
