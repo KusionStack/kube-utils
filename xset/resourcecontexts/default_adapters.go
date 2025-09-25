@@ -28,12 +28,12 @@ var _ api.ResourceContextAdapter = &DefaultResourceContextAdapter{}
 var defaultResourceContextKeys = map[api.ResourceContextKeyEnum]string{
 	api.EnumOwnerContextKey:                     "Owner",
 	api.EnumRevisionContextDataKey:              "Revision",
-	api.EnumTargetDecorationRevisionKey:         "PodDecorationRevisions",
-	api.EnumJustCreateContextDataKey:            "PodJustCreate",
-	api.EnumRecreateUpdateContextDataKey:        "PodRecreateUpdate",
+	api.EnumTargetDecorationRevisionKey:         "TargetDecorationRevisions",
+	api.EnumJustCreateContextDataKey:            "TargetJustCreate",
+	api.EnumRecreateUpdateContextDataKey:        "TargetRecreateUpdate",
 	api.EnumScaleInContextDataKey:               "ScaleIn",
-	api.EnumReplaceNewTargetIDContextDataKey:    "ReplaceNewPodID",
-	api.EnumReplaceOriginTargetIDContextDataKey: "ReplaceOriginPodID",
+	api.EnumReplaceNewTargetIDContextDataKey:    "ReplaceNewTargetID",
+	api.EnumReplaceOriginTargetIDContextDataKey: "ReplaceOriginTargetID",
 }
 
 type ResourceContextAdapterGetter struct{}
