@@ -905,7 +905,6 @@ func (r *RealSyncControl) CalculateStatus(_ context.Context, instance api.XSetOb
 
 	activeTargets := FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
 	for _, targetWrapper := range activeTargets {
-
 		// for naming with persistent sequences suffix, terminating targets can be shown in status
 		if targetWrapper.GetDeletionTimestamp() != nil && !IsTargetNamingSuffixPolicyPersistentSequence(r.xsetController.GetXSetSpec(instance)) {
 			continue

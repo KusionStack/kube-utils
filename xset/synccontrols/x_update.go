@@ -44,7 +44,7 @@ import (
 
 const UnknownRevision = "__unknownRevision__"
 
-func (r *RealSyncControl) attachTargetUpdateInfo(ctx context.Context, xsetObject api.XSetObject, syncContext *SyncContext) ([]*TargetUpdateInfo, error) {
+func (r *RealSyncControl) attachTargetUpdateInfo(_ context.Context, xsetObject api.XSetObject, syncContext *SyncContext) ([]*TargetUpdateInfo, error) {
 	activeTargets := FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
 	targetUpdateInfoList := make([]*TargetUpdateInfo, len(activeTargets))
 
