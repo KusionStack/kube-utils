@@ -20,6 +20,7 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -56,6 +57,7 @@ type XOperation interface {
 	CheckScheduled(object client.Object) bool
 	CheckReadyTime(object client.Object) (bool, *metav1.Time)
 	CheckAvailable(object client.Object) bool
+	CheckInactive(object client.Object) bool
 	GetXOpsPriority(ctx context.Context, c client.Client, object client.Object) (*OpsPriority, error)
 }
 
@@ -73,4 +75,23 @@ type ResourceContextAdapterGetter interface {
 // LabelAnnotationManagerGetter is used to get label manager adapter.
 type LabelAnnotationManagerGetter interface {
 	GetLabelManagerAdapter() XSetLabelAnnotationManager
+}
+
+// SubResourcePvcAdapter is used to manage pvc subresource for X, which are declared on XSet, e.g., spec.volumeClaimTemplate.
+// Once adapter is implemented, XSetController will automatically manage pvc: (1) create pvcs from GetXSetPvcTemplate for each
+// X object and attach theses pvcs with same instance-id, (2) upgrade pvcs and recreate X object pvcs when PvcTemplateChanged,
+// (3) retain pvcs when XSet is deleted or scaledIn according to RetainPvcWhenXSetDeleted and RetainPvcWhenXSetScaled.
+type SubResourcePvcAdapter interface {
+	// RetainPvcWhenXSetDeleted returns true if pvc should be retained when XSet is deleted.
+	RetainPvcWhenXSetDeleted(object XSetObject) bool
+	// RetainPvcWhenXSetScaled returns true if pvc should be retained when XSet replicas is scaledIn.
+	RetainPvcWhenXSetScaled(object XSetObject) bool
+	// GetXSetPvcTemplate returns pvc template from XSet object.
+	GetXSetPvcTemplate(object XSetObject) []corev1.PersistentVolumeClaim
+	// GetXSpecVolumes returns spec.volumes from X object.
+	GetXSpecVolumes(object client.Object) []corev1.Volume
+	// GetXVolumeMounts returns containers volumeMounts from X (pod) object.
+	GetXVolumeMounts(object client.Object) []corev1.VolumeMount
+	// SetXSpecVolumes sets spec.volumes to X object.
+	SetXSpecVolumes(object client.Object, pvcs []corev1.Volume)
 }

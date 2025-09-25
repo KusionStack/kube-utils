@@ -97,7 +97,7 @@ func (r *targetControl) GetFilteredTargets(ctx context.Context, selector *metav1
 		return nil, fmt.Errorf("target list items is invalid")
 	}
 
-	// todo filterOutInactiveTargets
+	items = filterOutInactiveTargets(r.xsetController, items)
 	targets, err := r.getTargets(items, selector, owner)
 	return targets, err
 }
@@ -195,7 +195,19 @@ func setUpCache(cache cache.Cache, controller api.XSetController) error {
 		}
 		return []string{string(ownerRef.UID)}
 	}); err != nil {
-		return fmt.Errorf("failed to index by field %s: %s", FieldIndexOwnerRefUID, err.Error())
+		return fmt.Errorf("failed to index by field for x->xset %s: %s", FieldIndexOwnerRefUID, err.Error())
 	}
 	return nil
+}
+
+func filterOutInactiveTargets(xsetController api.XSetController, targets []client.Object) []client.Object {
+	var filteredTarget []client.Object
+	for i := range targets {
+		target := targets[i]
+		if xsetController.CheckInactive(target) {
+			continue
+		}
+		filteredTarget = append(filteredTarget, target)
+	}
+	return filteredTarget
 }
