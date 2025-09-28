@@ -100,6 +100,15 @@ func AddOrUpdateCondition(status *api.XSetStatus, conditionType api.XSetConditio
 
 	cond := condition.NewCondition(string(conditionType), condStatus, reason, message)
 	status.Conditions = condition.SetCondition(status.Conditions, *cond)
+
+	// update condition last transition time
+	for i := range status.Conditions {
+		c := status.Conditions[i]
+		if c.Type == string(conditionType) {
+			status.Conditions[i].LastTransitionTime = metav1.Now()
+			return
+		}
+	}
 }
 
 func GetTargetsPrefix(controllerName string) string {
