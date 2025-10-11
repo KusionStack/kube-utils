@@ -272,7 +272,7 @@ func (o *orderByDefault) Less(i, j int) bool {
 	lReady, _ := o.checkReadyFunc(l.Object)
 	rReady, _ := o.checkReadyFunc(r.Object)
 	if lReady != rReady {
-		return lReady
+		return !lReady
 	}
 
 	if l.OpsPriority != nil && r.OpsPriority != nil {
