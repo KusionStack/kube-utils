@@ -126,7 +126,7 @@ func (s *ActiveTargetsForDeletion) Less(i, j int) bool {
 	lReady, _ := s.checkReadyFunc(l.Object)
 	rReady, _ := s.checkReadyFunc(r.Object)
 	if lReady != rReady {
-		return lReady
+		return !lReady
 	}
 
 	if l.OpsPriority != nil && r.OpsPriority != nil {
