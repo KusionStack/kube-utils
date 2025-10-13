@@ -114,14 +114,15 @@ func (r *RealSyncControl) replaceOriginTargets(
 	ctx context.Context,
 	instance api.XSetObject,
 	syncContext *SyncContext,
-	needReplaceOriginTargets []client.Object,
+	needReplaceOriginTargets []*TargetWrapper,
 	ownedIDs map[int]*api.ContextDetail,
 	availableContexts []*api.ContextDetail,
 ) (int, error) {
 	logger := logr.FromContext(ctx)
 	mapNewToOriginTargetContext := r.mapReplaceNewToOriginTargetContext(ownedIDs)
 	successCount, err := controllerutils.SlowStartBatch(len(needReplaceOriginTargets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
-		originTarget := needReplaceOriginTargets[i]
+		originWrapper := needReplaceOriginTargets[i]
+		originTarget := needReplaceOriginTargets[i].Object
 		originTargetId, _ := GetInstanceID(r.xsetLabelAnnoMgr, originTarget)
 
 		if ownedIDs[originTargetId] == nil {
@@ -131,12 +132,6 @@ func (r *RealSyncControl) replaceOriginTargets(
 
 		replaceRevision := r.getReplaceRevision(originTarget, syncContext)
 
-		// create target using update revision if replaced by update, otherwise using current revision
-		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, instance, replaceRevision, originTargetId,
-			r.xsetController.GetXSetTemplatePatcher(instance))
-		if err != nil {
-			return err
-		}
 		// add instance id and replace pair label
 		var newInstanceId string
 		var newTargetContext *api.ContextDetail
@@ -144,7 +139,6 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTargetContext = contextDetail
 			// reuse targetContext ID if pair-relation exists
 			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			r.xsetLabelAnnoMgr.Set(newTarget, api.XInstanceIdLabelKey, newInstanceId)
 			logger.Info("replaceOriginTargets", "try to reuse new pod resourceContext id", newInstanceId)
 		} else {
 			if availableContexts[i] == nil {
@@ -154,11 +148,30 @@ func (r *RealSyncControl) replaceOriginTargets(
 			newTargetContext = availableContexts[i]
 			// add replace pair-relation to targetContexts for originTarget and newTarget
 			newInstanceId = fmt.Sprintf("%d", newTargetContext.ID)
-			r.xsetLabelAnnoMgr.Set(newTarget, api.XInstanceIdLabelKey, newInstanceId)
 			r.resourceContextControl.Put(ownedIDs[originTargetId], api.EnumReplaceNewTargetIDContextDataKey, newInstanceId)
 			r.resourceContextControl.Put(ownedIDs[newTargetContext.ID], api.EnumReplaceOriginTargetIDContextDataKey, strconv.Itoa(originTargetId))
 			r.resourceContextControl.Remove(ownedIDs[newTargetContext.ID], api.EnumJustCreateContextDataKey)
 		}
+
+		// create target using update revision if replaced by update, otherwise using current revision
+		newTarget, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, instance, replaceRevision, newTargetContext.ID,
+			r.xsetController.GetXSetTemplatePatcher(instance),
+			func(object client.Object) error {
+				if decorationAdapter, ok := r.xsetController.(api.DecorationAdapter); ok {
+					// get current decoration patcher from origin target, and patch new target
+					if fn, err := decorationAdapter.GetDecorationPatcherByRevisions(ctx, r.Client, originTarget, originWrapper.DecorationUpdatedRevisions); err != nil {
+						return err
+					} else {
+						return fn(object)
+					}
+				}
+				return nil
+			},
+		)
+		if err != nil {
+			return err
+		}
+
 		r.xsetLabelAnnoMgr.Set(newTarget, api.XReplacePairOriginName, originTarget.GetName())
 		r.xsetLabelAnnoMgr.Set(newTarget, api.XCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 		r.resourceContextControl.Put(newTargetContext, api.EnumRevisionContextDataKey, replaceRevision.GetName())
@@ -206,14 +219,15 @@ func (r *RealSyncControl) replaceOriginTargets(
 	return successCount, err
 }
 
-func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []client.Object) (
-	needReplaceTargets, needCleanLabelTargets []client.Object, targetNeedCleanLabels [][]string, needDeleteTargets []client.Object,
+func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []*TargetWrapper) (
+	needReplaceTargets []*TargetWrapper, needCleanLabelTargets []client.Object, targetNeedCleanLabels [][]string, needDeleteTargets []client.Object,
 ) {
 	logger := logr.FromContext(ctx)
 	targetInstanceIdMap := make(map[string]client.Object)
-	targetNameMap := make(map[string]client.Object)
+	targetNameMap := make(map[string]*TargetWrapper)
+	filteredTargets := FilterOutActiveTargetWrappers(targets)
 
-	for _, target := range targets {
+	for _, target := range filteredTargets {
 		targetLabels := target.GetLabels()
 
 		if instanceId, ok := r.xsetLabelAnnoMgr.Get(targetLabels, api.XInstanceIdLabelKey); ok {
@@ -223,7 +237,7 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 	}
 
 	// deal need replace targets
-	for _, target := range targets {
+	for _, target := range filteredTargets {
 		targetLabels := target.GetLabels()
 
 		// no replace indication label
@@ -232,7 +246,7 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 		}
 
 		// origin target is about to scaleIn, skip replace
-		if opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target) {
+		if opslifecycle.IsDuringOps(r.updateConfig.XsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target) {
 			logger.Info("dealReplaceTargets", "target is during scaleIn ops lifecycle, skip replacing", target.GetName())
 			continue
 		}
@@ -254,7 +268,8 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 		needReplaceTargets = append(needReplaceTargets, target)
 	}
 
-	for _, target := range targets {
+	for _, wrapper := range filteredTargets {
+		target := wrapper.Object
 		targetLabels := target.GetLabels()
 		_, replaceByUpdate := r.xsetLabelAnnoMgr.Get(targetLabels, api.XReplaceByReplaceUpdateLabelKey)
 		var needCleanLabels []string
@@ -272,7 +287,7 @@ func (r *RealSyncControl) dealReplaceTargets(ctx context.Context, targets []clie
 			} else if !replaceByUpdate {
 				// not replace update, delete origin target when new created target is service available
 				if r.xsetController.CheckAvailable(target) {
-					needDeleteTargets = append(needDeleteTargets, originTarget)
+					needDeleteTargets = append(needDeleteTargets, originTarget.Object)
 				}
 			}
 		}
@@ -296,7 +311,7 @@ func updateReplaceOriginTarget(
 	c client.Client,
 	recorder record.EventRecorder,
 	xsetLabelAnnoMgr api.XSetLabelAnnotationManager,
-	originTargetUpdateInfo, newTargetUpdateInfo *targetUpdateInfo,
+	originTargetUpdateInfo, newTargetUpdateInfo *TargetUpdateInfo,
 ) error {
 	originTarget := originTargetUpdateInfo.Object
 
@@ -371,16 +386,16 @@ func (r *RealSyncControl) getReplaceRevision(originTarget client.Object, syncCon
 }
 
 // classify the pair relationship for Target replacement.
-func classifyTargetReplacingMapping(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, targetWrappers []*targetWrapper) map[string]*targetWrapper {
-	targetNameMap := make(map[string]*targetWrapper)
-	targetIdMap := make(map[string]*targetWrapper)
+func classifyTargetReplacingMapping(xsetLabelAnnoMgr api.XSetLabelAnnotationManager, targetWrappers []*TargetWrapper) map[string]*TargetWrapper {
+	targetNameMap := make(map[string]*TargetWrapper)
+	targetIdMap := make(map[string]*TargetWrapper)
 	for _, targetWrapper := range targetWrappers {
 		targetNameMap[targetWrapper.GetName()] = targetWrapper
 		targetIdMap[strconv.Itoa(targetWrapper.ID)] = targetWrapper
 	}
 
 	// old target name => new target wrapper
-	replaceTargetMapping := make(map[string]*targetWrapper)
+	replaceTargetMapping := make(map[string]*TargetWrapper)
 	for _, targetWrapper := range targetWrappers {
 		if targetWrapper.Object == nil {
 			continue

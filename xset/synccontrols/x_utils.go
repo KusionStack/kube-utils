@@ -65,6 +65,10 @@ func NewTargetFrom(setController api.XSetController, xsetLabelAnnoMgr api.XSetLa
 	targetObj.SetNamespace(owner.GetNamespace())
 	targetObj.SetGenerateName(GetTargetsPrefix(owner.GetName()))
 
+	if IsTargetNamingSuffixPolicyPersistentSequence(setController.GetXSetSpec(owner)) {
+		targetObj.SetName(fmt.Sprintf("%s%d", targetObj.GetGenerateName(), id))
+	}
+
 	xsetLabelAnnoMgr.Set(targetObj, api.XInstanceIdLabelKey, fmt.Sprintf("%d", id))
 	targetObj.GetLabels()[appsv1.ControllerRevisionHashLabelKey] = revision.GetName()
 	controlByXSet(xsetLabelAnnoMgr, targetObj)
@@ -96,6 +100,15 @@ func AddOrUpdateCondition(status *api.XSetStatus, conditionType api.XSetConditio
 
 	cond := condition.NewCondition(string(conditionType), condStatus, reason, message)
 	status.Conditions = condition.SetCondition(status.Conditions, *cond)
+
+	// update condition last transition time
+	for i := range status.Conditions {
+		c := status.Conditions[i]
+		if c.Type == string(conditionType) {
+			status.Conditions[i].LastTransitionTime = metav1.Now()
+			return
+		}
+	}
 }
 
 func GetTargetsPrefix(controllerName string) string {
@@ -140,7 +153,7 @@ func IsControlledByXSet(xsetLabelManager api.XSetLabelAnnotationManager, obj cli
 	return ok && v == "true"
 }
 
-func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController, c client.Client, xset api.XSetObject, targets []*targetWrapper) error {
+func ApplyTemplatePatcher(ctx context.Context, xsetController api.XSetController, c client.Client, xset api.XSetObject, targets []*TargetWrapper) error {
 	_, patchErr := controllerutils.SlowStartBatch(len(targets), controllerutils.SlowStartInitialBatchSize, false, func(i int, _ error) error {
 		if targets[i].Object == nil || targets[i].PlaceHolder {
 			return nil
@@ -171,4 +184,11 @@ func afterOrZero(t1, t2 *metav1.Time) bool {
 		return t1.Time.IsZero()
 	}
 	return t1.After(t2.Time)
+}
+
+func IsTargetNamingSuffixPolicyPersistentSequence(xsetSpec *api.XSetSpec) bool {
+	if xsetSpec == nil || xsetSpec.NamingStrategy == nil {
+		return false
+	}
+	return xsetSpec.NamingStrategy.TargetNamingSuffixPolicy == api.TargetNamingSuffixPolicyPersistentSequence
 }

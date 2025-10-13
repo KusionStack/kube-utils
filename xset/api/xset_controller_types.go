@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 )
 
 type XSetController interface {
@@ -94,4 +95,22 @@ type SubResourcePvcAdapter interface {
 	GetXVolumeMounts(object client.Object) []corev1.VolumeMount
 	// SetXSpecVolumes sets spec.volumes to X object.
 	SetXSpecVolumes(object client.Object, pvcs []corev1.Volume)
+}
+
+// DecorationAdapter is used to manage decoration for XSet. Decoration should be a workload to manage patcher on X target.
+// Once adapter is implemented, XSetController will (1) watch for decoration change, (2) patch effective decorations on
+// X target when creating, (3) manage decoration update when decoration changed.
+type DecorationAdapter interface {
+	// WatchDecoration allows controller to watch decoration change.
+	WatchDecoration(c controller.Controller) error
+	// GetDecorationGroupVersionKind returns decoration gvk.
+	GetDecorationGroupVersionKind() metav1.GroupVersionKind
+	// GetTargetCurrentDecorationRevisions returns decoration revision on target.
+	GetTargetCurrentDecorationRevisions(ctx context.Context, c client.Client, target client.Object) (string, error)
+	// GetTargetUpdatedDecorationRevisions returns decoration revision on target.
+	GetTargetUpdatedDecorationRevisions(ctx context.Context, c client.Client, target client.Object) (string, error)
+	// GetDecorationPatcherByRevisions returns patcher for decoration from revisions.
+	GetDecorationPatcherByRevisions(ctx context.Context, c client.Client, target client.Object, revision string) (func(client.Object) error, error)
+	// IsTargetDecorationChanged returns true if decoration on target is changed.
+	IsTargetDecorationChanged(currentRevision, updatedRevision string) (bool, error)
 }

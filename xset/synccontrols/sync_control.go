@@ -77,17 +77,17 @@ func NewRealSyncControl(reconcileMixIn *mixin.ReconcilerMixin,
 	updateLifecycleAdapter, scaleInOpsLifecycleAdapter := opslifecycle.GetLifecycleAdapters(xsetController, xsetLabelAnnoManager, xsetMeta)
 
 	updateConfig := &UpdateConfig{
-		xsetController:         xsetController,
-		xsetLabelAnnoMgr:       xsetLabelAnnoManager,
-		client:                 reconcileMixIn.Client,
-		targetControl:          xControl,
-		resourceContextControl: resourceContexts,
-		recorder:               reconcileMixIn.Recorder,
+		XsetController:         xsetController,
+		XsetLabelAnnoMgr:       xsetLabelAnnoManager,
+		Client:                 reconcileMixIn.Client,
+		TargetControl:          xControl,
+		ResourceContextControl: resourceContexts,
+		Recorder:               reconcileMixIn.Recorder,
 
 		scaleInLifecycleAdapter: scaleInOpsLifecycleAdapter,
 		updateLifecycleAdapter:  updateLifecycleAdapter,
-		cacheExpectations:       cacheExpectations,
-		targetGVK:               targetGVK,
+		CacheExpectations:       cacheExpectations,
+		TargetGVK:               targetGVK,
 	}
 	return &RealSyncControl{
 		ReconcilerMixin:        *reconcileMixIn,
@@ -135,10 +135,17 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 		return false, fmt.Errorf("fail to get XSetSpec")
 	}
 
-	var err error
-	syncContext.FilteredTarget, err = r.xControl.GetFilteredTargets(ctx, xspec.Selector, instance)
+	filteredTargets, allTargets, err := r.xControl.GetFilteredTargets(ctx, xspec.Selector, instance)
 	if err != nil {
 		return false, fmt.Errorf("fail to get filtered Targets: %w", err)
+	}
+
+	if IsTargetNamingSuffixPolicyPersistentSequence(xspec) {
+		// for naming with persistent sequences suffix, targets with same name should not exist at same time
+		syncContext.FilteredTarget = allTargets
+	} else {
+		// for naming with random suffix, targets with random names can be created at same time
+		syncContext.FilteredTarget = filteredTargets
 	}
 
 	// sync subresource
@@ -173,7 +180,7 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 	}
 
 	// stateless case
-	var targetWrappers []*targetWrapper
+	var targetWrappers []*TargetWrapper
 	syncContext.CurrentIDs = sets.Int{}
 	idToReclaim := sets.Int{}
 	toDeleteTargetNames := sets.NewString(xspec.ScaleStrategy.TargetToDelete...)
@@ -199,7 +206,8 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			}
 		}
 
-		if target.GetDeletionTimestamp() != nil {
+		// for naming with persistent sequences suffix, targets with same name should not exist at same time
+		if target.GetDeletionTimestamp() != nil && !IsTargetNamingSuffixPolicyPersistentSequence(xspec) {
 			// 1. Reclaim ID from Target which is scaling in and terminating.
 			if contextDetail, exist := ownedIDs[id]; exist && r.resourceContextControl.Contains(contextDetail, api.EnumScaleInContextDataKey, "true") {
 				idToReclaim.Insert(id)
@@ -220,7 +228,27 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			}
 		}
 
-		targetWrappers = append(targetWrappers, &targetWrapper{
+		// sync decoration revisions
+		var decorationInfo DecorationInfo
+		if decorationAdapter, enabled := r.xsetController.(api.DecorationAdapter); enabled {
+			if decorationInfo.DecorationCurrentRevisions, err = decorationAdapter.GetTargetCurrentDecorationRevisions(ctx, r.Client, target); err != nil {
+				return false, err
+			}
+			if decorationInfo.DecorationUpdatedRevisions, err = decorationAdapter.GetTargetUpdatedDecorationRevisions(ctx, r.Client, target); err != nil {
+				return false, err
+			}
+			if decorationInfo.DecorationChanged, err = decorationAdapter.IsTargetDecorationChanged(decorationInfo.DecorationCurrentRevisions, decorationInfo.DecorationUpdatedRevisions); err != nil {
+				return false, err
+			}
+		}
+
+		// sync target ops priority
+		var opsPriority *api.OpsPriority
+		if opsPriority, err = r.xsetController.GetXOpsPriority(ctx, r.Client, target); err != nil {
+			return false, err
+		}
+
+		targetWrappers = append(targetWrappers, &TargetWrapper{
 			Object:        target,
 			ID:            id,
 			ContextDetail: ownedIDs[id],
@@ -229,8 +257,11 @@ func (r *RealSyncControl) SyncTargets(ctx context.Context, instance api.XSetObje
 			ToDelete:  toDelete,
 			ToExclude: toExclude,
 
-			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target),
-			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.updateLifecycleAdapter, target),
+			IsDuringScaleInOps: opslifecycle.IsDuringOps(r.updateConfig.XsetLabelAnnoMgr, r.scaleInLifecycleAdapter, target),
+			IsDuringUpdateOps:  opslifecycle.IsDuringOps(r.updateConfig.XsetLabelAnnoMgr, r.updateLifecycleAdapter, target),
+
+			DecorationInfo: decorationInfo,
+			OpsPriority:    opsPriority,
 		})
 
 		if id >= 0 {
@@ -395,7 +426,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 		syncContext.replacingMap = classifyTargetReplacingMapping(r.xsetLabelAnnoMgr, syncContext.activeTargets)
 	}()
 
-	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(ctx, syncContext.FilteredTarget)
+	needReplaceOriginTargets, needCleanLabelTargets, targetsNeedCleanLabels, needDeleteTargets := r.dealReplaceTargets(ctx, syncContext.TargetWrappers)
 
 	// delete origin targets for replace
 	err = r.BatchDeleteTargetsByLabel(ctx, r.xControl, needDeleteTargets)
@@ -438,7 +469,7 @@ func (r *RealSyncControl) Replace(ctx context.Context, xsetObject api.XSetObject
 		if _, inUsed := syncContext.CurrentIDs[id]; inUsed {
 			continue
 		}
-		syncContext.TargetWrappers = append(syncContext.TargetWrappers, &targetWrapper{
+		syncContext.TargetWrappers = append(syncContext.TargetWrappers, &TargetWrapper{
 			ID:            id,
 			Object:        nil,
 			ContextDetail: contextDetail,
@@ -504,13 +535,31 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 				}
 				// scale out new Targets with updatedRevision
 				// TODO use cache
-				// TODO decoration for target template
 				target, err := NewTargetFrom(r.xsetController, r.xsetLabelAnnoMgr, xsetObject, revision, availableIDContext.ID,
 					func(object client.Object) error {
 						if _, exist := r.resourceContextControl.Get(availableIDContext, api.EnumJustCreateContextDataKey); exist {
 							r.xsetLabelAnnoMgr.Set(object, api.XCreatingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
 						} else {
 							r.xsetLabelAnnoMgr.Set(object, api.XCompletingLabel, strconv.FormatInt(time.Now().UnixNano(), 10))
+						}
+
+						// decoration for target template
+						if decorationAdapter, ok := r.xsetController.(api.DecorationAdapter); ok {
+							revisionsInfo, ok := r.resourceContextControl.Get(availableIDContext, api.EnumTargetDecorationRevisionKey)
+							if !ok {
+								// get updated decoration revisions from target and write to resource context
+								if revisionsInfo, err = decorationAdapter.GetTargetUpdatedDecorationRevisions(ctx, r.Client, object); err != nil {
+									return err
+								}
+								r.resourceContextControl.Put(availableIDContext, api.EnumTargetDecorationRevisionKey, revisionsInfo)
+								needUpdateContext.Store(true)
+							}
+							// get patcher from decoration revisions and patch target
+							if fn, err := decorationAdapter.GetDecorationPatcherByRevisions(ctx, r.Client, object, revisionsInfo); err != nil {
+								return err
+							} else {
+								return fn(object)
+							}
 						}
 						return nil
 					},
@@ -553,14 +602,10 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 	}
 
 	if diff <= 0 {
-		// get targets ops priority
-		if err := r.getTargetsOpsPriority(ctx, r.Client, syncContext.activeTargets); err != nil {
-			return false, recordedRequeueAfter, err
-		}
 		// chose the targets to scale in
 		targetsToScaleIn := r.getTargetsToDelete(xsetObject, syncContext.activeTargets, syncContext.replacingMap, diff*-1)
 		// filter out Targets need to trigger TargetOpsLifecycle
-		wrapperCh := make(chan *targetWrapper, len(targetsToScaleIn))
+		wrapperCh := make(chan *TargetWrapper, len(targetsToScaleIn))
 		for i := range targetsToScaleIn {
 			if targetsToScaleIn[i].IsDuringScaleInOps {
 				continue
@@ -575,7 +620,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 			// trigger TargetOpsLifecycle with scaleIn OperationType
 			logger.V(1).Info("try to begin TargetOpsLifecycle for scaling in Target in XSet", "wrapper", ObjectKeyString(object))
-			if updated, err := opslifecycle.Begin(r.updateConfig.xsetLabelAnnoMgr, r.Client, r.scaleInLifecycleAdapter, object); err != nil {
+			if updated, err := opslifecycle.Begin(r.updateConfig.XsetLabelAnnoMgr, r.Client, r.scaleInLifecycleAdapter, object); err != nil {
 				return fmt.Errorf("fail to begin TargetOpsLifecycle for Scaling in Target %s/%s: %w", object.GetNamespace(), object.GetName(), err)
 			} else if updated {
 				wrapper.IsDuringScaleInOps = true
@@ -599,7 +644,7 @@ func (r *RealSyncControl) Scale(ctx context.Context, xsetObject api.XSetObject, 
 
 		needUpdateContext := false
 		for i, targetWrapper := range targetsToScaleIn {
-			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), targetWrapper.Object)
+			requeueAfter, allowed := opslifecycle.AllowOps(r.updateConfig.XsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), targetWrapper.Object)
 			if !allowed && targetWrapper.Object.GetDeletionTimestamp() == nil {
 				r.Recorder.Eventf(targetWrapper.Object, corev1.EventTypeNormal, "TargetScaleInLifecycle", "Target is not allowed to scale in")
 				continue
@@ -707,13 +752,8 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	var err error
 	var recordedRequeueAfter *time.Duration
 
-	// 0. get targets ops priority
-	if err := r.getTargetsOpsPriority(ctx, r.Client, syncContext.TargetWrappers); err != nil {
-		return false, recordedRequeueAfter, err
-	}
-
 	// 1. scan and analysis targets update info for active targets and PlaceHolder targets
-	targetUpdateInfos, err := r.attachTargetUpdateInfo(xsetObject, syncContext)
+	targetUpdateInfos, err := r.attachTargetUpdateInfo(ctx, xsetObject, syncContext)
 	if err != nil {
 		return false, recordedRequeueAfter, err
 	}
@@ -721,14 +761,14 @@ func (r *RealSyncControl) Update(ctx context.Context, xsetObject api.XSetObject,
 	// 2. decide Target update candidates
 	candidates := r.decideTargetToUpdate(r.xsetController, xsetObject, targetUpdateInfos)
 	targetToUpdate := filterOutPlaceHolderUpdateInfos(candidates)
-	targetCh := make(chan *targetUpdateInfo, len(targetToUpdate))
+	targetCh := make(chan *TargetUpdateInfo, len(targetToUpdate))
 	updater := r.newTargetUpdater(xsetObject)
 	updating := false
 
 	// 3. filter already updated revision,
 	for i, targetInfo := range targetToUpdate {
 		// TODO check decoration and pvc template changed
-		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged {
+		if targetInfo.IsUpdatedRevision && !targetInfo.PvcTmpHashChanged && !targetInfo.DecorationChanged {
 			continue
 		}
 
@@ -865,7 +905,8 @@ func (r *RealSyncControl) CalculateStatus(_ context.Context, instance api.XSetOb
 
 	activeTargets := FilterOutActiveTargetWrappers(syncContext.TargetWrappers)
 	for _, targetWrapper := range activeTargets {
-		if targetWrapper.GetDeletionTimestamp() != nil {
+		// for naming with persistent sequences suffix, terminating targets can be shown in status
+		if targetWrapper.GetDeletionTimestamp() != nil && !IsTargetNamingSuffixPolicyPersistentSequence(r.xsetController.GetXSetSpec(instance)) {
 			continue
 		}
 
@@ -876,8 +917,8 @@ func (r *RealSyncControl) CalculateStatus(_ context.Context, instance api.XSetOb
 			updatedReplicas++
 		}
 
-		if opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, targetWrapper) ||
-			opslifecycle.IsDuringOps(r.updateConfig.xsetLabelAnnoMgr, r.updateLifecycleAdapter, targetWrapper) {
+		if opslifecycle.IsDuringOps(r.updateConfig.XsetLabelAnnoMgr, r.scaleInLifecycleAdapter, targetWrapper) ||
+			opslifecycle.IsDuringOps(r.updateConfig.XsetLabelAnnoMgr, r.updateLifecycleAdapter, targetWrapper) {
 			operatingReplicas++
 		}
 
@@ -989,25 +1030,9 @@ func (r *RealSyncControl) reclaimOwnedIDs(
 	return nil
 }
 
-// getTargetsOpsPriority try to set targets' ops priority
-func (r *RealSyncControl) getTargetsOpsPriority(ctx context.Context, c client.Client, targets []*targetWrapper) error {
-	_, err := controllerutils.SlowStartBatch(len(targets), controllerutils.SlowStartInitialBatchSize, true, func(i int, _ error) error {
-		if targets[i].PlaceHolder || targets[i].Object == nil || targets[i].OpsPriority != nil {
-			return nil
-		}
-		var iErr error
-		targets[i].OpsPriority, iErr = r.xsetController.GetXOpsPriority(ctx, c, targets[i].Object)
-		if iErr != nil {
-			return fmt.Errorf("failed to get target %s/%s ops priority: %w", targets[i].Object.GetNamespace(), targets[i].Object.GetName(), iErr)
-		}
-		return nil
-	})
-	return err
-}
-
 // FilterOutActiveTargetWrappers filter out non placeholder targets
-func FilterOutActiveTargetWrappers(targets []*targetWrapper) []*targetWrapper {
-	var filteredTargetWrappers []*targetWrapper
+func FilterOutActiveTargetWrappers(targets []*TargetWrapper) []*TargetWrapper {
+	var filteredTargetWrappers []*TargetWrapper
 	for i, target := range targets {
 		if target.PlaceHolder {
 			continue

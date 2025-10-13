@@ -34,9 +34,9 @@ type SyncContext struct {
 	ExistingSubResource []client.Object
 
 	FilteredTarget []client.Object
-	TargetWrappers []*targetWrapper
-	activeTargets  []*targetWrapper
-	replacingMap   map[string]*targetWrapper
+	TargetWrappers []*TargetWrapper
+	activeTargets  []*TargetWrapper
+	replacingMap   map[string]*TargetWrapper
 
 	CurrentIDs sets.Int
 	OwnedIds   map[int]*api.ContextDetail
@@ -50,7 +50,7 @@ type SubResources struct {
 	ExistingPvcs []*corev1.PersistentVolumeClaim
 }
 
-type targetWrapper struct {
+type TargetWrapper struct {
 	// parameters must be set during creation
 	client.Object
 	ID            int
@@ -63,11 +63,22 @@ type targetWrapper struct {
 	IsDuringScaleInOps bool
 	IsDuringUpdateOps  bool
 
+	DecorationInfo
+
 	OpsPriority *api.OpsPriority
 }
 
-type targetUpdateInfo struct {
-	*targetWrapper
+type DecorationInfo struct {
+	// indicate if the decoration changed
+	DecorationChanged bool
+	// updated revisions of decoration
+	DecorationUpdatedRevisions string
+	// current revisions of decoration
+	DecorationCurrentRevisions string
+}
+
+type TargetUpdateInfo struct {
+	*TargetWrapper
 
 	UpdatedTarget client.Object
 
@@ -81,7 +92,6 @@ type targetUpdateInfo struct {
 	// carry the desired update revision
 	UpdateRevision *appsv1.ControllerRevision
 
-	// TODO decoration revisions
 	SubResourcesChanged
 
 	// indicates operate is allowed for TargetOpsLifecycle.
@@ -95,7 +105,7 @@ type targetUpdateInfo struct {
 	IsInReplaceUpdate bool
 
 	// replace new created target
-	ReplacePairNewTargetInfo *targetUpdateInfo
+	ReplacePairNewTargetInfo *TargetUpdateInfo
 
 	// replace origin target
 	ReplacePairOriginTargetName string

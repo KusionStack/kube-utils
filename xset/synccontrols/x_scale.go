@@ -41,8 +41,8 @@ import (
 // getTargetsToDelete
 // 1. finds number of diff targets from filteredTargets to do scaleIn
 // 2. finds targets allowed to scale in out of diff
-func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filteredTargets []*targetWrapper, replaceMapping map[string]*targetWrapper, diff int) []*targetWrapper {
-	var countedTargets []*targetWrapper
+func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filteredTargets []*TargetWrapper, replaceMapping map[string]*TargetWrapper, diff int) []*TargetWrapper {
+	var countedTargets []*TargetWrapper
 	for _, target := range filteredTargets {
 		if _, exist := replaceMapping[target.GetName()]; exist {
 			countedTargets = append(countedTargets, target)
@@ -56,11 +56,11 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 	}
 
 	// 2. select targets to delete in second round according to replace, delete, exclude
-	var needDeleteTargets []*targetWrapper
+	var needDeleteTargets []*TargetWrapper
 	for i, target := range countedTargets {
 		// find targets to be scaleIn out of diff, is allowed to ops
 		spec := r.xsetController.GetXSetSpec(xsetObject)
-		_, allowed := opslifecycle.AllowOps(r.updateConfig.xsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
+		_, allowed := opslifecycle.AllowOps(r.updateConfig.XsetLabelAnnoMgr, r.scaleInLifecycleAdapter, ptr.Deref(spec.ScaleStrategy.OperationDelaySeconds, 0), target)
 		if i >= diff && !allowed {
 			continue
 		}
@@ -87,12 +87,12 @@ func (r *RealSyncControl) getTargetsToDelete(xsetObject api.XSetObject, filtered
 }
 
 type ActiveTargetsForDeletion struct {
-	targets        []*targetWrapper
+	targets        []*TargetWrapper
 	checkReadyFunc func(object client.Object) (bool, *metav1.Time)
 }
 
 func newActiveTargetsForDeletion(
-	targets []*targetWrapper,
+	targets []*TargetWrapper,
 	checkReadyFunc func(object client.Object) (bool, *metav1.Time),
 ) *ActiveTargetsForDeletion {
 	return &ActiveTargetsForDeletion{

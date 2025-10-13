@@ -146,6 +146,14 @@ func SetUpWithManager(mgr ctrl.Manager, xsetController api.XSetController) error
 		return fmt.Errorf("failed to watch %s: %s", targetMeta.Kind, err.Error())
 	}
 
+	// watch for decoration changed
+	if adapter, ok := xsetController.(api.DecorationAdapter); ok {
+		err = adapter.WatchDecoration(c)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -174,16 +182,20 @@ func (r *xSetCommonReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 
 	if instance.GetDeletionTimestamp() != nil {
 		if controllerutil.ContainsFinalizer(instance, r.finalizerName) {
-			// reclaim owner IDs in ResourceContextControl
-			if err := r.resourceContextControl.UpdateToTargetContext(ctx, instance, nil); err != nil {
+			// reclaim target sub resources before remove finalizers
+			if err := r.ensureReclaimTargetSubResources(ctx, instance); err != nil {
+				return ctrl.Result{}, err
+			}
+			// reclaim decoration ownerReferences before remove finalizers
+			if err := r.ensureReclaimOwnerReferences(ctx, instance); err != nil {
 				return ctrl.Result{}, err
 			}
 			if cleaned, err := r.ensureReclaimTargetsDeletion(ctx, instance); !cleaned || err != nil {
 				// reclaim targets deletion before remove finalizers
 				return ctrl.Result{}, err
 			}
-			// reclaim target sub resources before remove finalizers
-			if err := r.ensureReclaimTargetSubResources(ctx, instance); err != nil {
+			// reclaim owner IDs in ResourceContextControl
+			if err := r.resourceContextControl.UpdateToTargetContext(ctx, instance, nil); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -284,7 +296,7 @@ func (r *xSetCommonReconciler) ensureReclaimPvcs(ctx context.Context, xset api.X
 
 func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context, instance api.XSetObject) (bool, error) {
 	xSetSpec := r.XSetController.GetXSetSpec(instance)
-	targets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
+	_, targets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
 	if err != nil {
 		return false, fmt.Errorf("fail to get filtered Targets: %s", err.Error())
 	}
@@ -301,6 +313,40 @@ func (r *xSetCommonReconciler) ensureReclaimTargetsDeletion(ctx context.Context,
 		}
 	}
 	return true, nil
+}
+
+// ensureReclaimOwnerReferences removes decoration ownerReference from filteredPods if xset is deleting.
+func (r *xSetCommonReconciler) ensureReclaimOwnerReferences(ctx context.Context, instance api.XSetObject) error {
+	decorationAdapter, ok := r.XSetController.(api.DecorationAdapter)
+	if !ok {
+		return nil
+	}
+	xSetSpec := r.XSetController.GetXSetSpec(instance)
+	_, filteredTargets, err := r.targetControl.GetFilteredTargets(ctx, xSetSpec.Selector, instance)
+	if err != nil {
+		return fmt.Errorf("fail to get filtered Targets: %s", err.Error())
+	}
+	// reclaim decoration ownerReferences on filteredPods
+	gvk := decorationAdapter.GetDecorationGroupVersionKind()
+	for i := range filteredTargets {
+		if len(filteredTargets[i].GetOwnerReferences()) == 0 {
+			continue
+		}
+		var newOwnerRefs []metav1.OwnerReference
+		for j := range filteredTargets[i].GetOwnerReferences() {
+			if filteredTargets[i].GetOwnerReferences()[j].Kind == gvk.Kind {
+				continue
+			}
+			newOwnerRefs = append(newOwnerRefs, filteredTargets[i].GetOwnerReferences()[j])
+		}
+		if len(newOwnerRefs) != len(filteredTargets[i].GetOwnerReferences()) {
+			filteredTargets[i].SetOwnerReferences(newOwnerRefs)
+			if err := r.targetControl.UpdateTarget(ctx, filteredTargets[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r *xSetCommonReconciler) updateStatus(ctx context.Context, instance api.XSetObject, status *api.XSetStatus) error {
