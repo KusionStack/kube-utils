@@ -1,3 +1,17 @@
+// Copyright 2025 The KusionStack Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package clientsideapply
 
 import (
@@ -59,7 +73,7 @@ func (s *clientApplyFieldManagerTestSuite) TestApply() {
 	out, err := s.fieldManager.Apply(liveObj, appliedObj, "clientapply_fieldmanager_test", false)
 	s.Require().NoError(err)
 	s.IsType(&unstructured.Unstructured{}, out)
-	s.Len(out.GetManagedFields(), 0)
+	s.Empty(out.GetManagedFields())
 	s.Len(out.GetAnnotations(), 1)
 	s.Contains(out.GetAnnotations(), ClientSideApplyManagedFieldsAnnotationKey)
 
@@ -82,7 +96,7 @@ func (s *clientApplyFieldManagerTestSuite) TestApply() {
 	out, err = s.fieldManager.Apply(liveObj, appliedObj, "clientapply_fieldmanager_test", false)
 	s.Require().NoError(err)
 	s.IsType(&unstructured.Unstructured{}, out)
-	s.Len(out.GetManagedFields(), 0)
+	s.Empty(out.GetManagedFields())
 	s.Len(out.GetAnnotations(), 1)
 	s.Contains(out.GetAnnotations(), ClientSideApplyManagedFieldsAnnotationKey)
 }
