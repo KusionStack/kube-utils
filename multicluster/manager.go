@@ -27,8 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/discovery/cached/memory"
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2/klogr"
@@ -162,11 +161,10 @@ func (m *Manager) addUpdateHandler(cluster string, cfg *rest.Config) (err error)
 	m.mutex.RUnlock()
 
 	// Get MemCacheClient for the cluster
-	clientset, err := kubernetes.NewForConfig(cfg)
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
 	if err != nil {
 		return err
 	}
-	clusterCachedDiscoveryClient := memory.NewMemCacheClient(clientset.Discovery())
 
 	// Create cache for the cluster
 	mapper, err := apiutil.NewDynamicRESTMapper(cfg)
@@ -202,7 +200,7 @@ func (m *Manager) addUpdateHandler(cluster string, cfg *rest.Config) (err error)
 
 	m.log.Info("add cluster", "cluster", cluster)
 	m.clusterCacheManager.AddClusterCache(cluster, clusterCache)
-	m.clusterClientManager.AddClusterClient(cluster, delegatingClusterClient, clusterCachedDiscoveryClient)
+	m.clusterClientManager.AddClusterClient(cluster, delegatingClusterClient, discoveryClient)
 
 	m.mutex.Lock()
 	m.hasCluster[cluster] = struct{}{}
