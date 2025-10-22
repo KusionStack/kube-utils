@@ -33,9 +33,9 @@ type MultiClusterDiscoveryManager interface {
 func (mcc *multiClusterClient) GetAllDiscoveryInterface() (discovery.DiscoveryInterface, map[string]discovery.DiscoveryInterface) {
 	mcc.mutex.RLock()
 	defer mcc.mutex.RUnlock()
-	copy := make(map[string]discovery.DiscoveryInterface)
-	maps.Copy(copy, mcc.clusterToDiscoveryClient)
-	return mcc.fedDiscovery, copy
+	members := make(map[string]discovery.DiscoveryInterface)
+	maps.Copy(members, mcc.clusterToDiscoveryClient)
+	return mcc.fedDiscovery, members
 }
 
 func GetAllClusterServerGroupsAndResources(membersDiscoveryClients map[string]discovery.DiscoveryInterface) ([]*metav1.APIGroup, []*metav1.APIResourceList, error) {
