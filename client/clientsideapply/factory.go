@@ -188,6 +188,11 @@ func (f *FieldManagerFactory) getResetFields(gvk schema.GroupVersionKind, subres
 			apiVersion: fieldpath.NewSet(fieldpath.MakePathOrDie("status")),
 		}
 	}
+	if len(result) == 0 {
+		// resetFields will be set in sigs.k8s.io/structured-merge-diff/v4/merge.Updater.IgnoredFields
+		// it must be nil if it is empty to avoid panic
+		return nil, nil
+	}
 	return result, nil
 }
 
