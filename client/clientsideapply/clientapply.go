@@ -46,6 +46,12 @@ func (f *clientApplyFieldManager) Apply(liveObj, appliedObj client.Object, field
 		appliedObj.GetObjectKind().SetGroupVersionKind(f.gvk)
 	}
 
+	// we need to store server-side managed fields and clean managedFields in liveObj to let client-side apply work
+	originManagedFields := liveObj.GetManagedFields()
+	if len(originManagedFields) > 0 {
+		liveObj.SetManagedFields(nil)
+	}
+
 	f.decodeManagedFieldsFromAnnotation(liveObj)
 	obj, err := f.fieldmanager.Apply(liveObj, appliedObj, fieldManager, force)
 	if err != nil {
@@ -53,14 +59,15 @@ func (f *clientApplyFieldManager) Apply(liveObj, appliedObj client.Object, field
 	}
 	clientObj := obj.(client.Object)
 	f.encodeManagedFieldsFromAnnotation(clientObj)
+
+	// restore server-side managed fields
+	if len(originManagedFields) > 0 {
+		clientObj.SetManagedFields(originManagedFields)
+	}
 	return clientObj, nil
 }
 
 func (f *clientApplyFieldManager) decodeManagedFieldsFromAnnotation(obj client.Object) {
-	if len(obj.GetManagedFields()) > 0 {
-		// managedFields already exist, skip
-		return
-	}
 	// get managed fields from annotation
 	annotations := obj.GetAnnotations()
 	if len(annotations) == 0 {
