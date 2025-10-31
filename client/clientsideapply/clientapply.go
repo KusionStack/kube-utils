@@ -88,8 +88,15 @@ func (f *clientApplyFieldManager) decodeManagedFieldsFromAnnotation(obj client.O
 func (f *clientApplyFieldManager) encodeManagedFieldsFromAnnotation(obj client.Object) {
 	managedFields := obj.GetManagedFields()
 	if len(managedFields) == 0 {
-		// managedFields already exist, skip
+		// managedFields is empty, skip
 		return
+	}
+
+	// Note: Time should always be empty if Operation is 'Apply'
+	for i, fields := range managedFields {
+		if fields.Operation == metav1.ManagedFieldsOperationApply {
+			managedFields[i].Time = nil
+		}
 	}
 
 	fieldsValue := encodeManagedFields(managedFields)
