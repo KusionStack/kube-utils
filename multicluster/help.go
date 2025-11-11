@@ -22,6 +22,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"kusionstack.io/kube-utils/multicluster/clusterinfo"
 )
@@ -55,12 +56,14 @@ func getCluster(ctx context.Context, label map[string]string) (cluster string, e
 	return
 }
 
-func getThenDeleteCluster(ctx context.Context, label map[string]string) (cluster string, err error) {
-	cluster, err = getCluster(ctx, label)
+func getThenDeleteCluster(ctx context.Context, obj client.Object) (cluster string, err error) {
+	labels := obj.GetLabels()
+	cluster, err = getCluster(ctx, labels)
 	if err != nil {
 		return
 	}
-	delete(label, clusterinfo.ClusterLabelKey)
+	delete(labels, clusterinfo.ClusterLabelKey)
+	obj.SetLabels(labels)
 	return
 }
 
