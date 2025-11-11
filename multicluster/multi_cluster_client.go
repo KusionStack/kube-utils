@@ -127,7 +127,7 @@ func (mcc *multiClusterClient) Create(ctx context.Context, obj client.Object, op
 	}()
 
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
-	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
+	cluster, err = getThenDeleteCluster(ctx, obj)
 	if err != nil {
 		metrics.NewInvalidClusterCounterMetrics("Create", cluster)
 		mcc.log.Error(err, "failed to get cluster")
@@ -309,7 +309,7 @@ func (mcc *multiClusterClient) Patch(ctx context.Context, obj client.Object, pat
 	}()
 
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
-	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
+	cluster, err = getThenDeleteCluster(ctx, obj)
 	if err != nil {
 		metrics.NewInvalidClusterCounterMetrics("Patch", cluster)
 		mcc.log.Error(err, "failed to get cluster")
@@ -339,7 +339,7 @@ func (mcc *multiClusterClient) Update(ctx context.Context, obj client.Object, op
 	}()
 
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
-	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
+	cluster, err = getThenDeleteCluster(ctx, obj)
 	if err != nil {
 		metrics.NewInvalidClusterCounterMetrics("Update", cluster)
 		mcc.log.Error(err, "failed to get cluster")
@@ -392,7 +392,7 @@ func (sw *statusWriter) Update(ctx context.Context, obj client.Object, opts ...c
 	}()
 
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
-	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
+	cluster, err = getThenDeleteCluster(ctx, obj)
 	if err != nil {
 		metrics.NewInvalidClusterCounterMetrics("StatusUpdate", cluster)
 		sw.log.Error(err, "failed to get cluster")
@@ -419,7 +419,7 @@ func (sw *statusWriter) Patch(ctx context.Context, obj client.Object, patch clie
 	}()
 
 	// Get cluster info from context or labels, and delete it from labels because we should not write it into apiserver
-	cluster, err = getThenDeleteCluster(ctx, obj.GetLabels())
+	cluster, err = getThenDeleteCluster(ctx, obj)
 	if err != nil {
 		metrics.NewInvalidClusterCounterMetrics("StatusPatch", cluster)
 		sw.log.Error(err, "failed to get cluster")
