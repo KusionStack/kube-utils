@@ -112,6 +112,7 @@ func (s *cacheExpactationTestSuite) TestCacheExpectation() {
 
 	// test case: pod is deleted when it is expected to be updated
 	err = e.ExpectUpdation(podGVK, corev1.NamespaceDefault, "update-pod", "3")
+	s.Require().NoError(err)
 	err = s.client.Delete(context.Background(), newPod("update-pod"))
 	s.Require().NoError(err)
 	satisfied = e.Fulfilled()
