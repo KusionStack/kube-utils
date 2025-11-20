@@ -271,8 +271,13 @@ func (e *CacheExpectation) updationObserved(gvk schema.GroupVersionKind, namespa
 			panic(fmt.Errorf("failed to cast object to client.Object"))
 		}
 		err = e.reader.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, cObj)
-		if err != nil {
+		if err != nil && !errors.IsNotFound(err) {
 			return false
+		}
+
+		// If the object is deleted after the expected update, it is considered fulfilled.
+		if errors.IsNotFound(err) {
+			return true
 		}
 
 		var rv int64
