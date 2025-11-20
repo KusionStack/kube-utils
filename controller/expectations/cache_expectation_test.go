@@ -85,31 +85,51 @@ func (s *cacheExpactationTestSuite) TestCacheExpectationItem() {
 func (s *cacheExpactationTestSuite) TestCacheExpectation() {
 	e := newCacheExpectation(s.testKey, s.clock, s.client, scheme.Scheme)
 
+	// test case: waiting for pod to be created
 	err := e.ExpectCreation(podGVK, corev1.NamespaceDefault, "create-pod")
 	s.Require().NoError(err)
-	err = e.ExpectDeletion(podGVK, corev1.NamespaceDefault, "delete-pod")
-	s.Require().NoError(err)
-
 	satisfied := e.Fulfilled()
 	s.False(satisfied, "waiting for create-pod")
 	s.Len(e.items.ListKeys(), 1)
-
-	// create fake pods
-	err = s.client.Create(context.Background(), newPod("create-pod"))
+	err = s.client.Create(context.Background(), newPod("create-pod")) // create fake pods
 	s.Require().NoError(err)
+	satisfied = e.Fulfilled()
+	s.True(satisfied, "satisfied")
+	s.Empty(e.items.ListKeys(), "items should be empty")
+
+	// test case: waiting for pod to be updated
 	err = s.client.Create(context.Background(), newPod("update-pod"))
 	s.Require().NoError(err)
-	err = e.ExpectUpdation(podGVK, corev1.NamespaceDefault, "update-pod", "2")
+	err = e.ExpectUpdation(podGVK, corev1.NamespaceDefault, "update-pod", "2") // add pod updation expectation
 	s.Require().NoError(err)
 	satisfied = e.Fulfilled()
 	s.False(satisfied, "Waiting for update-pod")
 	s.Len(e.items.ListKeys(), 1)
-
-	// update resource version
-	s.updatePodRV("update-pod")
+	s.updatePodRV("update-pod") // update resource version
 	satisfied = e.Fulfilled()
 	s.True(satisfied, "satisfied")
+	s.Empty(e.items.ListKeys(), "items should be empty")
 
+	// test case: pod is deleted when it is expected to be updated
+	err = e.ExpectUpdation(podGVK, corev1.NamespaceDefault, "update-pod", "3")
+	s.Require().NoError(err)
+	err = s.client.Delete(context.Background(), newPod("update-pod"))
+	s.Require().NoError(err)
+	satisfied = e.Fulfilled()
+	s.True(satisfied, "satisfied")
+	s.Empty(e.items.ListKeys(), "items should be empty")
+
+	// tset case: waiting for pod to be deleted
+	err = e.ExpectDeletion(podGVK, corev1.NamespaceDefault, "deleted-pod")
+	s.Require().NoError(err)
+	err = s.client.Create(context.Background(), newPod("deleted-pod")) // pod is still exists
+	s.Require().NoError(err)
+	satisfied = e.Fulfilled()
+	s.False(satisfied, "waiting for pod to be deleted")
+	err = s.client.Delete(context.Background(), newPod("deleted-pod")) // delete pod
+	s.Require().NoError(err)
+	satisfied = e.Fulfilled()
+	s.True(satisfied, "satisfied")
 	s.Empty(e.items.ListKeys(), "items should be empty")
 }
 
