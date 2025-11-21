@@ -37,43 +37,48 @@ type UpdateWriter interface {
 	Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error
 }
 
-// UpdateOnConflict attempts to update a resource while avoiding conflicts that may arise from concurrent modifications.
-// It utilizes the mutateFn function to apply changes to the original obj and then attempts an update using the writer,
-// which can be either client.Writer or client.StatusWriter.
-// In case of an update failure due to a conflict, UpdateOnConflict will retrieve the latest version of the object using
-// the reader and attempt the update again.
-// The retry mechanism adheres to the retry.DefaultBackoff policy.
+// UpdateOnConflict attempts to update a resource while avoiding conflicts that may arise
+// from concurrent modifications. It utilizes the mutateFn function to apply changes to the
+// input obj and then attempts an update using the writer, which can be either client.Writer
+// or client.StatusWriter.
+//
+// In case of an update failure due to a conflict, UpdateOnConflict will retrieve the latest version
+// of the object using the reader and attempt the update again. The retry mechanism adheres to the
+// retry.DefaultBackoff policy.
+//
+// NOTE: It must be ensured that the input object has not been modified in any way after being obtained
+// from cache or apiserver.
 func UpdateOnConflict[T client.Object](
 	ctx context.Context,
 	reader client.Reader,
 	writer UpdateWriter,
-	original T,
+	inputObj T,
 	mutateFn MutateFn[T],
 ) (changed bool, err error) {
-	key := client.ObjectKeyFromObject(original)
+	key := client.ObjectKeyFromObject(inputObj)
 	first := true
 
 	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		if !first {
 			// refresh object
-			if innerErr := reader.Get(ctx, key, original); innerErr != nil {
+			if innerErr := reader.Get(ctx, key, inputObj); innerErr != nil {
 				return innerErr
 			}
 		} else {
 			first = false
 		}
 
-		existing := original.DeepCopyObject()
-		if innerErr := mutate(mutateFn, key, original); innerErr != nil {
+		original := inputObj.DeepCopyObject()
+		if innerErr := mutate(mutateFn, key, inputObj); innerErr != nil {
 			return innerErr
 		}
 
-		if equality.Semantic.DeepEqual(existing, original) {
+		if equality.Semantic.DeepEqual(original, inputObj) {
 			// nothing changed, skip update
 			return nil
 		}
 
-		if innerErr := writer.Update(ctx, original); innerErr != nil {
+		if innerErr := writer.Update(ctx, inputObj); innerErr != nil {
 			return innerErr
 		}
 
@@ -106,24 +111,24 @@ func CreateOrUpdateOnConflict[T client.Object](
 	ctx context.Context,
 	reader client.Reader,
 	writer client.Writer,
-	original T,
+	inputObj T,
 	f MutateFn[T],
 ) (controllerutil.OperationResult, error) {
-	key := client.ObjectKeyFromObject(original)
-	if err := reader.Get(ctx, key, original); err != nil {
+	key := client.ObjectKeyFromObject(inputObj)
+	if err := reader.Get(ctx, key, inputObj); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return controllerutil.OperationResultNone, err
 		}
 		// not found, create it
-		if err := mutate(f, key, original); err != nil {
+		if err := mutate(f, key, inputObj); err != nil {
 			return controllerutil.OperationResultNone, err
 		}
-		if err := writer.Create(ctx, original); err != nil {
+		if err := writer.Create(ctx, inputObj); err != nil {
 			return controllerutil.OperationResultNone, err
 		}
 		return controllerutil.OperationResultCreated, nil
 	}
-	changed, err := UpdateOnConflict(ctx, reader, writer, original, f)
+	changed, err := UpdateOnConflict(ctx, reader, writer, inputObj, f)
 	if err != nil {
 		return controllerutil.OperationResultNone, err
 	}
@@ -131,4 +136,114 @@ func CreateOrUpdateOnConflict[T client.Object](
 		return controllerutil.OperationResultNone, nil
 	}
 	return controllerutil.OperationResultUpdated, nil
+}
+
+type PatchWriter interface {
+	// Patch patches the given obj in the Kubernetes cluster. obj must be a
+	// struct pointer so that obj can be updated with the content returned by the Server.
+	Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
+}
+
+// Patch applies changes to a Kubernetes object using the merge patch strategy.
+// It creates a merge patch from the original object, applies the mutateFn to modify the object,
+// and then applies the patch if there are actual changes.
+// Returns true if changes were applied, false otherwise.
+func Patch[T client.Object](
+	ctx context.Context,
+	writer PatchWriter,
+	inputObj T,
+	mutateFn MutateFn[T],
+) (changed bool, err error) {
+	original := inputObj.DeepCopyObject().(client.Object)
+
+	mergePatch := client.MergeFrom(original)
+
+	// modify inputObj object
+	err = mutateFn(inputObj)
+	if err != nil {
+		return false, err
+	}
+
+	// calculate patch data
+	patchData, err := mergePatch.Data(inputObj)
+	if err != nil {
+		return false, err
+	}
+
+	if len(patchData) == 0 || string(patchData) == "{}" {
+		// nothing changed, skip update
+		return false, nil
+	}
+
+	err = writer.Patch(ctx, inputObj, mergePatch)
+	if err != nil {
+		return false, err
+	}
+
+	// patched
+	return true, nil
+}
+
+// PatchOnConflict attempts to patch a resource while avoiding conflicts that may arise
+// from concurrent modifications. It utilizes the mutateFn function to apply changes to the
+// input obj and then attempts an mergePatch using the writer, which can be either client.Writer
+// or client.StatusWriter.
+//
+// In case of an update failure due to a conflict, PatchOnConflict will retrieve the latest version
+// of the object using the reader and attempt the update again. The retry mechanism adheres to the
+// retry.DefaultBackoff policy.
+//
+// NOTE: It must be ensured that the input object has not been modified in any way after being obtained
+// from cache or apiserver.
+func PatchOnConflict[T client.Object](
+	ctx context.Context,
+	reader client.Reader,
+	writer PatchWriter,
+	inputObj T,
+	mutateFn MutateFn[T],
+) (changed bool, err error) {
+	key := client.ObjectKeyFromObject(inputObj)
+	first := true
+
+	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		if !first {
+			// refresh object
+			if innerErr := reader.Get(ctx, key, inputObj); innerErr != nil {
+				return innerErr
+			}
+		} else {
+			first = false
+		}
+
+		original := inputObj.DeepCopyObject().(client.Object)
+
+		// modify inputObj object
+		if innerErr := mutateFn(inputObj); innerErr != nil {
+			return innerErr
+		}
+
+		mergePatch := client.MergeFrom(original)
+
+		// calculate patch data
+		patchData, err := mergePatch.Data(inputObj)
+		if err != nil {
+			return err
+		}
+
+		if len(patchData) == 0 || string(patchData) == "{}" {
+			// nothing changed, skip update
+			return nil
+		}
+
+		// use resourceVersion as optimisticLock
+		mergePatchWithOptimisticLock := client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})
+		if innerErr := writer.Patch(ctx, inputObj, mergePatchWithOptimisticLock); innerErr != nil {
+			return innerErr
+		}
+
+		changed = true
+		return nil
+	})
+
+	return changed, err
 }
