@@ -117,7 +117,7 @@ func (c *fakeClient) Patch(ctx context.Context, obj client.Object, patch client.
 			return err
 		}
 
-		if err = json.Unmarshal(modified, modifiedObj); err != nil {
+		if err := json.Unmarshal(modified, modifiedObj); err != nil {
 			return err
 		}
 	case types.MergePatchType:
@@ -126,7 +126,7 @@ func (c *fakeClient) Patch(ctx context.Context, obj client.Object, patch client.
 			return err
 		}
 
-		if err = json.Unmarshal(modified, modifiedObj); err != nil {
+		if err := json.Unmarshal(modified, modifiedObj); err != nil {
 			return err
 		}
 	case types.StrategicMergePatchType:
@@ -134,7 +134,7 @@ func (c *fakeClient) Patch(ctx context.Context, obj client.Object, patch client.
 		if err != nil {
 			return err
 		}
-		if err = json.Unmarshal(mergedByte, modifiedObj); err != nil {
+		if err := json.Unmarshal(mergedByte, modifiedObj); err != nil {
 			return err
 		}
 	default:
