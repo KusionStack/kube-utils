@@ -4,6 +4,7 @@ go 1.23
 
 require (
 	github.com/Masterminds/sprig/v3 v3.2.3
+	github.com/evanphx/json-patch v5.7.0+incompatible
 	github.com/go-logr/logr v1.4.1
 	github.com/hashicorp/consul/sdk v0.16.0
 	github.com/onsi/ginkgo v1.16.5
@@ -36,7 +37,6 @@ require (
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/evanphx/json-patch v5.7.0+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-logr/zapr v1.2.4 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -83,7 +83,6 @@ require (
 )
 
 replace (
-	github.com/KusionStack/kube-utils/tools/cert-generator => ./tools/cert-generator
 	github.com/go-logr/logr => github.com/go-logr/logr v0.4.0
 	github.com/go-logr/zapr => github.com/go-logr/zapr v0.4.0
 	github.com/golang/mock => github.com/golang/mock v1.6.0
