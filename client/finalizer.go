@@ -27,7 +27,7 @@ func AddFinalizerAndUpdate(ctx context.Context, c client.Client, obj client.Obje
 	if controllerutil.ContainsFinalizer(obj, finalizer) {
 		return nil
 	}
-	_, err := UpdateOnConflict(ctx, c, c, obj, func(obj client.Object) error {
+	_, err := PatchOnConflict(ctx, c, c, obj, func(obj client.Object) error {
 		controllerutil.AddFinalizer(obj, finalizer)
 		return nil
 	})
@@ -38,7 +38,7 @@ func RemoveFinalizerAndUpdate(ctx context.Context, c client.Client, obj client.O
 	if !controllerutil.ContainsFinalizer(obj, finalizer) {
 		return nil
 	}
-	_, err := UpdateOnConflict(ctx, c, c, obj, func(obj client.Object) error {
+	_, err := PatchOnConflict(ctx, c, c, obj, func(obj client.Object) error {
 		controllerutil.RemoveFinalizer(obj, finalizer)
 		return nil
 	})
