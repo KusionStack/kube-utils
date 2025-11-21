@@ -36,14 +36,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func newTestPod() *corev1.Pod {
+func newTestPod(name string) *corev1.Pod {
 	return &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
 			Kind:       "Pod",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pod",
+			Name:      name,
 			Namespace: "default",
 			Labels: map[string]string{
 				"version": "v1",
@@ -61,27 +61,7 @@ func newTestPod() *corev1.Pod {
 }
 
 func newTestRandomPod() *corev1.Pod {
-	return &corev1.Pod{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Pod",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("test-pod-%s", rand.String(5)),
-			Namespace: "default",
-			Labels: map[string]string{
-				"version": "v1",
-			},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "test-container",
-					Image: "nginx:latest",
-				},
-			},
-		},
-	}
+	return newTestPod(fmt.Sprintf("test-pod-%s", rand.String(5)))
 }
 
 type fakeClient struct {
@@ -163,7 +143,7 @@ func (s *clientTestSuite) TearDownTest() {
 }
 
 func (s *clientTestSuite) TestConflict() {
-	pod := newTestPod()
+	pod := newTestPod("test-pod")
 	err := s.cli.Create(context.Background(), pod)
 	s.Require().NoError(err)
 
@@ -276,10 +256,8 @@ func (s *clientTestSuite) TestCreateOrUpdateOnConflict() {
 
 	testCases := []testCase{
 		{
-			name: "create new pod",
-			setupFunc: func() *corev1.Pod {
-				return newTestRandomPod()
-			},
+			name:      "create new pod",
+			setupFunc: newTestRandomPod,
 			modifyFunc: func(obj *corev1.Pod) error {
 				obj.Labels["version"] = "v1"
 				return nil
@@ -365,10 +343,6 @@ func (s *clientTestSuite) TestPatch() {
 		expectedChange bool
 		expectedError  bool
 	}
-
-	pod := newTestPod()
-	err := s.cli.Create(context.Background(), pod)
-	s.Require().NoError(err)
 
 	testCases := []testCase{
 		{

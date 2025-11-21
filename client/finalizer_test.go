@@ -31,7 +31,7 @@ import (
 func TestAddFinalizerAndUpdate(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 
-	pod := newTestPod()
+	pod := newTestPod("test-pod")
 	err := c.Create(context.Background(), pod)
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ func TestAddFinalizerAndUpdate(t *testing.T) {
 func TestRemoveFinalizerAndUpdate(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 
-	pod := newTestPod()
+	pod := newTestPod("test-pod")
 	err := c.Create(context.Background(), pod)
 	require.NoError(t, err)
 
@@ -95,7 +95,7 @@ func TestRemoveFinalizerAndUpdate(t *testing.T) {
 func TestRemoveFinalizerAndDelete(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 
-	pod := newTestPod()
+	pod := newTestPod("test-pod")
 	err := c.Create(context.Background(), pod)
 	require.NoError(t, err)
 
