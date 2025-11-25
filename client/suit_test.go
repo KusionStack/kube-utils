@@ -27,3 +27,7 @@ import (
 func TestClientTestSuite(t *testing.T) {
 	suite.Run(t, new(clientTestSuite))
 }
+
+func TestMapsTestSuite(t *testing.T) {
+	suite.Run(t, new(mapsTestSuite))
+}
