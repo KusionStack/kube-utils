@@ -80,7 +80,6 @@ func (s *mapsTestSuite) TestMutateLabelsAndAnnotations() {
 				return newTestRandomPod()
 			},
 			mutateAnnotations: func(annotations map[string]string) {
-				annotations = nil
 			},
 			expectedAnnotations: nil,
 		},
