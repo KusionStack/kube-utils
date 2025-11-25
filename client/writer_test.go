@@ -163,6 +163,12 @@ func (s *clientTestSuite) TestConflict() {
 	mergePatch := client.MergeFromWithOptions(oldPod, client.MergeFromWithOptimisticLock{})
 	err = s.cli.Patch(context.Background(), modified, mergePatch)
 	s.True(errors.IsConflict(err), "patch should fail on conflict")
+
+	modified = oldPod.DeepCopy()
+	modified.Labels["version"] = "v5"
+	mergePatch = client.MergeFrom(oldPod)
+	err = s.cli.Patch(context.Background(), modified, mergePatch)
+	s.Require().NoError(err, "patch will succeed without optimistic lock")
 }
 
 func (s *clientTestSuite) TestUpdateOnConflict() {

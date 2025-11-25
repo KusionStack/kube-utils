@@ -37,6 +37,12 @@ type UpdateWriter interface {
 	Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error
 }
 
+type PatchWriter interface {
+	// Patch patches the given obj in the Kubernetes cluster. obj must be a
+	// struct pointer so that obj can be updated with the content returned by the Server.
+	Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
+}
+
 // UpdateOnConflict attempts to update a resource while avoiding conflicts that may arise
 // from concurrent modifications. It utilizes the mutateFn function to apply changes to the
 // input obj and then attempts an update using the writer, which can be either client.Writer
@@ -89,17 +95,6 @@ func UpdateOnConflict[T client.Object](
 	return changed, err
 }
 
-// mutate wraps a MutateFn and applies validation to its result.
-func mutate[T client.Object](f MutateFn[T], key client.ObjectKey, obj T) error {
-	if err := f(obj); err != nil {
-		return err
-	}
-	if newKey := client.ObjectKeyFromObject(obj); key != newKey {
-		return fmt.Errorf("MutateFn cannot mutate object name and/or object namespace")
-	}
-	return nil
-}
-
 // CreateOrUpdateOnConflict creates or updates the given object in the Kubernetes
 // cluster. The object's desired state must be reconciled with the existing
 // state inside the passed in callback MutateFn.
@@ -138,12 +133,6 @@ func CreateOrUpdateOnConflict[T client.Object](
 	return controllerutil.OperationResultUpdated, nil
 }
 
-type PatchWriter interface {
-	// Patch patches the given obj in the Kubernetes cluster. obj must be a
-	// struct pointer so that obj can be updated with the content returned by the Server.
-	Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
-}
-
 // Patch applies changes to a Kubernetes object using the merge patch strategy.
 // It creates a merge patch from the original object, applies the mutateFn to modify the object,
 // and then applies the patch if there are actual changes.
@@ -154,27 +143,22 @@ func Patch[T client.Object](
 	inputObj T,
 	mutateFn MutateFn[T],
 ) (changed bool, err error) {
+	key := client.ObjectKeyFromObject(inputObj)
+
 	original := inputObj.DeepCopyObject().(client.Object)
 
-	mergePatch := client.MergeFrom(original)
-
 	// modify inputObj object
-	err = mutateFn(inputObj)
+	err = mutate(mutateFn, key, inputObj)
 	if err != nil {
 		return false, err
 	}
 
-	// calculate patch data
-	patchData, err := mergePatch.Data(inputObj)
-	if err != nil {
-		return false, err
-	}
-
-	if len(patchData) == 0 || string(patchData) == "{}" {
+	if equality.Semantic.DeepEqual(original, inputObj) {
 		// nothing changed, skip update
 		return false, nil
 	}
 
+	mergePatch := client.MergeFrom(original)
 	err = writer.Patch(ctx, inputObj, mergePatch)
 	if err != nil {
 		return false, err
@@ -218,19 +202,11 @@ func PatchOnConflict[T client.Object](
 		original := inputObj.DeepCopyObject().(client.Object)
 
 		// modify inputObj object
-		if innerErr := mutateFn(inputObj); innerErr != nil {
+		if innerErr := mutate(mutateFn, key, inputObj); innerErr != nil {
 			return innerErr
 		}
 
-		mergePatch := client.MergeFrom(original)
-
-		// calculate patch data
-		patchData, err := mergePatch.Data(inputObj)
-		if err != nil {
-			return err
-		}
-
-		if len(patchData) == 0 || string(patchData) == "{}" {
+		if equality.Semantic.DeepEqual(original, inputObj) {
 			// nothing changed, skip update
 			return nil
 		}
@@ -246,4 +222,15 @@ func PatchOnConflict[T client.Object](
 	})
 
 	return changed, err
+}
+
+// mutate wraps a MutateFn and applies validation to its result.
+func mutate[T client.Object](f MutateFn[T], key client.ObjectKey, obj T) error {
+	if err := f(obj); err != nil {
+		return err
+	}
+	if newKey := client.ObjectKeyFromObject(obj); key != newKey {
+		return fmt.Errorf("MutateFn cannot mutate object name and/or object namespace")
+	}
+	return nil
 }
