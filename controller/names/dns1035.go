@@ -36,37 +36,59 @@ const (
 // - base is the name of workload, such as "deployment", "statefulset", "daemonset".
 // - uniqueName is a random string, such as "12345" or ordinal index.
 func GenerateDNS1035Label(base, uniqueName string) string {
-	return GenerateDNS1035LabelByMaxLength(base, uniqueName, validation.DNS1035LabelMaxLength)
+	return generateDNS1035LabelByMaxLength(base, uniqueName, validation.DNS1035LabelMaxLength)
 }
 
 // GenerateDNS1035LabelByMaxLength generates a valid DNS label (compliant with RFC 1035)
 // limited by the specified maximum length.
 func GenerateDNS1035LabelByMaxLength(base, uniqueName string, maxLength int) string {
-	result := generateDNS1035LabelByMaxLength(base, uniqueName, maxLength)
-	// remove all suffix "-"
-	return strings.TrimRight(result, "-")
-}
-
-// GenerateDNS1035LabelGenerateName generates a valid DNS label prefix (compliant with RFC 1035)
-//
-// Usually you can set the result in metadata.generateName. kube-apiserver will combine the prefix
-// with a unique suffix. Currently, the suffix is a random string with length 5.
-func GenerateDNS1035LabelGenerateName(base string) string {
-	return GenerateDNS1035LabelPrefixByMaxLength(base, MaxGeneratedNameLength)
-}
-
-// GenerateDNS1035LabelPrefixByMaxLength generates a valid DNS label prefix (compliant with RFC 1035)
-// limited by the specified maximum length.
-func GenerateDNS1035LabelPrefixByMaxLength(base string, maxLength int) string {
-	return generateDNS1035LabelByMaxLength(base, "", maxLength)
+	return generateDNS1035LabelByMaxLength(base, uniqueName, maxLength)
 }
 
 func generateDNS1035LabelByMaxLength(base, unique string, maxLength int) string {
+	return genericNameGenerator(base, unique, maxLength, validation.DNS1035LabelMaxLength, fixDNS1035Label)
+}
+
+func fixDNS1035Label(label string) string {
+	// Convert to lowercase
+	label = strings.ToLower(label)
+
+	var builder strings.Builder
+	firstChar := true
+
+	// Process each character in the label
+	for i := 0; i < len(label); i++ {
+		c := label[i]
+
+		if firstChar {
+			// First character must be letter
+			if c >= 'a' && c <= 'z' {
+				builder.WriteByte(c)
+				firstChar = false
+			}
+			// Skip non-alphanumeric characters at the beginning
+			continue
+		}
+
+		// Subsequent characters: allow alphanumeric and dash
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
+			builder.WriteByte(c)
+		} else {
+			// Replace invalid characters with dash
+			builder.WriteByte('-')
+		}
+	}
+
+	result := builder.String()
+	return strings.TrimRight(result, "-")
+}
+
+func genericNameGenerator(base, unique string, maxLength, maxLimit int, fixFn func(string) string) string {
 	if maxLength <= 0 {
 		return ""
 	}
-	if maxLength > validation.DNS1035LabelMaxLength {
-		maxLength = validation.DNS1035LabelMaxLength
+	if maxLength > maxLimit {
+		maxLength = maxLimit
 	}
 
 	result := unique
@@ -80,35 +102,9 @@ func generateDNS1035LabelByMaxLength(base, unique string, maxLength int) string 
 		if len(base) > maxPrefixLength-1 {
 			base = base[:maxPrefixLength-1]
 		}
+
 		result = base + "-" + result
 	}
 
-	// to lower
-	result = strings.ToLower(result)
-
-	b := strings.Builder{}
-
-	firstLetter := false
-	// fix result to match DNS1035Label prefix
-	// 1. first letter must be [a-z]
-	// 2. only contain characters in [-a-z0-9]
-	for i := range len(result) {
-		if !firstLetter {
-			if result[i] < 'a' || result[i] > 'z' {
-				// DNS1035Label must start with a lowercase letter
-				continue
-			}
-			firstLetter = true
-			b.WriteByte(result[i])
-			continue
-		}
-		if (result[i] >= 'a' && result[i] <= 'z') || (result[i] >= '0' && result[i] <= '9') {
-			// write a-z, 0-9
-			b.WriteByte(result[i])
-		} else {
-			// change other characters to "-"
-			b.WriteByte('-')
-		}
-	}
-	return b.String()
+	return fixFn(result)
 }
