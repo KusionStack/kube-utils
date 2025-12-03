@@ -107,7 +107,6 @@ func fixDNS1123Subdomain(input string) string {
 	labels := strings.Split(input, ".")
 	result := []string{}
 	for _, label := range labels {
-
 		fixedLabel := fixDNS1123Label(label)
 		if len(fixedLabel) > 0 {
 			result = append(result, fixedLabel)
