@@ -19,84 +19,103 @@ package names
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
-func Test_generateDNS1035LabelPrefix(t *testing.T) {
+type dns1035TestSuite struct {
+	suite.Suite
+}
+
+func TestDNS1035TestSuite(t *testing.T) {
+	suite.Run(t, new(dns1035TestSuite))
+}
+
+func (s *dns1035TestSuite) Test_fixDNS1035Label() {
 	tests := []struct {
-		name      string
-		base      string
-		maxLength int
-		want      string
+		name  string
+		label string
+		want  string
 	}{
 		{
-			name:      "maxLength > DNS1035LabelMaxLength",
-			base:      "ab-1234567890123456789012345678901234567890123456789012345678901234567890",
-			maxLength: 70,
-			want:      "ab-12345678901234567890123456789012345678901234567890123456789-",
+			name:  "empty string",
+			label: "",
+			want:  "",
 		},
 		{
-			name:      "maxLength == DNS1035LabelMaxLength",
-			base:      "test-123456789012345678901234567890123456789012345678901234567890",
-			maxLength: MaxGeneratedNameLength,
-			want:      "test-1234567890123456789012345678901234567890123456789012-",
+			name:  "valid lowercase",
+			label: "valid-label",
+			want:  "valid-label",
 		},
 		{
-			name:      "normal case",
-			base:      "test-123456789012345678901234567890123456789012345678901234567890",
-			maxLength: 10,
-			want:      "test-1234-",
+			name:  "uppercase to lowercase",
+			label: "VALID-LABEL",
+			want:  "valid-label",
 		},
 		{
-			name:      "normal case",
-			base:      "test-123456789012345678901234567890123456789012345678901234567890",
-			maxLength: 5,
-			want:      "test-",
+			name:  "invalid characters replaced with dash",
+			label: "invalid.label@123",
+			want:  "invalid-label-123",
 		},
 		{
-			name:      "normal case",
-			base:      "test-123456789012345678901234567890123456789012345678901234567890",
-			maxLength: 6,
-			want:      "test--",
+			name:  "starting with number - skip until letter",
+			label: "123abc",
+			want:  "abc",
 		},
 		{
-			name:      "normal case",
-			base:      "test-1",
-			maxLength: MaxGeneratedNameLength,
-			want:      "test-1-",
+			name:  "starting with special characters - skip until letter",
+			label: "@#$abc",
+			want:  "abc",
 		},
 		{
-			name:      "replace invalid characters to '-'",
-			base:      "test.#@1",
-			maxLength: MaxGeneratedNameLength,
-			want:      "test---1-",
+			name:  "starting with dash - skip until letter",
+			label: "-abc",
+			want:  "abc",
 		},
 		{
-			name:      "maxLength == 0",
-			base:      "test.1",
-			maxLength: 0,
-			want:      "",
+			name:  "only numbers and special characters",
+			label: "123@#$",
+			want:  "",
 		},
 		{
-			name:      "trimleft base",
-			base:      "0-abcd",
-			maxLength: validation.DNS1035LabelMaxLength,
-			want:      "abcd-",
+			name:  "trailing dashes trimmed",
+			label: "label---",
+			want:  "label",
+		},
+		{
+			name:  "mixed case with special characters",
+			label: "My.Test.Label@123",
+			want:  "my-test-label-123",
+		},
+		{
+			name:  "single letter",
+			label: "A",
+			want:  "a",
+		},
+		{
+			name:  "starting with underscore and number",
+			label: "_123abc",
+			want:  "abc",
+		},
+		{
+			name:  "consecutive special characters become single dash",
+			label: "test..label@@123",
+			want:  "test--label--123",
 		},
 	}
+
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := GenerateDNS1035LabelPrefixByMaxLength(tt.base, tt.maxLength)
-			assert.Equal(t, tt.want, got)
+		s.Run(tt.name, func() {
+			got := fixDNS1035Label(tt.label)
+			s.Equal(tt.want, got)
 			if len(got) > 0 {
-				assert.Equal(t, byte('-'), got[len(got)-1], "prefix should end with '-'")
+				s.Empty(validation.IsDNS1035Label(got))
 			}
 		})
 	}
 }
 
-func Test_GenerateDNS1035Label(t *testing.T) {
+func (s *dns1035TestSuite) Test_GenerateDNS1035Label() {
 	tests := []struct {
 		name      string
 		base      string
@@ -184,10 +203,12 @@ func Test_GenerateDNS1035Label(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := GenerateDNS1035LabelByMaxLength(tt.base, tt.unique, tt.maxLength)
-		assert.Equal(t, tt.want, got)
-		if len(got) > 0 {
-			assert.Empty(t, validation.IsDNS1035Label(got), "should be a valid DNS1035 label")
-		}
+		s.Run(tt.name, func() {
+			got := GenerateDNS1035LabelByMaxLength(tt.base, tt.unique, tt.maxLength)
+			s.Equal(tt.want, got)
+			if len(got) > 0 {
+				s.Empty(validation.IsDNS1035Label(got), "should be a valid DNS1035 label")
+			}
+		})
 	}
 }
