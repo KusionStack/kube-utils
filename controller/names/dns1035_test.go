@@ -183,28 +183,28 @@ func (s *dns1035TestSuite) Test_GenerateDNS1035Label() {
 			name:      "replace invalid characters to '-'",
 			base:      "test.#@_1",
 			unique:    "0",
-			maxLength: MaxGeneratedNameLength,
+			maxLength: 63,
 			want:      "test----1-0",
 		},
 		{
 			name:      "to lower case",
 			base:      "TEST.1",
 			unique:    "0",
-			maxLength: MaxGeneratedNameLength,
+			maxLength: 63,
 			want:      "test-1-0",
 		},
 		{
 			name:      "to lower case",
 			base:      "test-1",
 			unique:    "!@#$%^&*()_+",
-			maxLength: MaxGeneratedNameLength,
+			maxLength: 63,
 			want:      "test-1",
 		},
 	}
 
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			got := GenerateDNS1035LabelByMaxLength(tt.base, tt.unique, tt.maxLength)
+			got := DNS1035LabelGenerator.GenerateNameWithMaxLength(tt.base, tt.unique, tt.maxLength)
 			s.Equal(tt.want, got)
 			if len(got) > 0 {
 				s.Empty(validation.IsDNS1035Label(got), "should be a valid DNS1035 label")

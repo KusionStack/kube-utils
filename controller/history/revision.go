@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"hash"
 	"hash/fnv"
+	"maps"
 	"sort"
 	"strconv"
 	"sync"
@@ -52,7 +53,7 @@ const (
 // If the length of final name is greater than 63 bytes, the prefix is truncated to allow for a name
 // that is no larger than 63 bytes.
 func ControllerRevisionName(prefix, hash string) string {
-	return names.GenerateDNS1035Label(prefix, hash)
+	return names.DNS1035LabelGenerator.GenerateName(prefix, hash)
 }
 
 // HashControllerRevision hashes the contents of revision's Data using FNV hashing. If probe is not nil, the byte value
@@ -62,7 +63,7 @@ func HashControllerRevision(revision *apps.ControllerRevision, probe *int32) str
 }
 
 var hashPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return fnv.New32()
 	},
 }
@@ -169,9 +170,7 @@ func NewControllerRevision(parent metav1.Object,
 	collisionCount *int32,
 ) (*apps.ControllerRevision, error) {
 	labelMap := make(map[string]string)
-	for k, v := range templateLabels {
-		labelMap[k] = v
-	}
+	maps.Copy(labelMap, templateLabels)
 	blockOwnerDeletion := true
 	isController := true
 	cr := &apps.ControllerRevision{
