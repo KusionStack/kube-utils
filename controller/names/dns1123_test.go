@@ -291,7 +291,7 @@ func (s *dns1123TestSuite) TestGenerateDNS1123SubdomainByMaxLength() {
 
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
-			result := generateDNS1123SubdomainByMaxLength(tc.base, tc.unique, tc.maxLength)
+			result := DNS1123SubdomainGenerator.GenerateNameWithMaxLength(tc.base, tc.unique, tc.maxLength)
 			s.Equal(tc.expected, result)
 			if len(result) > 0 {
 				s.Empty(validation.IsDNS1123Subdomain(result))

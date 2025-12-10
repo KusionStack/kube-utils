@@ -22,32 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
-const (
-	// copy from k8s.io/apiserver/pkg/storage/names
-	randomLength           = 5
-	MaxGeneratedNameLength = validation.DNS1035LabelMaxLength - randomLength
-)
-
-// GenerateDNS1035Label generates a valid DNS label (compliant with RFC 1035).
-// The result is usually combined by the base and uniqueName, such as "base-uniqueName".
-// And all "." will be replaced with "-". If the generated name is too long, the suffix
-// of base will be truncated to ensure the final name is shorter than 63 characters.
-// Usually:
-// - base is the name of workload, such as "deployment", "statefulset", "daemonset".
-// - uniqueName is a random string, such as "12345" or ordinal index.
-func GenerateDNS1035Label(base, uniqueName string) string {
-	return generateDNS1035LabelByMaxLength(base, uniqueName, validation.DNS1035LabelMaxLength)
-}
-
-// GenerateDNS1035LabelByMaxLength generates a valid DNS label (compliant with RFC 1035)
-// limited by the specified maximum length.
-func GenerateDNS1035LabelByMaxLength(base, uniqueName string, maxLength int) string {
-	return generateDNS1035LabelByMaxLength(base, uniqueName, maxLength)
-}
-
-func generateDNS1035LabelByMaxLength(base, unique string, maxLength int) string {
-	return genericNameGenerator(base, unique, maxLength, validation.DNS1035LabelMaxLength, fixDNS1035Label)
-}
+// DNS1035LabelGenerator generates a valid DNS label (compliant with RFC 1035).
+var DNS1035LabelGenerator = newNameGenerator(validation.DNS1035LabelMaxLength, fixDNS1035Label)
 
 func fixDNS1035Label(label string) string {
 	// Convert to lowercase
@@ -81,30 +57,4 @@ func fixDNS1035Label(label string) string {
 
 	result := builder.String()
 	return strings.TrimRight(result, "-")
-}
-
-func genericNameGenerator(base, unique string, maxLength, maxLimit int, fixFn func(string) string) string {
-	if maxLength <= 0 {
-		return ""
-	}
-	if maxLength > maxLimit {
-		maxLength = maxLimit
-	}
-
-	result := unique
-	if len(result) >= maxLength {
-		result = result[:maxLength]
-	}
-
-	maxPrefixLength := maxLength - len(result)
-	if maxPrefixLength > 0 {
-		// add prefix
-		if len(base) > maxPrefixLength-1 {
-			base = base[:maxPrefixLength-1]
-		}
-
-		result = base + "-" + result
-	}
-
-	return fixFn(result)
 }
