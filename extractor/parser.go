@@ -24,13 +24,13 @@ import (
 	"k8s.io/client-go/util/jsonpath"
 )
 
-// ParseJsonPath is unlike the jsonpath.ParseJsonPath, which supports multi-paths input.
+// ParseJSONPath is unlike the jsonpath.ParseJSONPath, which supports multi-paths input.
 // The input like `{.kind} {.apiVersion}` or
 // `{range .spec.containers[*]}{.name}{end}` will result in an error.
 //
 // It also relaxes the JSONPath expressions internally,
 // so inputs like `.kind` (without curly braces) are acceptable.
-func ParseJsonPath(text string) (*jsonpath.Parser, error) {
+func ParseJSONPath(text string) (*jsonpath.Parser, error) {
 	relaxed, err := RelaxedJSONPathExpression(text)
 	if err != nil {
 		return nil, err
