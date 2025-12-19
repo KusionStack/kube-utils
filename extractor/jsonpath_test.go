@@ -34,7 +34,7 @@ type jsonPathTest struct {
 }
 
 func (t *jsonPathTest) Prepare(opts ...Option) (Extractor, error) {
-	parser, err := parseJsonPath(t.template)
+	parser, err := ParseJSONPath(t.template)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func TestJSONPath(t *testing.T) {
 }
 
 func TestJSONPathReuse(t *testing.T) {
-	parser, err := parseJsonPath(`{.spec.containers[*]['name', 'image']}`)
+	parser, err := ParseJSONPath(`{.spec.containers[*]['name', 'image']}`)
 	require.NoError(t, err)
 	extractor := newJSONPatch(options{ignoreMissingKey: true}, parser)
 	got, err := extractor.Extract(podData)

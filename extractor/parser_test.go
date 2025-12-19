@@ -37,7 +37,7 @@ func TestParse(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseJsonPath(tt.text)
+			got, err := ParseJSONPath(tt.text)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {

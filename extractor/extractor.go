@@ -51,7 +51,7 @@ func New(jsonPaths []string, opts ...Option) (Extractor, error) {
 	}
 
 	for _, p := range jsonPaths {
-		parser, err := parseJsonPath(p)
+		parser, err := ParseJSONPath(p)
 		if err != nil {
 			return nil, fmt.Errorf("error in parsing path %q: %w", p, err)
 		}
