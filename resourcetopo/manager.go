@@ -120,9 +120,9 @@ func (m *manager) AddRelationHandler(preOrder, postOrder metav1.TypeMeta, handle
 // AddNodeHandler add a new node handler for nodes of type configured by meta.
 func (m *manager) AddNodeHandler(meta metav1.TypeMeta, handler NodeHandler) error {
 	m.storagesLock.RLock()
-	s := m.storages[generateMetaKey(meta)]
+	s, ok := m.storages[generateMetaKey(meta)]
 	m.storagesLock.RUnlock()
-	if s == nil {
+	if !ok || s == nil {
 		return fmt.Errorf("resource %v not configured in this manager", meta)
 	}
 	s.addNodeHandler(handler)
@@ -145,9 +145,9 @@ func (m *manager) Start(stopCh <-chan struct{}) {
 // GetTopoNodeStorage return the ref to TopoNodeStorage that match resource meta.
 func (m *manager) GetTopoNodeStorage(meta metav1.TypeMeta) (TopoNodeStorage, error) {
 	m.storagesLock.RLock()
-	s := m.storages[generateMetaKey(meta)]
+	s, ok := m.storages[generateMetaKey(meta)]
 	m.storagesLock.RUnlock()
-	if s == nil {
+	if !ok || s == nil {
 		return nil, fmt.Errorf("resource %v not configured in this manager", meta)
 	}
 	return s, nil
@@ -156,9 +156,9 @@ func (m *manager) GetTopoNodeStorage(meta metav1.TypeMeta) (TopoNodeStorage, err
 // GetNode return the ref to Node that match the resouorce meta and node's name if existed.
 func (m *manager) GetNode(meta metav1.TypeMeta, name types.NamespacedName) (NodeInfo, error) {
 	m.storagesLock.RLock()
-	s := m.storages[generateMetaKey(meta)]
+	s, ok := m.storages[generateMetaKey(meta)]
 	m.storagesLock.RUnlock()
-	if s == nil {
+	if !ok || s == nil {
 		return nil, fmt.Errorf("resource %v not configured in this manager", meta)
 	}
 	return s.GetNode(name)

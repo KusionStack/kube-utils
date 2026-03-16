@@ -90,7 +90,9 @@ func (s *nodeStorage) GetNode(namespacedName types.NamespacedName) (NodeInfo, er
 
 func (s *nodeStorage) GetClusterNode(cluster string, namespacedName types.NamespacedName) (NodeInfo, error) {
 	node := s.getNode(cluster, namespacedName.Namespace, namespacedName.Name)
-	if node != nil && !node.isObjectExisted() {
+	if node == nil || !node.isObjectExisted() {
+		// return nil rather than node ref here, since the node may be a virtual node
+		// todo add a unittest
 		return nil, nil
 	}
 	return node, nil
@@ -166,17 +168,21 @@ func (s *nodeStorage) getNode(cluster, namespace, name string) *nodeInfo {
 	s.storageLock.RLock()
 	defer s.storageLock.RUnlock()
 
-	clsNodes := s.clusterNodes[cluster]
-	if clsNodes == nil {
+	clsNodes, ok := s.clusterNodes[cluster]
+	if !ok || clsNodes == nil {
 		return nil
 	}
 
-	nsNodes := clsNodes.namespaceNodes[namespace]
-	if nsNodes == nil {
+	nsNodes, ok := clsNodes.namespaceNodes[namespace]
+	if !ok || nsNodes == nil {
 		return nil
 	}
 
-	return nsNodes[name]
+	node, ok := nsNodes[name]
+	if !ok {
+		return nil
+	}
+	return node
 }
 
 func (s *nodeStorage) createNode(cluster, namespace, name string) *nodeInfo {
@@ -212,13 +218,13 @@ func (s *nodeStorage) deleteNode(cluster, namespace, name string) {
 	s.storageLock.Lock()
 	defer s.storageLock.Unlock()
 
-	clsNodes := s.clusterNodes[cluster]
-	if clsNodes == nil {
+	clsNodes, ok := s.clusterNodes[cluster]
+	if !ok || clsNodes == nil {
 		return
 	}
 
-	nsNodes := clsNodes.namespaceNodes[namespace]
-	if nsNodes == nil {
+	nsNodes, ok := clsNodes.namespaceNodes[namespace]
+	if !ok || nsNodes == nil {
 		return
 	}
 
