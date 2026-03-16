@@ -129,12 +129,17 @@ func (node *nodeInfo) checkLabelUpdateForPostNode(postNode *nodeInfo) {
 		return
 	}
 
+	// Copy labelRelations under lock to avoid holding lock during relation operations
 	node.relationsLock.RLock()
-	defer node.relationsLock.RUnlock()
 	if len(node.labelRelations) == 0 {
+		node.relationsLock.RUnlock()
 		return
 	}
-	for _, relation := range node.labelRelations {
+	labelRelationsCopy := make([]ResourceRelation, len(node.labelRelations))
+	copy(labelRelationsCopy, node.labelRelations)
+	node.relationsLock.RUnlock()
+
+	for _, relation := range labelRelationsCopy {
 		if !typeEqual(relation.PostMeta, postNode.storageRef.meta) {
 			return
 		}
@@ -157,7 +162,6 @@ func (node *nodeInfo) checkLabelUpdateForPostNode(postNode *nodeInfo) {
 
 func (n *nodeInfo) updateNodeMeta(obj Object) {
 	n.metaLock.Lock()
-	defer n.metaLock.Unlock()
 	n.labels = obj.GetLabels()
 
 	var ownerInfos []ownerInfo
@@ -170,8 +174,13 @@ func (n *nodeInfo) updateNodeMeta(obj Object) {
 	}
 	n.ownerNodes = ownerInfos
 
-	if !n.objectExisted {
-		n.objectExisted = true
+	objectJustCreated := !n.objectExisted
+	n.objectExisted = true
+	n.metaLock.Unlock()
+
+	// Acquire lock for relation iteration after releasing metaLock
+	// to maintain lock ordering: lock before metaLock
+	if objectJustCreated {
 		n.lock.RLock()
 		defer n.lock.RUnlock()
 		rangeNodeList(n.directReferredPreOrders, func(preOrder *nodeInfo) {
@@ -236,17 +245,25 @@ func (n *nodeInfo) ownersEqualed(reference []metav1.OwnerReference) bool {
 }
 
 func (n *nodeInfo) checkGC() {
-	n.metaLock.RLock()
-	defer n.metaLock.RUnlock()
+	// Acquire lock for relation lists first (Level 4)
 	n.lock.RLock()
-	defer n.lock.RUnlock()
-
-	if !n.objectExisted &&
-		// n maybe set as notExisted, but still have related nodes to handle
-		(n.directReferredPreOrders == nil || n.directReferredPreOrders.Len() == 0) &&
+	relationsEmpty := (n.directReferredPreOrders == nil || n.directReferredPreOrders.Len() == 0) &&
 		(n.directReferredPostOrders == nil || n.directReferredPostOrders.Len() == 0) &&
 		(n.labelReferredPreOrders == nil || n.labelReferredPreOrders.Len() == 0) &&
-		(n.labelReferredPostOrders == nil || n.labelReferredPostOrders.Len() == 0) {
+		(n.labelReferredPostOrders == nil || n.labelReferredPostOrders.Len() == 0)
+	n.lock.RUnlock()
+
+	if !relationsEmpty {
+		return
+	}
+
+	// Then acquire metaLock to check object existence (Level 6)
+	n.metaLock.Lock()
+	objectExisted := n.objectExisted
+	n.metaLock.Unlock()
+
+	// n maybe set as notExisted, but still have related nodes to handle
+	if !objectExisted {
 		n.storageRef.deleteNode(n.cluster, n.namespace, n.name)
 	}
 }

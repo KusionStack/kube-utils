@@ -17,6 +17,7 @@
 package resourcetopo
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -41,6 +42,7 @@ const (
 	defaultRelationEventHandleRateMaxDelay = time.Second
 	defaultNodeEventHandlePeriod           = time.Second
 	defaultRelationEventHandlePeriod       = time.Second
+	defaultEventHandlerTimeout             = time.Second
 )
 
 func (m *manager) startHandleEvent(stopCh <-chan struct{}) {
@@ -51,43 +53,108 @@ func (m *manager) startHandleEvent(stopCh <-chan struct{}) {
 func (m *manager) handleNodeEvent() {
 	for {
 		item, shutdown := m.nodeEventQueue.Get()
+		klog.V(6).Infof("handleNodeEvent: item: %v", item)
 		if shutdown {
 			return
 		}
 		info, ok := item.(string)
 		if !ok {
 			klog.Errorf("Unexpected node event queue item %v", item)
+			m.nodeEventQueue.Done(item)
 			continue
 		}
 		evtType, node := m.decodeString2NodeEvent(info)
 		if node == nil {
+			m.nodeEventQueue.Done(item)
 			continue
 		}
 
 		storage := node.storageRef
 		if storage == nil {
 			klog.Errorf("Unexpected nil nodeStorage for nodeEvent node %v", node)
+			m.nodeEventQueue.Done(item)
 			continue
 		}
+
+		// Create context with timeout for all handlers in this event
+		ctx, cancel := context.WithTimeout(context.Background(), m.eventHandlerTimeout)
+		timeout := false
 
 		switch evtType {
 		case EventTypeAdd:
 			for _, h := range storage.nodeUpdateHandler {
-				h.OnAdd(node)
+				if timeout {
+					break
+				}
+				done := make(chan struct{})
+				go func(handler NodeHandler) {
+					handler.OnAdd(node)
+					close(done)
+				}(h)
+				select {
+				case <-done:
+					// Handler completed
+				case <-ctx.Done():
+					timeout = true
+					klog.Warningf("Node handler OnAdd timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
+				}
 			}
 		case EventTypeUpdate:
 			for _, h := range storage.nodeUpdateHandler {
-				h.OnUpdate(node)
+				if timeout {
+					break
+				}
+				done := make(chan struct{})
+				go func(handler NodeHandler) {
+					handler.OnUpdate(node)
+					close(done)
+				}(h)
+				select {
+				case <-done:
+					// Handler completed
+				case <-ctx.Done():
+					timeout = true
+					klog.Warningf("Node handler OnUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
+				}
 			}
 		case EventTypeDelete:
 			for _, h := range storage.nodeUpdateHandler {
-				h.OnDelete(node)
+				if timeout {
+					break
+				}
+				done := make(chan struct{})
+				go func(handler NodeHandler) {
+					handler.OnDelete(node)
+					close(done)
+				}(h)
+				select {
+				case <-done:
+					// Handler completed
+				case <-ctx.Done():
+					timeout = true
+					klog.Warningf("Node handler OnDelete timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
+				}
 			}
 		case EventTypeRelatedUpdate:
 			for _, h := range storage.nodeUpdateHandler {
-				h.OnRelatedUpdate(node)
+				if timeout {
+					break
+				}
+				done := make(chan struct{})
+				go func(handler NodeHandler) {
+					handler.OnRelatedUpdate(node)
+					close(done)
+				}(h)
+				select {
+				case <-done:
+					// Handler completed
+				case <-ctx.Done():
+					timeout = true
+					klog.Warningf("Node handler OnRelatedUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
+				}
 			}
 		}
+		cancel()
 		m.nodeEventQueue.Done(item)
 	}
 }
@@ -102,39 +169,79 @@ func (m *manager) handleRelationEvent() {
 		info, ok := item.(string)
 		if !ok {
 			klog.Errorf("Unexpected relation event queue item %v", item)
+			m.relationEventQueue.Done(item)
 			continue
 		}
 		evtType, preNode, postNode := m.decodeString2RelationEvent(info)
 		if preNode == nil || postNode == nil {
+			m.relationEventQueue.Done(item)
 			continue
 		}
 
 		storage := preNode.storageRef
 		if storage == nil {
 			klog.Errorf("Unexpected nil nodeStorage for relaltion event preNode node %v", preNode)
+			m.relationEventQueue.Done(item)
 			continue
 		}
 		handlers := storage.relationUpdateHandler[postNode.storageRef.metaKey]
 		if handlers == nil {
+			m.relationEventQueue.Done(item)
 			continue
 		}
 
+		// Create context with timeout for all handlers in this event
+		ctx, cancel := context.WithTimeout(context.Background(), m.eventHandlerTimeout)
+		timeout := false
+
 		switch evtType {
 		case EventTypeAdd:
-			for _, handler := range handlers {
-				handler.OnAdd(preNode, postNode)
+			for _, h := range handlers {
+				if timeout {
+					break
+				}
+				done := make(chan struct{})
+				go func(handler RelationHandler) {
+					handler.OnAdd(preNode, postNode)
+					close(done)
+				}(h)
+				select {
+				case <-done:
+					// Handler completed
+				case <-ctx.Done():
+					timeout = true
+					klog.Warningf("Relation handler OnAdd timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
+						preNode.namespace, preNode.name, postNode.namespace, postNode.name)
+				}
 			}
 		case EventTypeDelete:
-			for _, handler := range handlers {
-				handler.OnDelete(preNode, postNode)
+			for _, h := range handlers {
+				if timeout {
+					break
+				}
+				done := make(chan struct{})
+				go func(handler RelationHandler) {
+					handler.OnDelete(preNode, postNode)
+					close(done)
+				}(h)
+				select {
+				case <-done:
+					// Handler completed
+				case <-ctx.Done():
+					timeout = true
+					klog.Warningf("Relation handler OnDelete timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
+						preNode.namespace, preNode.name, postNode.namespace, postNode.name)
+				}
 			}
 		}
+		cancel()
 		m.relationEventQueue.Done(item)
 	}
 }
 
 func (m *manager) newNodeEvent(info *nodeInfo, eType eventType) {
 	key := m.encodeNodeEvent2String(eType, info)
+	klog.V(6).Infof("New node event queue key: %v", key)
 	m.nodeEventQueue.AddRateLimited(key)
 }
 

@@ -95,61 +95,77 @@ func deleteDirectRelation(preNode, postNode *nodeInfo) bool {
 // deleteAllRelation will remove all relation in this node.
 // only be called in object deletion scenario.
 func deleteAllRelation(node *nodeInfo) {
-	// In resourcetopo package, when do relation change operations,
-	// we always lock preOrder before postOrder, expect in this function.
-	// but to keep transition atomic, and in object deletion scenario,
-	// this is okay to hold the lock in whole process, and lock preOrderNode as needed.
-	// node.metaLock.Lock()
-	// defer node.metaLock.Unlock()
-	node.relationsLock.Lock()
+	// First, mark object as deleted under metaLock (Level 6 - innermost)
 	node.objectDeleted()
-	node.labelRelations = nil
-	defer node.relationsLock.Unlock()
 
-	node.lock.Lock()
-	defer node.lock.Unlock()
-
+	// Collect all related nodes before acquiring locks to avoid holding locks during iteration
+	var directPostNodes, labelPostNodes, labelPreNodes, directPreNodes []*nodeInfo
+	node.lock.RLock()
 	rangeNodeList(node.directReferredPostOrders, func(postNode *nodeInfo) {
-		postNode.lock.Lock()
-		removeFromList(postNode.directReferredPreOrders, node)
-		postNode.lock.Unlock()
+		directPostNodes = append(directPostNodes, postNode)
+	})
+	rangeNodeList(node.labelReferredPostOrders, func(postNode *nodeInfo) {
+		labelPostNodes = append(labelPostNodes, postNode)
+	})
+	rangeNodeList(node.labelReferredPreOrders, func(preNode *nodeInfo) {
+		labelPreNodes = append(labelPreNodes, preNode)
+	})
+	rangeNodeList(node.directReferredPreOrders, func(preNode *nodeInfo) {
+		directPreNodes = append(directPreNodes, preNode)
+	})
+	node.lock.RUnlock()
 
+	// Process post-nodes (node is preOrder, so lock node first, then postNode)
+	// This follows the rule: preNode.lock before postNode.lock
+	for _, postNode := range directPostNodes {
+		deleteDirectRelation(node, postNode)
 		node.noticePostOrderRelationDeleted(postNode)
 		postNode.checkGC()
-	})
-	node.directReferredPostOrders = nil
+	}
 
-	rangeNodeList(node.labelReferredPostOrders, func(postNode *nodeInfo) {
-		postNode.lock.Lock()
-		removeFromList(postNode.labelReferredPreOrders, node)
-		postNode.lock.Unlock()
-
+	for _, postNode := range labelPostNodes {
+		deleteLabelRelation(node, postNode)
 		node.noticePostOrderRelationDeleted(postNode)
-	})
-	node.labelReferredPostOrders = nil
+	}
 
-	// node has been set as deleted, labels set to nil,
-	// so can not be locked as postOrder to add new label selector relation
-	rangeNodeList(node.labelReferredPreOrders, func(preNode *nodeInfo) {
+	// Process pre-nodes (preNode is preOrder, so lock preNode first, then node)
+	// This follows the rule: preNode.lock before postNode.lock
+	for _, preNode := range labelPreNodes {
+		// For label relations, node is postOrder, so we need preNode.lock first
 		preNode.lock.Lock()
 		removeFromList(preNode.labelReferredPostOrders, node)
 		preNode.lock.Unlock()
 		node.noticePreOrderRelationDeleted(preNode)
-	})
-	node.labelReferredPreOrders = nil
+	}
 
-	rangeNodeList(node.directReferredPreOrders, func(preNode *nodeInfo) {
+	for _, preNode := range directPreNodes {
 		if preNode.storageRef.virtualResource {
-			// virtual node will not start a relation pair change, so virtual preOrder node can be locked later
+			// For virtual resources, we can modify the relation directly
 			preNode.lock.Lock()
 			removeFromList(preNode.directReferredPostOrders, node)
 			preNode.lock.Unlock()
+			// Also update node's list while holding node's lock
+			node.lock.Lock()
 			removeFromList(node.directReferredPreOrders, preNode)
+			node.lock.Unlock()
 			node.noticePreOrderRelationDeleted(preNode)
 			preNode.checkVirtualNodeGC()
 		} else {
-			// notice relation deleted, but hold this place in case this object will be recreated
+			// For non-virtual resources, just notify but keep node's list as-is
+			// in case this object will be recreated
 			node.noticePreOrderRelationDeleted(preNode)
 		}
-	})
+	}
+
+	// Clean up node's relation lists and labelRelations under proper locks
+	node.relationsLock.Lock()
+	node.labelRelations = nil
+	node.relationsLock.Unlock()
+
+	node.lock.Lock()
+	node.directReferredPostOrders = nil
+	node.labelReferredPostOrders = nil
+	node.labelReferredPreOrders = nil
+	// Keep directReferredPreOrders for non-virtual preNodes in case of recreation
+	node.lock.Unlock()
 }

@@ -49,6 +49,12 @@ type ManagerConfig struct {
 	NodeEventHandleRateMaxDelay     time.Duration
 	RelationEventHandleRateMinDelay time.Duration
 	RelationEventHandleRateMaxDelay time.Duration
+
+	// EventHandlerTimeout is the timeout for each event handler callback.
+	// If a handler takes longer than this timeout, it will be cancelled and
+	// remaining handlers will be skipped. A warning will be logged.
+	// Default: 1 second
+	EventHandlerTimeout time.Duration
 }
 
 type Manager interface {
