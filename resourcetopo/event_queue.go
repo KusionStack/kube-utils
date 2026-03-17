@@ -76,83 +76,32 @@ func (m *manager) handleNodeEvent() {
 			continue
 		}
 
-		// Create context with timeout for all handlers in this event
 		ctx, cancel := context.WithTimeout(context.Background(), m.eventHandlerTimeout)
-		timeout := false
-
 		switch evtType {
 		case EventTypeAdd:
-			for _, h := range storage.nodeUpdateHandler {
-				if timeout {
-					break
-				}
-				done := make(chan struct{})
-				go func(handler NodeHandler) {
-					handler.OnAdd(node)
-					close(done)
-				}(h)
-				select {
-				case <-done:
-					// Handler completed
-				case <-ctx.Done():
-					timeout = true
-					klog.Warningf("Node handler OnAdd timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
-				}
-			}
+			m.executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
+				h.OnAdd(node)
+			}, func() {
+				klog.Warningf("Node handler OnAdd timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
+			})
 		case EventTypeUpdate:
-			for _, h := range storage.nodeUpdateHandler {
-				if timeout {
-					break
-				}
-				done := make(chan struct{})
-				go func(handler NodeHandler) {
-					handler.OnUpdate(node)
-					close(done)
-				}(h)
-				select {
-				case <-done:
-					// Handler completed
-				case <-ctx.Done():
-					timeout = true
-					klog.Warningf("Node handler OnUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
-				}
-			}
+			m.executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
+				h.OnUpdate(node)
+			}, func() {
+				klog.Warningf("Node handler OnUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
+			})
 		case EventTypeDelete:
-			for _, h := range storage.nodeUpdateHandler {
-				if timeout {
-					break
-				}
-				done := make(chan struct{})
-				go func(handler NodeHandler) {
-					handler.OnDelete(node)
-					close(done)
-				}(h)
-				select {
-				case <-done:
-					// Handler completed
-				case <-ctx.Done():
-					timeout = true
-					klog.Warningf("Node handler OnDelete timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
-				}
-			}
+			m.executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
+				h.OnDelete(node)
+			}, func() {
+				klog.Warningf("Node handler OnDelete timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
+			})
 		case EventTypeRelatedUpdate:
-			for _, h := range storage.nodeUpdateHandler {
-				if timeout {
-					break
-				}
-				done := make(chan struct{})
-				go func(handler NodeHandler) {
-					handler.OnRelatedUpdate(node)
-					close(done)
-				}(h)
-				select {
-				case <-done:
-					// Handler completed
-				case <-ctx.Done():
-					timeout = true
-					klog.Warningf("Node handler OnRelatedUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
-				}
-			}
+			m.executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
+				h.OnRelatedUpdate(node)
+			}, func() {
+				klog.Warningf("Node handler OnRelatedUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
+			})
 		}
 		cancel()
 		m.nodeEventQueue.Done(item)
@@ -190,52 +139,71 @@ func (m *manager) handleRelationEvent() {
 			continue
 		}
 
-		// Create context with timeout for all handlers in this event
 		ctx, cancel := context.WithTimeout(context.Background(), m.eventHandlerTimeout)
-		timeout := false
-
 		switch evtType {
 		case EventTypeAdd:
-			for _, h := range handlers {
-				if timeout {
-					break
-				}
-				done := make(chan struct{})
-				go func(handler RelationHandler) {
-					handler.OnAdd(preNode, postNode)
-					close(done)
-				}(h)
-				select {
-				case <-done:
-					// Handler completed
-				case <-ctx.Done():
-					timeout = true
-					klog.Warningf("Relation handler OnAdd timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
-						preNode.namespace, preNode.name, postNode.namespace, postNode.name)
-				}
-			}
+			m.executeRelationHandlers(ctx, handlers, func(h RelationHandler) {
+				h.OnAdd(preNode, postNode)
+			}, func() {
+				klog.Warningf("Relation handler OnAdd timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
+					preNode.namespace, preNode.name, postNode.namespace, postNode.name)
+			})
 		case EventTypeDelete:
-			for _, h := range handlers {
-				if timeout {
-					break
-				}
-				done := make(chan struct{})
-				go func(handler RelationHandler) {
-					handler.OnDelete(preNode, postNode)
-					close(done)
-				}(h)
-				select {
-				case <-done:
-					// Handler completed
-				case <-ctx.Done():
-					timeout = true
-					klog.Warningf("Relation handler OnDelete timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
-						preNode.namespace, preNode.name, postNode.namespace, postNode.name)
-				}
-			}
+			m.executeRelationHandlers(ctx, handlers, func(h RelationHandler) {
+				h.OnDelete(preNode, postNode)
+			}, func() {
+				klog.Warningf("Relation handler OnDelete timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
+					preNode.namespace, preNode.name, postNode.namespace, postNode.name)
+			})
 		}
 		cancel()
 		m.relationEventQueue.Done(item)
+	}
+}
+
+// executeHandlers executes node handlers with timeout support.
+// If timeout occurs, remaining handlers are skipped and onTimeout is called.
+func (m *manager) executeHandlers(ctx context.Context, handlers []NodeHandler, exec func(h NodeHandler), onTimeout func()) {
+	timeout := false
+	for _, h := range handlers {
+		if timeout {
+			break
+		}
+		done := make(chan struct{})
+		go func(handler NodeHandler) {
+			exec(handler)
+			close(done)
+		}(h)
+		select {
+		case <-done:
+			// Handler completed
+		case <-ctx.Done():
+			timeout = true
+			onTimeout()
+		}
+	}
+}
+
+// executeRelationHandlers executes relation handlers with timeout support.
+// If timeout occurs, remaining handlers are skipped and onTimeout is called.
+func (m *manager) executeRelationHandlers(ctx context.Context, handlers []RelationHandler, exec func(h RelationHandler), onTimeout func()) {
+	timeout := false
+	for _, h := range handlers {
+		if timeout {
+			break
+		}
+		done := make(chan struct{})
+		go func(handler RelationHandler) {
+			exec(handler)
+			close(done)
+		}(h)
+		select {
+		case <-done:
+			// Handler completed
+		case <-ctx.Done():
+			timeout = true
+			onTimeout()
+		}
 	}
 }
 
