@@ -45,11 +45,33 @@ type manager struct {
 	// metrics
 	nodeHandlerTimeouts     atomic.Int64
 	relationHandlerTimeouts atomic.Int64
+	nodeHandlerPanics       atomic.Int64
+	relationHandlerPanics   atomic.Int64
+	activeHandlerGoroutines atomic.Int64
 }
 
-// HandlerTimeoutMetrics returns the count of timed-out node and relation handlers.
-func (m *manager) HandlerTimeoutMetrics() (nodeTimeouts, relationTimeouts int64) {
-	return m.nodeHandlerTimeouts.Load(), m.relationHandlerTimeouts.Load()
+// Metrics returns runtime counters for monitoring.
+type Metrics struct {
+	NodeHandlerTimeouts     int64
+	RelationHandlerTimeouts int64
+	NodeHandlerPanics       int64
+	RelationHandlerPanics   int64
+	ActiveHandlerGoroutines int64
+	NodeEventQueueDepth     int
+	RelationEventQueueDepth int
+}
+
+// Metrics returns current handler and queue counters.
+func (m *manager) Metrics() Metrics {
+	return Metrics{
+		NodeHandlerTimeouts:     m.nodeHandlerTimeouts.Load(),
+		RelationHandlerTimeouts: m.relationHandlerTimeouts.Load(),
+		NodeHandlerPanics:       m.nodeHandlerPanics.Load(),
+		RelationHandlerPanics:   m.relationHandlerPanics.Load(),
+		ActiveHandlerGoroutines: m.activeHandlerGoroutines.Load(),
+		NodeEventQueueDepth:     m.nodeEventQueue.Len(),
+		RelationEventQueueDepth: m.relationEventQueue.Len(),
+	}
 }
 
 func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {

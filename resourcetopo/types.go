@@ -78,6 +78,10 @@ type Manager interface {
 
 	// GetNode return the ref to Node that match the resouorce meta and node's name if existed.
 	GetNode(meta metav1.TypeMeta, name types.NamespacedName) (NodeInfo, error)
+
+	// Metrics returns runtime counters for monitoring handler timeouts, panics,
+	// active goroutines, and event queue depths.
+	Metrics() Metrics
 }
 
 type TopoNodeStorage interface {

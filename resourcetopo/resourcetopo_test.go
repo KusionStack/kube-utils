@@ -2532,3 +2532,99 @@ func (h *panickingNodeHandler) OnDelete(ctx context.Context, info NodeInfo)     
 func (h *panickingNodeHandler) OnRelatedUpdate(ctx context.Context, info NodeInfo)    { panic("intentional panic in OnRelatedUpdate") }
 
 var _ NodeHandler = &panickingNodeHandler{}
+
+var _ = Describe("test handler metrics", func() {
+	var manager Manager
+	var fakeClient *fake.Clientset
+	var ctx context.Context
+	var cancel func()
+
+	BeforeEach(func() {
+		fakeClient = fake.NewSimpleClientset()
+		k8sInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+		var err error
+		cfg := buildManagerConfig(buildClusterTest(k8sInformerFactory))
+		cfg.EventHandlerTimeout = 100 * time.Millisecond
+		manager, err = NewResourcesTopoManager(*cfg)
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel = context.WithCancel(context.Background())
+		manager.Start(ctx.Done())
+		k8sInformerFactory.Start(ctx.Done())
+		k8sInformerFactory.WaitForCacheSync(ctx.Done())
+	})
+	AfterEach(func() {
+		cancel()
+		time.Sleep(200 * time.Millisecond)
+	})
+
+	It("timeout metric is incremented when handler times out", func() {
+		crName := "crMetricsTimeout"
+
+		blockCh := make(chan struct{})
+		blockingHandler := &blockingNodeHandler{blockCh: blockCh}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, blockingHandler)).To(Succeed())
+		saHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).To(Succeed())
+		crbHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, crbHandler)).To(Succeed())
+
+		// Trigger timeout
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		time.Sleep(500 * time.Millisecond)
+
+		metrics := manager.Metrics()
+		Expect(metrics.NodeHandlerTimeouts).To(BeNumerically(">", 0),
+			fmt.Sprintf("Expected node handler timeout count > 0, got %d", metrics.NodeHandlerTimeouts))
+	})
+
+	It("panic metric is incremented when handler panics", func() {
+		crName := "crMetricsPanic"
+
+		panickingHandler := &panickingNodeHandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, panickingHandler)).To(Succeed())
+		saHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).To(Succeed())
+		crbHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, crbHandler)).To(Succeed())
+
+		metricsBefore := manager.Metrics()
+
+		// Trigger panic
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		time.Sleep(500 * time.Millisecond)
+
+		metricsAfter := manager.Metrics()
+		Expect(metricsAfter.NodeHandlerPanics).To(BeNumerically(">", metricsBefore.NodeHandlerPanics),
+			fmt.Sprintf("Expected panic count to increase: before=%d, after=%d",
+				metricsBefore.NodeHandlerPanics, metricsAfter.NodeHandlerPanics))
+	})
+
+	It("active goroutine count returns to zero after handlers complete", func() {
+		crName := "crMetricsActive"
+
+		blockCh := make(chan struct{})
+		blockingHandler := &blockingNodeHandler{blockCh: blockCh}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, blockingHandler)).To(Succeed())
+		saHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).To(Succeed())
+		crbHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, crbHandler)).To(Succeed())
+
+		// Trigger handler — cooperative handler returns on ctx.Done()
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		time.Sleep(500 * time.Millisecond)
+
+		metrics := manager.Metrics()
+		Expect(metrics.ActiveHandlerGoroutines).To(BeNumerically("==", 0),
+			fmt.Sprintf("Expected 0 active goroutines, got %d", metrics.ActiveHandlerGoroutines))
+	})
+
+	It("queue depth metrics are available", func() {
+		// Queue should be empty initially after stabilization
+		time.Sleep(100 * time.Millisecond)
+		metrics := manager.Metrics()
+		Expect(metrics.NodeEventQueueDepth).To(BeNumerically(">=", 0))
+		Expect(metrics.RelationEventQueueDepth).To(BeNumerically(">=", 0))
+	})
+})

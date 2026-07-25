@@ -19,6 +19,7 @@ package resourcetopo
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,35 +78,36 @@ func (m *manager) handleNodeEvent() {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), m.eventHandlerTimeout)
+		nodeMetrics := &execMetrics{
+			timeouts: &m.nodeHandlerTimeouts,
+			panics:   &m.nodeHandlerPanics,
+			active:   &m.activeHandlerGoroutines,
+		}
 		switch evtType {
 		case EventTypeAdd:
 			executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
 				h.OnAdd(ctx, node)
 			}, "Node handler", func() {
-				m.nodeHandlerTimeouts.Add(1)
 				klog.Warningf("Node handler OnAdd timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
-			})
+			}, nodeMetrics)
 		case EventTypeUpdate:
 			executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
 				h.OnUpdate(ctx, node)
 			}, "Node handler", func() {
-				m.nodeHandlerTimeouts.Add(1)
 				klog.Warningf("Node handler OnUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
-			})
+			}, nodeMetrics)
 		case EventTypeDelete:
 			executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
 				h.OnDelete(ctx, node)
 			}, "Node handler", func() {
-				m.nodeHandlerTimeouts.Add(1)
 				klog.Warningf("Node handler OnDelete timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
-			})
+			}, nodeMetrics)
 		case EventTypeRelatedUpdate:
 			executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
 				h.OnRelatedUpdate(ctx, node)
 			}, "Node handler", func() {
-				m.nodeHandlerTimeouts.Add(1)
 				klog.Warningf("Node handler OnRelatedUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
-			})
+			}, nodeMetrics)
 		}
 		cancel()
 		m.nodeEventQueue.Done(item)
@@ -144,43 +146,54 @@ func (m *manager) handleRelationEvent() {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), m.eventHandlerTimeout)
+		relationMetrics := &execMetrics{
+			timeouts: &m.relationHandlerTimeouts,
+			panics:   &m.relationHandlerPanics,
+			active:   &m.activeHandlerGoroutines,
+		}
 		switch evtType {
 		case EventTypeAdd:
 			executeHandlers(ctx, handlers, func(h RelationHandler) {
 				h.OnAdd(ctx, preNode, postNode)
 			}, "Relation handler", func() {
-				m.relationHandlerTimeouts.Add(1)
 				klog.Warningf("Relation handler OnAdd timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
 					preNode.namespace, preNode.name, postNode.namespace, postNode.name)
-			})
+			}, relationMetrics)
 		case EventTypeDelete:
 			executeHandlers(ctx, handlers, func(h RelationHandler) {
 				h.OnDelete(ctx, preNode, postNode)
 			}, "Relation handler", func() {
-				m.relationHandlerTimeouts.Add(1)
 				klog.Warningf("Relation handler OnDelete timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
 					preNode.namespace, preNode.name, postNode.namespace, postNode.name)
-			})
+			}, relationMetrics)
 		}
 		cancel()
 		m.relationEventQueue.Done(item)
 	}
 }
 
+// execMetrics holds atomic counters updated by executeHandlers.
+type execMetrics struct {
+	timeouts, panics, active *atomic.Int64
+}
+
 // executeHandlers executes handlers with timeout support using generics.
 // Each handler runs in its own goroutine. If the context deadline fires before
 // a handler completes, remaining handlers are skipped and onTimeout is called.
-func executeHandlers[H any](ctx context.Context, handlers []H, exec func(H), panicMsg string, onTimeout func()) {
+func executeHandlers[H any](ctx context.Context, handlers []H, exec func(H), panicMsg string, onTimeout func(), m *execMetrics) {
 	timeout := false
 	for _, h := range handlers {
 		if timeout {
 			break
 		}
 		done := make(chan struct{})
+		m.active.Add(1)
 		go func(handler H) {
 			defer func() {
+				m.active.Add(-1)
 				if r := recover(); r != nil {
 					klog.Errorf("%s panicked: %v, treating as failed", panicMsg, r)
+					m.panics.Add(1)
 				}
 				close(done)
 			}()
@@ -191,6 +204,7 @@ func executeHandlers[H any](ctx context.Context, handlers []H, exec func(H), pan
 			// Handler completed
 		case <-ctx.Done():
 			timeout = true
+			m.timeouts.Add(1)
 			onTimeout()
 		}
 	}
