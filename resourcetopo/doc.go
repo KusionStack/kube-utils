@@ -34,13 +34,13 @@
 //   - Protects: clusterNodes map
 //   - Note: Never acquire while holding any nodeInfo.lock
 //
-// Level 4: nodeInfo.lock
+// Level 4: nodeInfo.relationsLock
+//   - Protects: labelRelations
+//   - Note: On the same node, must be acquired before nodeInfo.lock
+//
+// Level 5: nodeInfo.lock
 //   - Protects: PreOrders/PostOrders relation lists (directReferredPreOrders, etc.)
 //   - Rule: Always acquire preNode.lock before postNode.lock
-//
-// Level 5: nodeInfo.relationsLock
-//   - Protects: labelRelations
-//   - Rule: Acquire before metaLock if both needed
 //
 // Level 6: nodeInfo.metaLock
 //   - Protects: labels, ownerNodes, objectExisted
@@ -80,7 +80,14 @@
 // 4. Callback Threads (External - via Event Processors):
 //    - Source: User-provided NodeHandler and RelationHandler callbacks
 //    - Entry: Called by handleNodeEvent/handleRelationEvent
-//    - Lock behavior: No locks held during callback execution
+//    - Execution: Each callback runs in its own goroutine with a configurable timeout
+//      (ManagerConfig.EventHandlerTimeout, default 1s). If a callback does not return
+//      within the timeout, a warning is logged and all remaining handlers for that
+//      event are skipped.
+//    - Lock behavior: No resourcetopo locks held during callback execution
+//    - Concurrency: Multiple callbacks (across different handlers or events) may run
+//      concurrently. Handler implementations that share mutable state must be
+//      thread-safe.
 //    - Safety: Handlers receive node references but should not cache them long-term
 //
 // Thread Safety Guidelines
@@ -88,7 +95,9 @@
 // - NodeInfo references returned by GetNode() are safe for concurrent reads
 // - Do NOT call AddTopologyConfig() after Start() - not thread safe
 // - Handler registration (AddNodeHandler, AddRelationHandler) is thread safe
-// - All callbacks (OnAdd, OnUpdate, etc.) are called synchronously - do not block
+// - Callbacks (OnAdd, OnUpdate, etc.) run in goroutines with a timeout.
+//   Do not block indefinitely — timed-out callbacks cause remaining handlers
+//   to be skipped. Implementations must be thread-safe if they share state.
 // - nodeInfo.lock can be held for extended periods during relation changes
 // - metaLock is never held during callbacks or cross-node operations
 //

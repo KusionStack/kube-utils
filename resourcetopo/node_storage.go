@@ -90,9 +90,7 @@ func (s *nodeStorage) GetNode(namespacedName types.NamespacedName) (NodeInfo, er
 
 func (s *nodeStorage) GetClusterNode(cluster string, namespacedName types.NamespacedName) (NodeInfo, error) {
 	node := s.getNode(cluster, namespacedName.Namespace, namespacedName.Name)
-	if node == nil || !node.isObjectExisted() {
-		// return nil rather than node ref here, since the node may be a virtual node
-		// todo add a unittest
+	if node != nil && !node.isObjectExisted() {
 		return nil, nil
 	}
 	return node, nil

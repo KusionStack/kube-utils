@@ -80,26 +80,30 @@ func (m *manager) handleNodeEvent() {
 		switch evtType {
 		case EventTypeAdd:
 			m.executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
-				h.OnAdd(node)
+				h.OnAdd(ctx, node)
 			}, func() {
+				m.nodeHandlerTimeouts.Add(1)
 				klog.Warningf("Node handler OnAdd timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
 			})
 		case EventTypeUpdate:
 			m.executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
-				h.OnUpdate(node)
+				h.OnUpdate(ctx, node)
 			}, func() {
+				m.nodeHandlerTimeouts.Add(1)
 				klog.Warningf("Node handler OnUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
 			})
 		case EventTypeDelete:
 			m.executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
-				h.OnDelete(node)
+				h.OnDelete(ctx, node)
 			}, func() {
+				m.nodeHandlerTimeouts.Add(1)
 				klog.Warningf("Node handler OnDelete timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
 			})
 		case EventTypeRelatedUpdate:
 			m.executeHandlers(ctx, storage.nodeUpdateHandler, func(h NodeHandler) {
-				h.OnRelatedUpdate(node)
+				h.OnRelatedUpdate(ctx, node)
 			}, func() {
+				m.nodeHandlerTimeouts.Add(1)
 				klog.Warningf("Node handler OnRelatedUpdate timeout for node %s/%s, skipping remaining handlers", node.namespace, node.name)
 			})
 		}
@@ -143,15 +147,17 @@ func (m *manager) handleRelationEvent() {
 		switch evtType {
 		case EventTypeAdd:
 			m.executeRelationHandlers(ctx, handlers, func(h RelationHandler) {
-				h.OnAdd(preNode, postNode)
+				h.OnAdd(ctx, preNode, postNode)
 			}, func() {
+				m.relationHandlerTimeouts.Add(1)
 				klog.Warningf("Relation handler OnAdd timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
 					preNode.namespace, preNode.name, postNode.namespace, postNode.name)
 			})
 		case EventTypeDelete:
 			m.executeRelationHandlers(ctx, handlers, func(h RelationHandler) {
-				h.OnDelete(preNode, postNode)
+				h.OnDelete(ctx, preNode, postNode)
 			}, func() {
+				m.relationHandlerTimeouts.Add(1)
 				klog.Warningf("Relation handler OnDelete timeout for relation %s/%s -> %s/%s, skipping remaining handlers",
 					preNode.namespace, preNode.name, postNode.namespace, postNode.name)
 			})
@@ -171,8 +177,13 @@ func (m *manager) executeHandlers(ctx context.Context, handlers []NodeHandler, e
 		}
 		done := make(chan struct{})
 		go func(handler NodeHandler) {
+			defer func() {
+				if r := recover(); r != nil {
+					klog.Errorf("Node handler panicked: %v, treating as failed", r)
+				}
+				close(done)
+			}()
 			exec(handler)
-			close(done)
 		}(h)
 		select {
 		case <-done:
@@ -194,8 +205,13 @@ func (m *manager) executeRelationHandlers(ctx context.Context, handlers []Relati
 		}
 		done := make(chan struct{})
 		go func(handler RelationHandler) {
+			defer func() {
+				if r := recover(); r != nil {
+					klog.Errorf("Relation handler panicked: %v, treating as failed", r)
+				}
+				close(done)
+			}()
 			exec(handler)
-			close(done)
 		}(h)
 		select {
 		case <-done:

@@ -17,8 +17,10 @@
 package resourcetopo
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	. "github.com/onsi/ginkgo"
 
@@ -509,6 +511,8 @@ func getMultiClusterDepend(object metav1.Object) []MultiClusterDepend {
 var _ NodeHandler = &objecthandler{}
 
 type objecthandler struct {
+	mu sync.Mutex
+
 	addCounter     int
 	updateCounter  int
 	relatedCounter int
@@ -521,47 +525,65 @@ type objecthandler struct {
 // change loglevel flag to 0 to enable log output
 const loglevel = 1
 
-func (o *objecthandler) OnAdd(info NodeInfo) {
+func (o *objecthandler) OnAdd(ctx context.Context, info NodeInfo) {
 	klog.V(loglevel).Infof("received added object %v %v", info.TypeInfo(), info.NodeInfo())
+	o.mu.Lock()
 	o.addCounter--
+	o.mu.Unlock()
 	o.rangeNode(info)
 }
 
-func (o *objecthandler) OnUpdate(info NodeInfo) {
+func (o *objecthandler) OnUpdate(ctx context.Context, info NodeInfo) {
 	klog.V(loglevel).Infof("received updated object %v %v", info.TypeInfo(), info.NodeInfo())
+	o.mu.Lock()
 	o.updateCounter--
+	o.mu.Unlock()
 	o.rangeNode(info)
 }
 
-func (o *objecthandler) OnDelete(info NodeInfo) {
+func (o *objecthandler) OnDelete(ctx context.Context, info NodeInfo) {
 	klog.V(loglevel).Infof("received deleted object %v %v", info.TypeInfo(), info.NodeInfo())
+	o.mu.Lock()
 	o.deletedCounter--
+	o.mu.Unlock()
 	o.rangeNode(info)
 }
 
-func (o *objecthandler) OnRelatedUpdate(info NodeInfo) {
+func (o *objecthandler) OnRelatedUpdate(ctx context.Context, info NodeInfo) {
 	klog.V(loglevel).Infof("received related updated object %v %v", info.TypeInfo(), info.NodeInfo())
+	o.mu.Lock()
 	o.relatedCounter--
+	o.mu.Unlock()
 	o.rangeNode(info)
 }
 
 func (o *objecthandler) addCallExpected() {
+	o.mu.Lock()
 	o.addCounter++
+	o.mu.Unlock()
 }
 
 func (o *objecthandler) updateCallExpected() {
+	o.mu.Lock()
 	o.updateCounter++
+	o.mu.Unlock()
 }
 
 func (o *objecthandler) deleteCallExpected() {
+	o.mu.Lock()
 	o.deletedCounter++
+	o.mu.Unlock()
 }
 
 func (o *objecthandler) relatedCallExpected() {
+	o.mu.Lock()
 	o.relatedCounter++
+	o.mu.Unlock()
 }
 
 func (h *objecthandler) matchExpected() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	return h.addCounter == 0 && h.updateCounter == 0 && h.deletedCounter == 0 && h.relatedCounter == 0
 }
 
@@ -591,40 +613,56 @@ func (o *objecthandler) rangePostOrder(node NodeInfo) {
 }
 
 func (o *objecthandler) string() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return fmt.Sprintf("{add: %d, update: %d, delete %d, relatedUpdate %d}", o.addCounter, o.updateCounter, o.deletedCounter, o.relatedCounter)
 }
 
 var _ RelationHandler = &relationHandler{}
 
 type relationHandler struct {
+	mu sync.Mutex
+
 	addCounter    int
 	deleteCounter int
 }
 
-func (r *relationHandler) OnAdd(preNode, postNode NodeInfo) {
+func (r *relationHandler) OnAdd(ctx context.Context, preNode, postNode NodeInfo) {
 	klog.V(loglevel).Infof("received added relation, preNode %v %v, postNode %v %v",
 		preNode.TypeInfo(), preNode.NodeInfo(), postNode.TypeInfo(), postNode.NodeInfo())
+	r.mu.Lock()
 	r.addCounter--
+	r.mu.Unlock()
 }
 
-func (r *relationHandler) OnDelete(preNode, postNode NodeInfo) {
+func (r *relationHandler) OnDelete(ctx context.Context, preNode, postNode NodeInfo) {
 	klog.V(loglevel).Infof("received deleted relation, preNode %v %v, postNode %v %v",
 		preNode.TypeInfo(), preNode.NodeInfo(), postNode.TypeInfo(), postNode.NodeInfo())
+	r.mu.Lock()
 	r.deleteCounter--
+	r.mu.Unlock()
 }
 
 func (r *relationHandler) addCallExpected() {
+	r.mu.Lock()
 	r.addCounter++
+	r.mu.Unlock()
 }
 
 func (r *relationHandler) deleteCallExpected() {
+	r.mu.Lock()
 	r.deleteCounter++
+	r.mu.Unlock()
 }
 
 func (r *relationHandler) matchExpected() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.addCounter == 0 && r.deleteCounter == 0
 }
 
 func (r *relationHandler) string() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return fmt.Sprintf("{add: %d, delete %d}", r.addCounter, r.deleteCounter)
 }

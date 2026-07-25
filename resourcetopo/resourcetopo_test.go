@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	"runtime"
 	"k8s.io/klog/v2"
 )
 
@@ -2022,5 +2023,512 @@ var _ = Describe("test suite for multi routine", func() {
 				g.Expect(len(rsNode.GetPostOrders())).To(Equal(totalNum / len(rsNames)))
 			}
 		}, "10s").Should(Succeed())
+		})
+	})
+
+var _ = Describe("test handler timeout protection", func() {
+	var manager Manager
+	var fakeClient *fake.Clientset
+	var ctx context.Context
+	var cancel func()
+
+	BeforeEach(func() {
+		fakeClient = fake.NewSimpleClientset()
+		k8sInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+		var err error
+		cfg := buildManagerConfig(buildClusterTest(k8sInformerFactory))
+		cfg.EventHandlerTimeout = 100 * time.Millisecond
+		manager, err = NewResourcesTopoManager(*cfg)
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel = context.WithCancel(context.Background())
+		manager.Start(ctx.Done())
+		k8sInformerFactory.Start(ctx.Done())
+		k8sInformerFactory.WaitForCacheSync(ctx.Done())
+	})
+	AfterEach(func() {
+		cancel()
+	})
+
+	It("blocking node handler should timeout and not block the event loop", func() {
+		ns := "testnodetimeout"
+		crName := "crName"
+		saName := "saName"
+
+		blockCh := make(chan struct{})
+		blockingHandler := &blockingNodeHandler{blockCh: blockCh}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, blockingHandler)).To(Succeed())
+
+		saHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).To(Succeed())
+		crbHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, crbHandler)).To(Succeed())
+
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		time.Sleep(300 * time.Millisecond)
+
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})).NotTo(BeNil())
+
+		Eventually(func(g Gomega) {
+			g.Expect(saHandler.matchExpected()).To(BeTrue())
+		}).Should(Succeed())
+	})
+
+	It("blocking relation handler should timeout and not block the event loop", func() {
+		ns := "testreltimeout"
+		crName := "crName"
+		crbName := "crbtest"
+		saName := "saName"
+
+		saHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).To(Succeed())
+		crHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, crHandler)).To(Succeed())
+		crbHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, crbHandler)).To(Succeed())
+
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(func() bool { return saHandler.matchExpected() })
+
+		crHandler.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(func() bool { return crHandler.matchExpected() })
+
+		blockCh := make(chan struct{})
+		blockingRelHandler := &blockingRelationHandler{blockCh: blockCh}
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ServiceAccountMeta, blockingRelHandler)).To(Succeed())
+
+		crbHandler.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}}),
+			metav1.CreateOptions{})).NotTo(BeNil())
+		time.Sleep(300 * time.Millisecond)
+
+		saName2 := "saName2"
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName2), metav1.CreateOptions{})).NotTo(BeNil())
+
+		Eventually(func(g Gomega) {
+			g.Expect(saHandler.matchExpected()).To(BeTrue())
+		}).Should(Succeed())
 	})
 })
+
+// blockingNodeHandler blocks forever on every callback, used for timeout testing
+type blockingNodeHandler struct {
+	blockCh chan struct{}
+}
+
+func (h *blockingNodeHandler) OnAdd(ctx context.Context, info NodeInfo) {
+	select {
+	case <-h.blockCh:
+	case <-ctx.Done():
+	}
+}
+func (h *blockingNodeHandler) OnUpdate(ctx context.Context, info NodeInfo) {
+	select {
+	case <-h.blockCh:
+	case <-ctx.Done():
+	}
+}
+func (h *blockingNodeHandler) OnDelete(ctx context.Context, info NodeInfo) {
+	select {
+	case <-h.blockCh:
+	case <-ctx.Done():
+	}
+}
+func (h *blockingNodeHandler) OnRelatedUpdate(ctx context.Context, info NodeInfo) {
+	select {
+	case <-h.blockCh:
+	case <-ctx.Done():
+	}
+}
+
+var _ NodeHandler = &blockingNodeHandler{}
+
+// blockingRelationHandler blocks forever on every relation callback, used for timeout testing
+type blockingRelationHandler struct {
+	blockCh chan struct{}
+}
+
+func (h *blockingRelationHandler) OnAdd(ctx context.Context, preNode, postNode NodeInfo) {
+	select {
+	case <-h.blockCh:
+	case <-ctx.Done():
+	}
+}
+func (h *blockingRelationHandler) OnDelete(ctx context.Context, preNode, postNode NodeInfo) {
+	select {
+	case <-h.blockCh:
+	case <-ctx.Done():
+	}
+}
+
+var _ RelationHandler = &blockingRelationHandler{}
+
+var _ = Describe("test DirectRef delta-based relation updates", func() {
+	var manager Manager
+	var fakeClient *fake.Clientset
+	var clusterRoleBindingHandler, clusterRoleHandler, saHandler *objecthandler
+	var saBindingRelation, roleBindingRelation *relationHandler
+
+	var clusterRoleBindingStorage, clusterroleStorage, saStorage TopoNodeStorage
+	var ctx context.Context
+	var cancel func()
+
+	checkAll := func() bool {
+		return clusterRoleBindingHandler.matchExpected() &&
+			clusterRoleHandler.matchExpected() &&
+			saHandler.matchExpected() &&
+			saBindingRelation.matchExpected() &&
+			roleBindingRelation.matchExpected()
+	}
+
+	BeforeEach(func() {
+		fakeClient = fake.NewSimpleClientset()
+		k8sInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+		var err error
+		manager, err = NewResourcesTopoManager(*buildManagerConfig(buildClusterTest(k8sInformerFactory)))
+		Expect(err).NotTo(HaveOccurred())
+
+		clusterRoleBindingStorage, _ = manager.GetTopoNodeStorage(ClusterRoleBindingMeta)
+		clusterroleStorage, _ = manager.GetTopoNodeStorage(ClusterRoleMeta)
+		saStorage, _ = manager.GetTopoNodeStorage(ServiceAccountMeta)
+
+		Expect(clusterRoleBindingStorage).NotTo(BeNil())
+		Expect(clusterroleStorage).NotTo(BeNil())
+		Expect(saStorage).NotTo(BeNil())
+
+		ctx, cancel = context.WithCancel(context.Background())
+		clusterRoleBindingHandler = &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, clusterRoleBindingHandler)).NotTo(HaveOccurred())
+		clusterRoleHandler = &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, clusterRoleHandler)).NotTo(HaveOccurred())
+		saHandler = &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).NotTo(HaveOccurred())
+
+		roleBindingRelation = &relationHandler{}
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ClusterRoleMeta, roleBindingRelation)).To(Succeed())
+		saBindingRelation = &relationHandler{}
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ServiceAccountMeta, saBindingRelation)).To(Succeed())
+
+		manager.Start(ctx.Done())
+		k8sInformerFactory.Start(ctx.Done())
+		k8sInformerFactory.WaitForCacheSync(ctx.Done())
+	})
+	AfterEach(func() {
+		cancel()
+	})
+
+	It("updating DirectRefs should only fire callbacks for changed refs", func() {
+		ns := "testdeltadir"
+		crbName := "crbtest"
+		crName := "crName"
+		saName := "saName"
+		saName2 := "saName2"
+		saName3 := "saName3"
+
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})).NotTo(BeNil())
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName2), metav1.CreateOptions{})).NotTo(BeNil())
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName3), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleHandler.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.addCallExpected()
+		saBindingRelation.addCallExpected() // saName
+		saBindingRelation.addCallExpected() // saName2
+		roleBindingRelation.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}, {Name: saName2, Namespace: ns}}),
+			metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		// Update CRB: replace saName2 with saName3
+		// Delta: only saName3 added + saName2 deleted (not 2+2)
+		saBindingRelation.addCallExpected()    // saName3 added
+		saBindingRelation.deleteCallExpected() // saName2 deleted
+		clusterRoleBindingHandler.updateCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}, {Name: saName3, Namespace: ns}}),
+			metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		Eventually(func(g Gomega) {
+			crb, _ := clusterRoleBindingStorage.GetNode(types.NamespacedName{Name: crbName})
+			g.Expect(crb).NotTo(BeNil())
+			g.Expect(crb.GetPostOrders()).To(HaveLen(3))
+			g.Expect(checkAll()).To(BeTrue())
+		}).Should(Succeed())
+	})
+
+	It("adding multiple and removing all DirectRefs should work", func() {
+		ns := "testdeltaall"
+		crbName := "crbtest"
+		crName := "crName"
+		saName := "saName"
+		saName2 := "saName2"
+
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})).NotTo(BeNil())
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName2), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleHandler.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		clusterRoleBindingHandler.addCallExpected()
+		saBindingRelation.addCallExpected()
+		saBindingRelation.addCallExpected()
+		roleBindingRelation.addCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{{Name: saName, Namespace: ns}, {Name: saName2, Namespace: ns}}),
+			metav1.CreateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		saBindingRelation.deleteCallExpected()
+		saBindingRelation.deleteCallExpected()
+		clusterRoleBindingHandler.updateCallExpected()
+		Expect(fakeClient.RbacV1().ClusterRoleBindings().Update(ctx, newClusterRoleBinding(crbName, crName,
+			[]types.NamespacedName{}),
+			metav1.UpdateOptions{})).NotTo(BeNil())
+		syncStatus(checkAll)
+
+		Eventually(func(g Gomega) {
+			crb, _ := clusterRoleBindingStorage.GetNode(types.NamespacedName{Name: crbName})
+			g.Expect(crb).NotTo(BeNil())
+			g.Expect(crb.GetPostOrders()).To(HaveLen(1))
+			g.Expect(checkAll()).To(BeTrue())
+		}).Should(Succeed())
+	})
+})
+
+var _ = Describe("test concurrent DirectRef operations for lock ordering", func() {
+	var manager Manager
+	var fakeClient *fake.Clientset
+	var ctx context.Context
+	var cancel func()
+
+	BeforeEach(func() {
+		fakeClient = fake.NewSimpleClientset()
+		k8sInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+		var err error
+		manager, err = NewResourcesTopoManager(*buildManagerConfig(buildClusterTest(k8sInformerFactory)))
+		Expect(err).NotTo(HaveOccurred())
+
+		crbHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, crbHandler)).To(Succeed())
+		crHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, crHandler)).To(Succeed())
+		saHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).To(Succeed())
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ClusterRoleMeta, &relationHandler{})).To(Succeed())
+		Expect(manager.AddRelationHandler(ClusterRoleBindingMeta, ServiceAccountMeta, &relationHandler{})).To(Succeed())
+
+		ctx, cancel = context.WithCancel(context.Background())
+		manager.Start(ctx.Done())
+		k8sInformerFactory.Start(ctx.Done())
+		k8sInformerFactory.WaitForCacheSync(ctx.Done())
+	})
+	AfterEach(func() {
+		cancel()
+	})
+
+	It("concurrent create and delete should not deadlock", func() {
+		ns := "testlockorder"
+		crName := "crName"
+		numResources := 20
+
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+
+		var wg sync.WaitGroup
+
+		for i := 0; i < numResources; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				saName := fmt.Sprintf("sa-%d", idx)
+				fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})
+			}(i)
+		}
+		wg.Wait()
+		time.Sleep(500 * time.Millisecond)
+
+		for i := 0; i < numResources; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				crbName := fmt.Sprintf("crb-%d", idx)
+				saName := fmt.Sprintf("sa-%d", idx)
+				fakeClient.RbacV1().ClusterRoleBindings().Create(ctx, newClusterRoleBinding(crbName, crName,
+					[]types.NamespacedName{{Name: saName, Namespace: ns}}),
+					metav1.CreateOptions{})
+			}(i)
+
+			if i%3 == 0 {
+				wg.Add(1)
+				go func(idx int) {
+					defer wg.Done()
+					saName := fmt.Sprintf("sa-%d", idx)
+					fakeClient.CoreV1().ServiceAccounts(ns).Delete(ctx, saName, metav1.DeleteOptions{})
+				}(i)
+			}
+		}
+		wg.Wait()
+
+		for i := 0; i < numResources; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				crbName := fmt.Sprintf("crb-%d", idx)
+				fakeClient.RbacV1().ClusterRoleBindings().Delete(ctx, crbName, metav1.DeleteOptions{})
+			}(i)
+			if i%2 == 0 {
+				wg.Add(1)
+				go func(idx int) {
+					defer wg.Done()
+					saName := fmt.Sprintf("sa-%d", idx)
+					fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})
+				}(i)
+			}
+		}
+		wg.Wait()
+
+		time.Sleep(500 * time.Millisecond)
+		crbStorage, _ := manager.GetTopoNodeStorage(ClusterRoleBindingMeta)
+		Expect(crbStorage).NotTo(BeNil())
+	})
+})
+
+// --- Tests for known issues: goroutine leak and panic absorption ---
+
+var _ = Describe("test goroutine leak and panic handling", func() {
+	var manager Manager
+	var fakeClient *fake.Clientset
+	var ctx context.Context
+	var cancel func()
+
+	BeforeEach(func() {
+		fakeClient = fake.NewSimpleClientset()
+		k8sInformerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+		var err error
+		cfg := buildManagerConfig(buildClusterTest(k8sInformerFactory))
+		cfg.EventHandlerTimeout = 100 * time.Millisecond
+		manager, err = NewResourcesTopoManager(*cfg)
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel = context.WithCancel(context.Background())
+		manager.Start(ctx.Done())
+		k8sInformerFactory.Start(ctx.Done())
+		k8sInformerFactory.WaitForCacheSync(ctx.Done())
+	})
+	AfterEach(func() {
+		cancel()
+		// Give goroutines time to clean up
+		time.Sleep(200 * time.Millisecond)
+	})
+
+	It("cooperative handler does not leak goroutine on timeout", func() {
+		crName := "crNoLeak"
+
+		// Register a cooperative blocking handler for ClusterRole
+		// (selects on ctx.Done() so it returns when context is cancelled)
+		blockCh := make(chan struct{})
+		blockingHandler := &blockingNodeHandler{blockCh: blockCh}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, blockingHandler)).To(Succeed())
+
+		// Register normal handlers for other types
+		saHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).To(Succeed())
+		crbHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, crbHandler)).To(Succeed())
+
+		// Let the event loop stabilize
+		time.Sleep(100 * time.Millisecond)
+
+		// Count baseline goroutines
+		baseline := countStableGoroutines(3, 100*time.Millisecond)
+
+		// Trigger handler — ctx will be cancelled after timeout, handler returns
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+
+		// Wait well past timeout for handler to return and goroutine to exit
+		time.Sleep(500 * time.Millisecond)
+
+		// Count goroutines after — should be stable (no leak)
+		afterLeak := countStableGoroutines(3, 100*time.Millisecond)
+
+		// Cooperative handler exits on ctx.Done(), goroutine count should be stable
+		Expect(afterLeak).To(BeNumerically("<=", baseline+1),
+			fmt.Sprintf("Expected no goroutine leak: baseline=%d, after=%d", baseline, afterLeak))
+	})
+
+	It("handler panic is silently absorbed as timeout", func() {
+		// When a handler panics, executeHandlers' recover() catches it,
+		// logs an error, and closes the done channel.
+		// This test verifies the panic does NOT crash the process
+		// and the event loop continues processing subsequent events.
+
+		ns := "testpanic"
+		saName := "saAfterPanic"
+
+		// Register a panicking handler for ClusterRole
+		panickingHandler := &panickingNodeHandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleMeta, panickingHandler)).To(Succeed())
+
+		// Register normal handlers
+		saHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ServiceAccountMeta, saHandler)).To(Succeed())
+		crbHandler := &objecthandler{}
+		Expect(manager.AddNodeHandler(ClusterRoleBindingMeta, crbHandler)).To(Succeed())
+
+		// Trigger the panicking handler — it panics in a goroutine,
+		// the panic is absorbed, and the event is treated as timed out
+		crName := "crPanic"
+		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
+
+		// Wait for the timeout (100ms + buffer)
+		time.Sleep(300 * time.Millisecond)
+
+		// Verify the event loop is still alive
+		saHandler.addCallExpected()
+		Expect(fakeClient.CoreV1().ServiceAccounts(ns).Create(ctx, newServiceAccount(ns, saName), metav1.CreateOptions{})).NotTo(BeNil())
+
+		Eventually(func(g Gomega) {
+			g.Expect(saHandler.matchExpected()).To(BeTrue())
+		}).Should(Succeed())
+	})
+})
+
+// countStableGoroutines samples NumGoroutine multiple times and returns
+// the minimum observed count (to filter out transient goroutines).
+func countStableGoroutines(samples int, interval time.Duration) int {
+	min := runtime.NumGoroutine()
+	for i := 1; i < samples; i++ {
+		time.Sleep(interval)
+		n := runtime.NumGoroutine()
+		if n < min {
+			min = n
+		}
+	}
+	return min
+}
+
+// panickingNodeHandler panics on every callback, used to test panic absorption.
+type panickingNodeHandler struct{}
+
+func (h *panickingNodeHandler) OnAdd(ctx context.Context, info NodeInfo)              { panic("intentional panic in OnAdd") }
+func (h *panickingNodeHandler) OnUpdate(ctx context.Context, info NodeInfo)           { panic("intentional panic in OnUpdate") }
+func (h *panickingNodeHandler) OnDelete(ctx context.Context, info NodeInfo)           { panic("intentional panic in OnDelete") }
+func (h *panickingNodeHandler) OnRelatedUpdate(ctx context.Context, info NodeInfo)    { panic("intentional panic in OnRelatedUpdate") }
+
+var _ NodeHandler = &panickingNodeHandler{}

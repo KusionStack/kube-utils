@@ -20,6 +20,7 @@ import (
 	"container/list"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,6 +41,15 @@ type manager struct {
 	storagesLock sync.RWMutex            // protects storages map
 
 	eventHandlerTimeout time.Duration // timeout for event handler callbacks
+
+	// metrics
+	nodeHandlerTimeouts     atomic.Int64
+	relationHandlerTimeouts atomic.Int64
+}
+
+// HandlerTimeoutMetrics returns the count of timed-out node and relation handlers.
+func (m *manager) HandlerTimeoutMetrics() (nodeTimeouts, relationTimeouts int64) {
+	return m.nodeHandlerTimeouts.Load(), m.relationHandlerTimeouts.Load()
 }
 
 func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {

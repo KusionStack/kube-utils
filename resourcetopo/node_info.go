@@ -258,9 +258,9 @@ func (n *nodeInfo) checkGC() {
 	}
 
 	// Then acquire metaLock to check object existence (Level 6)
-	n.metaLock.Lock()
+	n.metaLock.RLock()
 	objectExisted := n.objectExisted
-	n.metaLock.Unlock()
+	n.metaLock.RUnlock()
 
 	// n maybe set as notExisted, but still have related nodes to handle
 	if !objectExisted {

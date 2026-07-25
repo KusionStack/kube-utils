@@ -224,19 +224,19 @@ var _ resourcetopo.NodeHandler = &podEventhandler{}
 
 type podEventhandler struct{}
 
-func (p *podEventhandler) OnAdd(info resourcetopo.NodeInfo) {
+func (p *podEventhandler) OnAdd(ctx context.Context, info resourcetopo.NodeInfo) {
 	klog.Infof("received add event for pod %s", info.NodeInfo().String())
 }
 
-func (p *podEventhandler) OnUpdate(info resourcetopo.NodeInfo) {
+func (p *podEventhandler) OnUpdate(ctx context.Context, info resourcetopo.NodeInfo) {
 	klog.Infof("received update event for pod %s", info.NodeInfo().String())
 }
 
-func (p *podEventhandler) OnDelete(info resourcetopo.NodeInfo) {
+func (p *podEventhandler) OnDelete(ctx context.Context, info resourcetopo.NodeInfo) {
 	klog.Infof("received delete event for pod %s", info.NodeInfo().String())
 }
 
-func (p *podEventhandler) OnRelatedUpdate(info resourcetopo.NodeInfo) {
+func (p *podEventhandler) OnRelatedUpdate(ctx context.Context, info resourcetopo.NodeInfo) {
 	klog.Infof("related node has changed and effected pod %s", info.NodeInfo().String())
 	klog.Infof("related pre nodes are %s", nodes2Str(info.GetPreOrders()))
 	klog.Infof("related post nodes are %s", nodes2Str(info.GetPostOrders()))
@@ -246,11 +246,11 @@ var _ resourcetopo.RelationHandler = &appPodRelationEventHandler{}
 
 type appPodRelationEventHandler struct{}
 
-func (s *appPodRelationEventHandler) OnAdd(preOrder, postOrder resourcetopo.NodeInfo) {
+func (s *appPodRelationEventHandler) OnAdd(ctx context.Context, preOrder, postOrder resourcetopo.NodeInfo) {
 	klog.Infof("received relation add event for %s -> %s", preOrder.NodeInfo().String(), postOrder.NodeInfo().String())
 }
 
-func (s *appPodRelationEventHandler) OnDelete(preOrder, postOrder resourcetopo.NodeInfo) {
+func (s *appPodRelationEventHandler) OnDelete(ctx context.Context, preOrder, postOrder resourcetopo.NodeInfo) {
 	klog.Infof("received relation delete event for %s -> %s", preOrder.NodeInfo().String(), postOrder.NodeInfo().String())
 }
 
