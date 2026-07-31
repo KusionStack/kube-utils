@@ -52,7 +52,7 @@ type ManagerConfig struct {
 	RelationEventHandleRateMaxDelay time.Duration
 
 	// EventHandlerTimeout is the timeout for each event handler callback.
-	// If a handler takes longer than this timeout, it will be cancelled and
+	// If a handler takes longer than this timeout, it will be canceled and
 	// remaining handlers will be skipped. A warning will be logged.
 	// Default: 1 second
 	EventHandlerTimeout time.Duration
@@ -176,30 +176,30 @@ type ResourceRelation struct {
 
 type RelationHandler interface {
 	// OnAdd is called after relation newly added between preOrder and postOrder.
-	// The ctx is cancelled when the handler exceeds EventHandlerTimeout.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
 	OnAdd(ctx context.Context, preOrder, postOrder NodeInfo)
 
 	// OnDelete is called after relation deleted between preOrder and postOrder.
-	// The ctx is cancelled when the handler exceeds EventHandlerTimeout.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
 	OnDelete(ctx context.Context, preOrder, postOrder NodeInfo)
 }
 
 type NodeHandler interface {
 	// OnAdd is called when the node related resource object is added.
-	// The ctx is cancelled when the handler exceeds EventHandlerTimeout.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
 	OnAdd(ctx context.Context, info NodeInfo)
 
 	// OnUpdate is called when the node related resource object is updated.
-	// The ctx is cancelled when the handler exceeds EventHandlerTimeout.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
 	OnUpdate(ctx context.Context, info NodeInfo)
 
 	// OnDelete is called when the node related resource object is deleted.
-	// The ctx is cancelled when the handler exceeds EventHandlerTimeout.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
 	OnDelete(ctx context.Context, info NodeInfo)
 
 	// OnRelatedUpdate is called when the nodes'
 	// post-order(or pre-order if ReverseNotice configured) object is updated.
-	// The ctx is cancelled when the handler exceeds EventHandlerTimeout.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
 	OnRelatedUpdate(ctx context.Context, info NodeInfo)
 }
 

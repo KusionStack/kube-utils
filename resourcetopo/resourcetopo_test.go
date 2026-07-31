@@ -19,6 +19,7 @@ package resourcetopo
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -30,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
-	"runtime"
 	"k8s.io/klog/v2"
 )
 
@@ -2023,8 +2023,8 @@ var _ = Describe("test suite for multi routine", func() {
 				g.Expect(len(rsNode.GetPostOrders())).To(Equal(totalNum / len(rsNames)))
 			}
 		}, "10s").Should(Succeed())
-		})
 	})
+})
 
 var _ = Describe("test handler timeout protection", func() {
 	var manager Manager
@@ -2127,18 +2127,21 @@ func (h *blockingNodeHandler) OnAdd(ctx context.Context, info NodeInfo) {
 	case <-ctx.Done():
 	}
 }
+
 func (h *blockingNodeHandler) OnUpdate(ctx context.Context, info NodeInfo) {
 	select {
 	case <-h.blockCh:
 	case <-ctx.Done():
 	}
 }
+
 func (h *blockingNodeHandler) OnDelete(ctx context.Context, info NodeInfo) {
 	select {
 	case <-h.blockCh:
 	case <-ctx.Done():
 	}
 }
+
 func (h *blockingNodeHandler) OnRelatedUpdate(ctx context.Context, info NodeInfo) {
 	select {
 	case <-h.blockCh:
@@ -2159,6 +2162,7 @@ func (h *blockingRelationHandler) OnAdd(ctx context.Context, preNode, postNode N
 	case <-ctx.Done():
 	}
 }
+
 func (h *blockingRelationHandler) OnDelete(ctx context.Context, preNode, postNode NodeInfo) {
 	select {
 	case <-h.blockCh:
@@ -2441,7 +2445,7 @@ var _ = Describe("test goroutine leak and panic handling", func() {
 		crName := "crNoLeak"
 
 		// Register a cooperative blocking handler for ClusterRole
-		// (selects on ctx.Done() so it returns when context is cancelled)
+		// (selects on ctx.Done() so it returns when context is canceled)
 		blockCh := make(chan struct{})
 		blockingHandler := &blockingNodeHandler{blockCh: blockCh}
 		Expect(manager.AddNodeHandler(ClusterRoleMeta, blockingHandler)).To(Succeed())
@@ -2458,7 +2462,7 @@ var _ = Describe("test goroutine leak and panic handling", func() {
 		// Count baseline goroutines
 		baseline := countStableGoroutines(3, 100*time.Millisecond)
 
-		// Trigger handler — ctx will be cancelled after timeout, handler returns
+		// Trigger handler — ctx will be canceled after timeout, handler returns
 		Expect(fakeClient.RbacV1().ClusterRoles().Create(ctx, newClusterRole(crName), metav1.CreateOptions{})).NotTo(BeNil())
 
 		// Wait well past timeout for handler to return and goroutine to exit
@@ -2512,24 +2516,35 @@ var _ = Describe("test goroutine leak and panic handling", func() {
 // countStableGoroutines samples NumGoroutine multiple times and returns
 // the minimum observed count (to filter out transient goroutines).
 func countStableGoroutines(samples int, interval time.Duration) int {
-	min := runtime.NumGoroutine()
+	minGoroutines := runtime.NumGoroutine()
 	for i := 1; i < samples; i++ {
 		time.Sleep(interval)
 		n := runtime.NumGoroutine()
-		if n < min {
-			min = n
+		if n < minGoroutines {
+			minGoroutines = n
 		}
 	}
-	return min
+	return minGoroutines
 }
 
 // panickingNodeHandler panics on every callback, used to test panic absorption.
 type panickingNodeHandler struct{}
 
-func (h *panickingNodeHandler) OnAdd(ctx context.Context, info NodeInfo)              { panic("intentional panic in OnAdd") }
-func (h *panickingNodeHandler) OnUpdate(ctx context.Context, info NodeInfo)           { panic("intentional panic in OnUpdate") }
-func (h *panickingNodeHandler) OnDelete(ctx context.Context, info NodeInfo)           { panic("intentional panic in OnDelete") }
-func (h *panickingNodeHandler) OnRelatedUpdate(ctx context.Context, info NodeInfo)    { panic("intentional panic in OnRelatedUpdate") }
+func (h *panickingNodeHandler) OnAdd(ctx context.Context, info NodeInfo) {
+	panic("intentional panic in OnAdd")
+}
+
+func (h *panickingNodeHandler) OnUpdate(ctx context.Context, info NodeInfo) {
+	panic("intentional panic in OnUpdate")
+}
+
+func (h *panickingNodeHandler) OnDelete(ctx context.Context, info NodeInfo) {
+	panic("intentional panic in OnDelete")
+}
+
+func (h *panickingNodeHandler) OnRelatedUpdate(ctx context.Context, info NodeInfo) {
+	panic("intentional panic in OnRelatedUpdate")
+}
 
 var _ NodeHandler = &panickingNodeHandler{}
 

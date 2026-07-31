@@ -18,7 +18,7 @@
 // resources. It maintains relationships between different resource types and notifies
 // handlers when resources or their relationships change.
 //
-// Lock Hierarchy
+// # Lock Hierarchy
 //
 // To prevent deadlocks, locks must be acquired in the following order:
 //
@@ -50,55 +50,54 @@
 //   - Protects: nodeUpdateHandler, relationUpdateHandler
 //   - Independent - can be acquired anytime
 //
-// Threading Model
+// # Threading Model
 //
 // This package uses multiple goroutines for concurrent processing. Understanding the
 // threading model is essential for avoiding race conditions and deadlocks.
 //
 // 1. Informer Threads (External):
-//    - Source: Kubernetes informers (one per resource type)
-//    - Entry points: nodeStorage.OnAdd, OnUpdate, OnDelete
-//    - Purpose: Receives resource change events from API server
-//    - Lock behavior: Acquires metaLock.Lock() during updateNodeMeta(), relationsLock during relation updates
-//    - Note: These are the ONLY threads that write to metaLock (labels, ownerRefs, objectExisted)
+//   - Source: Kubernetes informers (one per resource type)
+//   - Entry points: nodeStorage.OnAdd, OnUpdate, OnDelete
+//   - Purpose: Receives resource change events from API server
+//   - Lock behavior: Acquires metaLock.Lock() during updateNodeMeta(), relationsLock during relation updates
+//   - Note: These are the ONLY threads that write to metaLock (labels, ownerRefs, objectExisted)
 //
 // 2. Event Processor Threads (Internal):
-//    - Source: Created by Start() -> startHandleEvent()
-//    - Count: 2 goroutines
-//      - handleNodeEvent(): Processes node add/update/delete/relatedUpdate events
-//      - handleRelationEvent(): Processes relation add/delete events
-//    - Trigger: newNodeEvent(), newRelationEvent() queue events via workqueue
-//    - Lock behavior: Read-only access to handlers via RLock, no direct node locking
-//    - Note: Reads handlers while holding no locks - relies on handlersLock for registration
+//   - Source: Created by Start() -> startHandleEvent()
+//   - Count: 2 goroutines
+//   - handleNodeEvent(): Processes node add/update/delete/relatedUpdate events
+//   - handleRelationEvent(): Processes relation add/delete events
+//   - Trigger: newNodeEvent(), newRelationEvent() queue events via workqueue
+//   - Lock behavior: Read-only access to handlers via RLock, no direct node locking
+//   - Note: Reads handlers while holding no locks - relies on handlersLock for registration
 //
 // 3. User/Client Threads (External):
-//    - Source: User code calling Manager methods
-//    - Examples: GetNode(), GetTopoNodeStorage(), AddNodeHandler()
-//    - Lock behavior: Uses storagesLock.RLock() for reads
-//    - Note: These are typically short-lived operations
+//   - Source: User code calling Manager methods
+//   - Examples: GetNode(), GetTopoNodeStorage(), AddNodeHandler()
+//   - Lock behavior: Uses storagesLock.RLock() for reads
+//   - Note: These are typically short-lived operations
 //
 // 4. Callback Threads (External - via Event Processors):
-//    - Source: User-provided NodeHandler and RelationHandler callbacks
-//    - Entry: Called by handleNodeEvent/handleRelationEvent
-//    - Execution: Each callback runs in its own goroutine with a configurable timeout
-//      (ManagerConfig.EventHandlerTimeout, default 1s). If a callback does not return
-//      within the timeout, a warning is logged and all remaining handlers for that
-//      event are skipped.
-//    - Lock behavior: No resourcetopo locks held during callback execution
-//    - Concurrency: Multiple callbacks (across different handlers or events) may run
-//      concurrently. Handler implementations that share mutable state must be
-//      thread-safe.
-//    - Safety: Handlers receive node references but should not cache them long-term
+//   - Source: User-provided NodeHandler and RelationHandler callbacks
+//   - Entry: Called by handleNodeEvent/handleRelationEvent
+//   - Execution: Each callback runs in its own goroutine with a configurable timeout
+//     (ManagerConfig.EventHandlerTimeout, default 1s). If a callback does not return
+//     within the timeout, a warning is logged and all remaining handlers for that
+//     event are skipped.
+//   - Lock behavior: No resourcetopo locks held during callback execution
+//   - Concurrency: Multiple callbacks (across different handlers or events) may run
+//     concurrently. Handler implementations that share mutable state must be
+//     thread-safe.
+//   - Safety: Handlers receive node references but should not cache them long-term
 //
-// Thread Safety Guidelines
+// # Thread Safety Guidelines
 //
-// - NodeInfo references returned by GetNode() are safe for concurrent reads
-// - Do NOT call AddTopologyConfig() after Start() - not thread safe
-// - Handler registration (AddNodeHandler, AddRelationHandler) is thread safe
-// - Callbacks (OnAdd, OnUpdate, etc.) run in goroutines with a timeout.
-//   Do not block indefinitely — timed-out callbacks cause remaining handlers
-//   to be skipped. Implementations must be thread-safe if they share state.
-// - nodeInfo.lock can be held for extended periods during relation changes
-// - metaLock is never held during callbacks or cross-node operations
-//
+//   - NodeInfo references returned by GetNode() are safe for concurrent reads
+//   - Do NOT call AddTopologyConfig() after Start() - not thread safe
+//   - Handler registration (AddNodeHandler, AddRelationHandler) is thread safe
+//   - Callbacks (OnAdd, OnUpdate, etc.) run in goroutines with a timeout.
+//     Do not block indefinitely — timed-out callbacks cause remaining handlers
+//     to be skipped. Implementations must be thread-safe if they share state.
+//   - nodeInfo.lock can be held for extended periods during relation changes
+//   - metaLock is never held during callbacks or cross-node operations
 package resourcetopo
