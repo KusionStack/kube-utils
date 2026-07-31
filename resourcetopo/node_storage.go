@@ -166,17 +166,21 @@ func (s *nodeStorage) getNode(cluster, namespace, name string) *nodeInfo {
 	s.storageLock.RLock()
 	defer s.storageLock.RUnlock()
 
-	clsNodes := s.clusterNodes[cluster]
-	if clsNodes == nil {
+	clsNodes, ok := s.clusterNodes[cluster]
+	if !ok || clsNodes == nil {
 		return nil
 	}
 
-	nsNodes := clsNodes.namespaceNodes[namespace]
-	if nsNodes == nil {
+	nsNodes, ok := clsNodes.namespaceNodes[namespace]
+	if !ok || nsNodes == nil {
 		return nil
 	}
 
-	return nsNodes[name]
+	node, ok := nsNodes[name]
+	if !ok {
+		return nil
+	}
+	return node
 }
 
 func (s *nodeStorage) createNode(cluster, namespace, name string) *nodeInfo {
@@ -212,13 +216,13 @@ func (s *nodeStorage) deleteNode(cluster, namespace, name string) {
 	s.storageLock.Lock()
 	defer s.storageLock.Unlock()
 
-	clsNodes := s.clusterNodes[cluster]
-	if clsNodes == nil {
+	clsNodes, ok := s.clusterNodes[cluster]
+	if !ok || clsNodes == nil {
 		return
 	}
 
-	nsNodes := clsNodes.namespaceNodes[namespace]
-	if nsNodes == nil {
+	nsNodes, ok := clsNodes.namespaceNodes[namespace]
+	if !ok || nsNodes == nil {
 		return
 	}
 

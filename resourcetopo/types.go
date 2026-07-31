@@ -17,6 +17,7 @@
 package resourcetopo
 
 import (
+	"context"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +50,12 @@ type ManagerConfig struct {
 	NodeEventHandleRateMaxDelay     time.Duration
 	RelationEventHandleRateMinDelay time.Duration
 	RelationEventHandleRateMaxDelay time.Duration
+
+	// EventHandlerTimeout is the timeout for each event handler callback.
+	// If a handler takes longer than this timeout, it will be canceled and
+	// remaining handlers will be skipped. A warning will be logged.
+	// Default: 1 second
+	EventHandlerTimeout time.Duration
 }
 
 type Manager interface {
@@ -71,6 +78,10 @@ type Manager interface {
 
 	// GetNode return the ref to Node that match the resouorce meta and node's name if existed.
 	GetNode(meta metav1.TypeMeta, name types.NamespacedName) (NodeInfo, error)
+
+	// Metrics returns runtime counters for monitoring handler timeouts, panics,
+	// active goroutines, and event queue depths.
+	Metrics() Metrics
 }
 
 type TopoNodeStorage interface {
@@ -164,26 +175,32 @@ type ResourceRelation struct {
 }
 
 type RelationHandler interface {
-	// OnAdd is called after relation newly added between preOrder and postOrder
-	OnAdd(preOrder, postOrder NodeInfo)
+	// OnAdd is called after relation newly added between preOrder and postOrder.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
+	OnAdd(ctx context.Context, preOrder, postOrder NodeInfo)
 
-	// OnDelete is called after relation deleted between preOrder and postOrder
-	OnDelete(preOrder, postOrder NodeInfo)
+	// OnDelete is called after relation deleted between preOrder and postOrder.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
+	OnDelete(ctx context.Context, preOrder, postOrder NodeInfo)
 }
 
 type NodeHandler interface {
-	// OnAdd is called when the node related resource object is added
-	OnAdd(info NodeInfo)
+	// OnAdd is called when the node related resource object is added.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
+	OnAdd(ctx context.Context, info NodeInfo)
 
-	// OnUpdate is called when the node related resource object is updated
-	OnUpdate(info NodeInfo)
+	// OnUpdate is called when the node related resource object is updated.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
+	OnUpdate(ctx context.Context, info NodeInfo)
 
-	// OnDelete is called when the node related resource object is deleted
-	OnDelete(info NodeInfo)
+	// OnDelete is called when the node related resource object is deleted.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
+	OnDelete(ctx context.Context, info NodeInfo)
 
 	// OnRelatedUpdate is called when the nodes'
-	// post-order(or pre-order if ReverseNotice configured) object is updated
-	OnRelatedUpdate(info NodeInfo)
+	// post-order(or pre-order if ReverseNotice configured) object is updated.
+	// The ctx is canceled when the handler exceeds EventHandlerTimeout.
+	OnRelatedUpdate(ctx context.Context, info NodeInfo)
 }
 
 // Object define get namespace/name/labels for now,

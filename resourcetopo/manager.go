@@ -20,6 +20,8 @@ import (
 	"container/list"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,7 +37,41 @@ type manager struct {
 	configLock         sync.Mutex
 	started            bool
 
-	storages map[string]*nodeStorage // meta => nodeStorage and status info
+	storages     map[string]*nodeStorage // meta => nodeStorage and status info
+	storagesLock sync.RWMutex            // protects storages map
+
+	eventHandlerTimeout time.Duration // timeout for event handler callbacks
+
+	// metrics
+	nodeHandlerTimeouts     atomic.Int64
+	relationHandlerTimeouts atomic.Int64
+	nodeHandlerPanics       atomic.Int64
+	relationHandlerPanics   atomic.Int64
+	activeHandlerGoroutines atomic.Int64
+}
+
+// Metrics returns runtime counters for monitoring.
+type Metrics struct {
+	NodeHandlerTimeouts     int64
+	RelationHandlerTimeouts int64
+	NodeHandlerPanics       int64
+	RelationHandlerPanics   int64
+	ActiveHandlerGoroutines int64
+	NodeEventQueueDepth     int
+	RelationEventQueueDepth int
+}
+
+// Metrics returns current handler and queue counters.
+func (m *manager) Metrics() Metrics {
+	return Metrics{
+		NodeHandlerTimeouts:     m.nodeHandlerTimeouts.Load(),
+		RelationHandlerTimeouts: m.relationHandlerTimeouts.Load(),
+		NodeHandlerPanics:       m.nodeHandlerPanics.Load(),
+		RelationHandlerPanics:   m.relationHandlerPanics.Load(),
+		ActiveHandlerGoroutines: m.activeHandlerGoroutines.Load(),
+		NodeEventQueueDepth:     m.nodeEventQueue.Len(),
+		RelationEventQueueDepth: m.relationEventQueue.Len(),
+	}
 }
 
 func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {
@@ -44,9 +80,10 @@ func NewResourcesTopoManager(cfg ManagerConfig) (Manager, error) {
 	nodeRatelimiter := workqueue.NewItemExponentialFailureRateLimiter(cfg.NodeEventHandleRateMinDelay, cfg.NodeEventHandleRateMaxDelay)
 	relationRatelimiter := workqueue.NewItemExponentialFailureRateLimiter(cfg.RelationEventHandleRateMinDelay, cfg.RelationEventHandleRateMaxDelay)
 	m := &manager{
-		nodeEventQueue:     workqueue.NewNamedRateLimitingQueue(nodeRatelimiter, "resourcetopoNodeEventQueue"),
-		relationEventQueue: workqueue.NewNamedRateLimitingQueue(relationRatelimiter, "resourcetopoRelaltionEventQueue"),
-		storages:           make(map[string]*nodeStorage),
+		nodeEventQueue:      workqueue.NewNamedRateLimitingQueue(nodeRatelimiter, "resourcetopoNodeEventQueue"),
+		relationEventQueue:  workqueue.NewNamedRateLimitingQueue(relationRatelimiter, "resourcetopoRelaltionEventQueue"),
+		storages:            make(map[string]*nodeStorage),
+		eventHandlerTimeout: cfg.EventHandlerTimeout,
 	}
 
 	if cfg.TopologyConfig != nil {
@@ -102,7 +139,9 @@ func (m *manager) AddTopologyConfig(cfg TopologyConfig) error {
 // the two type nodes configured by preMeta and postMeta
 func (m *manager) AddRelationHandler(preOrder, postOrder metav1.TypeMeta, handler RelationHandler) error {
 	preOrderKey := generateMetaKey(preOrder)
+	m.storagesLock.RLock()
 	preStorage, ok := m.storages[preOrderKey]
+	m.storagesLock.RUnlock()
 	if !ok {
 		return fmt.Errorf("failed to find initialized nodeStorage for resource %s", preOrderKey)
 	}
@@ -112,8 +151,10 @@ func (m *manager) AddRelationHandler(preOrder, postOrder metav1.TypeMeta, handle
 
 // AddNodeHandler add a new node handler for nodes of type configured by meta.
 func (m *manager) AddNodeHandler(meta metav1.TypeMeta, handler NodeHandler) error {
-	s := m.storages[generateMetaKey(meta)]
-	if s == nil {
+	m.storagesLock.RLock()
+	s, ok := m.storages[generateMetaKey(meta)]
+	m.storagesLock.RUnlock()
+	if !ok || s == nil {
 		return fmt.Errorf("resource %v not configured in this manager", meta)
 	}
 	s.addNodeHandler(handler)
@@ -135,18 +176,22 @@ func (m *manager) Start(stopCh <-chan struct{}) {
 
 // GetTopoNodeStorage return the ref to TopoNodeStorage that match resource meta.
 func (m *manager) GetTopoNodeStorage(meta metav1.TypeMeta) (TopoNodeStorage, error) {
-	if s := m.storages[generateMetaKey(meta)]; s == nil {
+	m.storagesLock.RLock()
+	s, ok := m.storages[generateMetaKey(meta)]
+	m.storagesLock.RUnlock()
+	if !ok || s == nil {
 		return nil, fmt.Errorf("resource %v not configured in this manager", meta)
-	} else {
-		return s, nil
 	}
+	return s, nil
 }
 
 // GetNode return the ref to Node that match the resouorce meta and node's name if existed.
 func (m *manager) GetNode(meta metav1.TypeMeta, name types.NamespacedName) (NodeInfo, error) {
-	s, err := m.GetTopoNodeStorage(meta)
-	if err != nil {
-		return nil, err
+	m.storagesLock.RLock()
+	s, ok := m.storages[generateMetaKey(meta)]
+	m.storagesLock.RUnlock()
+	if !ok || s == nil {
+		return nil, fmt.Errorf("resource %v not configured in this manager", meta)
 	}
 	return s.GetNode(name)
 }
@@ -157,7 +202,9 @@ func (m *manager) getOrCreateStorage(typeMeta metav1.TypeMeta, getInformer func(
 	}
 	key := generateMetaKey(typeMeta)
 
+	m.storagesLock.RLock()
 	s, ok := m.storages[key]
+	m.storagesLock.RUnlock()
 	if ok {
 		return s, nil
 	}
@@ -168,25 +215,32 @@ func (m *manager) getOrCreateStorage(typeMeta metav1.TypeMeta, getInformer func(
 	}
 
 	s = newNodeStorage(m, informer, typeMeta)
+	m.storagesLock.Lock()
 	m.storages[key] = s
+	m.storagesLock.Unlock()
 	return s, nil
 }
 
 func (m *manager) getStorage(meta metav1.TypeMeta) *nodeStorage {
 	key := generateMetaKey(meta)
-
+	m.storagesLock.RLock()
+	defer m.storagesLock.RUnlock()
 	return m.storages[key]
 }
 
 func (m *manager) createVirtualStorage(meta metav1.TypeMeta) (*nodeStorage, error) {
 	key := generateMetaKey(meta)
+	m.storagesLock.RLock()
 	_, ok := m.storages[key]
+	m.storagesLock.RUnlock()
 	if ok {
 		return nil, fmt.Errorf("unexpected twice configuration for virtual resource %s", key)
 	}
 
 	s := newVirtualStorage(m, meta)
+	m.storagesLock.Lock()
 	m.storages[key] = s
+	m.storagesLock.Unlock()
 	return s, nil
 }
 
@@ -195,7 +249,14 @@ func (m *manager) dagCheck() error {
 	visited := make(map[string]bool)
 	stack := list.New()
 
+	m.storagesLock.RLock()
+	storagesCopy := make(map[string]*nodeStorage, len(m.storages))
 	for k, s := range m.storages {
+		storagesCopy[k] = s
+	}
+	m.storagesLock.RUnlock()
+
+	for k, s := range storagesCopy {
 		if visited[k] {
 			if existInList(stack, k) {
 				return fmt.Errorf("DAG check for resource %s failed", k)
@@ -222,5 +283,8 @@ func checkManagerConfig(c *ManagerConfig) {
 	}
 	if c.RelationEventHandleRateMaxDelay < c.RelationEventHandleRateMinDelay {
 		c.RelationEventHandleRateMaxDelay = defaultRelationEventHandleRateMaxDelay
+	}
+	if c.EventHandlerTimeout <= 0 {
+		c.EventHandlerTimeout = defaultEventHandlerTimeout
 	}
 }

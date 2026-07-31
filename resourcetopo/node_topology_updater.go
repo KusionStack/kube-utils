@@ -69,7 +69,7 @@ func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
 	}
 
 	var resolvedLabelRelations []ResourceRelation
-	resolvedDirectRelations := make(map[nodeMeta]interface{})
+	resolvedDirectRelations := make(map[nodeMeta]struct{})
 	for _, resolver := range s.resolvers {
 		relations := resolver.Resolve(newTopoObj)
 		for _, relation := range relations {
@@ -83,7 +83,7 @@ func (s *nodeStorage) OnUpdate(oldObj, newObj interface{}) {
 						cluster:    relation.Cluster,
 						namespace:  directRef.Namespace,
 						name:       directRef.Name,
-					}] = nil
+					}] = struct{}{}
 				}
 			}
 		}
@@ -220,7 +220,7 @@ func (s *nodeStorage) addLabelResourceRelation(node *nodeInfo, relation *Resourc
 	}
 }
 
-func (s *nodeStorage) setDirectResourceRelation(node *nodeInfo, directRefs map[nodeMeta]interface{}) {
+func (s *nodeStorage) setDirectResourceRelation(node *nodeInfo, directRefs map[nodeMeta]struct{}) {
 	var toDel []*nodeInfo
 	rangeNodeList(node.directReferredPostOrders, func(postNode *nodeInfo) {
 		postNodeMeta := nodeMeta{
